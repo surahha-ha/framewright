@@ -1,15 +1,15 @@
 // framewright — WebCodecs video decode service.
-// Frame-accurate seek: find the nearest keyframe <= target, decode forward to
-// the requested frame. Encapsulated so we can later add a WARM DECODER
-// (reuse one VideoDecoder via reset() instead of recreating per seek) and a
-// frame cache without touching callers.
+// Two paths:
+//   - decodeAtSec(): frame-accurate SCRUB (seek to keyframe, decode forward).
+//   - createPlaybackSession(): streaming forward decode for smooth PLAYBACK.
+// Optimization seam: a warm decoder + proxy media + frame cache come next.
 
 import type { DemuxResult, DemuxSample } from './demux';
+import { PlaybackSession } from './playbackSession';
 
 export class VideoDecodeService {
   private config: VideoDecoderConfig;
   private samples: DemuxSample[];
-  // instrumentation (helps verify the "close every frame" discipline)
   allocated = 0;
   closed = 0;
 
@@ -32,31 +32,31 @@ export class VideoDecodeService {
     }
   }
 
+  createPlaybackSession(onError: (e: DOMException) => void): PlaybackSession {
+    return new PlaybackSession(this.samples, this.config, onError);
+  }
+
   private tsUs(s: DemuxSample): number {
     return Math.round((s.cts * 1e6) / s.timescale);
   }
 
   /**
-   * Decode the frame covering targetSec. Returns a VideoFrame the caller MUST
-   * close() after drawing. Returns null if nothing matched.
-   *
-   * NOTE: This is the seam for optimization. Today it spins up a decoder per
-   * call (cold path — see the verification harness for why that is slow at
-   * full res). Next: reuse a warm decoder + proxy media + frame cache.
+   * Decode the frame covering targetSec (scrub). Returns a VideoFrame the caller
+   * MUST close() after drawing. Cold path — fine for scrubbing single frames.
    */
   async decodeAtSec(targetSec: number): Promise<VideoFrame | null> {
+    if (this.samples.length === 0) return null;
     const targetUs = targetSec * 1e6;
     let targetIdx = 0;
     for (let i = 0; i < this.samples.length; i++) {
       if (this.tsUs(this.samples[i]) <= targetUs) targetIdx = i;
       else break;
     }
-    if (this.samples.length === 0) return null;
 
     const targetTs = this.tsUs(this.samples[targetIdx]);
     let kf = targetIdx;
     while (kf > 0 && !this.samples[kf].is_sync) kf--;
-    const endIdx = Math.min(targetIdx + 8, this.samples.length - 1); // reorder margin
+    const endIdx = Math.min(targetIdx + 8, this.samples.length - 1);
 
     return await new Promise<VideoFrame | null>((resolve, reject) => {
       let matched: VideoFrame | null = null;

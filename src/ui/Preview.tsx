@@ -1,9 +1,12 @@
-// framewright — preview player (canvas render + transport).
+// framewright — preview player.
+//   - SCRUB: single-flight, latest-wins decodeAtSec (drops stale frames).
+//   - PLAYBACK: a streaming PlaybackSession decodes forward once; a rAF loop
+//     pulls the frame matching the clock and draws it (smooth, no re-seek storm).
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store/projectStore';
 import { getDecodeService } from '../engine/registry';
-import { frameToSec, formatTimecode } from '../engine/time';
-import { Player } from '../engine/player';
+import { frameToSec, secToFrame, formatTimecode } from '../engine/time';
+import type { PlaybackSession } from '../engine/playbackSession';
 
 function useTotalFrames(): number {
   const project = useStore((s) => s.project);
@@ -13,66 +16,131 @@ function useTotalFrames(): number {
 
 export function Preview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const playerRef = useRef<Player | null>(null);
+  const pendingSecRef = useRef<number | null>(null);
+  const busyRef = useRef(false);
+  const sessionRef = useRef<PlaybackSession | null>(null);
+  const rafRef = useRef(0);
+
   const project = useStore((s) => s.project);
   const currentFrame = useStore((s) => s.currentFrame);
   const setCurrentFrame = useStore((s) => s.setCurrentFrame);
   const isPlaying = useStore((s) => s.isPlaying);
   const setPlaying = useStore((s) => s.setPlaying);
   const totalFrames = useTotalFrames();
+  const fps = project?.timeline.fps ?? { num: 30, den: 1 };
 
-  // Draw the frame at currentFrame whenever it changes.
-  useEffect(() => {
-    let cancelled = false;
+  function drawFrame(frame: VideoFrame) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    if (
+      canvas.width !== frame.displayWidth ||
+      canvas.height !== frame.displayHeight
+    ) {
+      canvas.width = frame.displayWidth;
+      canvas.height = frame.displayHeight;
+    }
+    ctx.drawImage(frame, 0, 0);
+  }
+
+  // ---- SCRUB path (single-flight) ----
+  async function pump() {
+    if (busyRef.current) return;
     const svc = getDecodeService();
     const canvas = canvasRef.current;
-    if (!svc || !canvas || !project) return;
-    const sec = frameToSec(currentFrame, project.timeline.fps);
-    svc
-      .decodeAtSec(sec)
-      .then((frame) => {
-        if (!frame) return;
-        if (cancelled) {
-          frame.close();
-          return;
+    if (!svc || !canvas) {
+      pendingSecRef.current = null;
+      return;
+    }
+    busyRef.current = true;
+    try {
+      while (pendingSecRef.current !== null) {
+        const sec = pendingSecRef.current;
+        pendingSecRef.current = null;
+        let frame: VideoFrame | null = null;
+        try {
+          frame = await svc.decodeAtSec(sec);
+        } catch {
+          frame = null;
         }
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          frame.close();
-          return;
-        }
-        canvas.width = frame.displayWidth;
-        canvas.height = frame.displayHeight;
-        ctx.drawImage(frame, 0, 0);
+        if (!frame) continue;
+        drawFrame(frame);
         frame.close();
-      })
-      .catch(() => {
-        /* ignore transient decode errors during scrub */
-      });
+      }
+    } finally {
+      busyRef.current = false;
+    }
+  }
+  function requestDraw(sec: number) {
+    pendingSecRef.current = sec;
+    void pump();
+  }
+
+  // Redraw on scrub / playhead move — but NOT during playback (loop owns drawing).
+  useEffect(() => {
+    if (!project || isPlaying) return;
+    requestDraw(frameToSec(currentFrame, fps));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentFrame, project, isPlaying]);
+
+  // Clean up any running session on unmount.
+  useEffect(() => {
     return () => {
-      cancelled = true;
+      cancelAnimationFrame(rafRef.current);
+      sessionRef.current?.stop();
+      sessionRef.current = null;
     };
-  }, [currentFrame, project]);
+  }, []);
+
+  function stopPlayback() {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+    sessionRef.current?.stop();
+    sessionRef.current = null;
+    setPlaying(false);
+  }
+
+  function startPlayback() {
+    const svc = getDecodeService();
+    if (!svc || totalFrames === 0) return;
+    const startFrame = currentFrame >= totalFrames - 1 ? 0 : currentFrame;
+    const startSec = frameToSec(startFrame, fps);
+    const session = svc.createPlaybackSession((e) => {
+      // eslint-disable-next-line no-console
+      console.error('playback decode error:', e);
+      stopPlayback();
+    });
+    session.start(startSec);
+    sessionRef.current = session;
+    setPlaying(true);
+
+    const startWall = performance.now();
+    const loop = () => {
+      const sess = sessionRef.current;
+      if (!sess) return;
+      const sec = startSec + (performance.now() - startWall) / 1000;
+      const frame = sess.frameFor(sec);
+      if (frame) {
+        drawFrame(frame);
+        frame.close();
+      }
+      const cf = Math.min(secToFrame(sec, fps), totalFrames - 1);
+      setCurrentFrame(cf);
+      if (cf >= totalFrames - 1 || sess.finished) {
+        stopPlayback();
+        return;
+      }
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+  }
 
   function togglePlay() {
     if (!project || totalFrames === 0) return;
-    if (isPlaying) {
-      playerRef.current?.pause();
-      setPlaying(false);
-      return;
-    }
-    const p = new Player(
-      project.timeline.fps,
-      totalFrames,
-      (f) => setCurrentFrame(f),
-      () => setPlaying(false),
-    );
-    playerRef.current = p;
-    setPlaying(true);
-    p.play(currentFrame >= totalFrames - 1 ? 0 : currentFrame);
+    if (isPlaying) stopPlayback();
+    else startPlayback();
   }
-
-  const fps = project?.timeline.fps ?? { num: 30, den: 1 };
 
   return (
     <div className="preview">
