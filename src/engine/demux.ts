@@ -101,7 +101,7 @@ export async function demuxVideo(file: File): Promise<DemuxResult> {
 }
 
 // Detect VFR by looking at the spread of cts intervals.
-function analyzeFrameRate(samples: DemuxSample[]): {
+export function analyzeFrameRate(samples: DemuxSample[]): {
   isVFR: boolean;
   nominalFps: number;
 } {

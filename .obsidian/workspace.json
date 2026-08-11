@@ -1,0 +1,234 @@
+{
+  "main": {
+    "id": "12d2350b9eabb1ec",
+    "type": "split",
+    "children": [
+      {
+        "id": "a23e28fe5ccb8391",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "413fee250e524f7e",
+            "type": "leaf",
+            "pinned": true,
+            "state": {
+              "type": "terminal:terminal",
+              "state": {
+                "terminal:terminal": {
+                  "cwd": "C:\\surah\\framewright",
+                  "focus": false,
+                  "profile": {
+                    "args": [],
+                    "environment": [],
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "followTheme": true,
+                    "name": "",
+                    "platforms": {
+                      "win32": true
+                    },
+                    "pythonExecutable": "python3",
+                    "restoreHistory": false,
+                    "rightClickAction": "copyPaste",
+                    "successExitCodes": [
+                      "0",
+                      "SIGINT",
+                      "SIGTERM"
+                    ],
+                    "terminalOptions": {
+                      "documentOverride": null
+                    },
+                    "type": "integrated",
+                    "useWin32Conhost": true
+                  },
+                  "profileSourceId": "win32IntegratedDefault",
+                  "serial": null,
+                  "userTitle": ""
+                }
+              },
+              "pinned": true,
+              "icon": "terminal",
+              "title": "✳ LLM wiki로 세컨드 브레인 구축"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "c3dff2a08b757e2d",
+    "type": "split",
+    "children": [
+      {
+        "id": "9911dbdaf7122aa2",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "6256771f7d9156ae",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "파일 탐색기"
+            }
+          },
+          {
+            "id": "48521b90803c2056",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "검색"
+            }
+          },
+          {
+            "id": "3358fb737535278b",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "북마크"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "6083a29da1db3d8b",
+    "type": "split",
+    "children": [
+      {
+        "id": "6a15da572de4b8d5",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "c0016dfc2fe14f7a",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "백링크"
+            }
+          },
+          {
+            "id": "8af813733977fef2",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "나가는 링크"
+            }
+          },
+          {
+            "id": "8774546e0f101875",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "태그"
+            }
+          },
+          {
+            "id": "51c349ca5e6d76e5",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "모든 속성"
+            }
+          },
+          {
+            "id": "b5487e08267159af",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "개요"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:빠른 전환기 열기": false,
+      "graph:그래프 뷰 열기": false,
+      "canvas:새 캔버스 만들기": false,
+      "daily-notes:오늘의 일일 노트 열기": false,
+      "templates:템플릿 삽입": false,
+      "command-palette:명령어 팔레트 열기": false,
+      "bases:새 베이스 생성하기": false,
+      "terminal:Open terminal": false
+    }
+  },
+  "active": "413fee250e524f7e",
+  "lastOpenFiles": [
+    "second-brain/log.md",
+    "second-brain/log.md.tmp.25920.85d55a43c8ac",
+    "second-brain/index.md",
+    "second-brain/index.md.tmp.25920.5d63f09abeff",
+    "second-brain/CLAUDE.md",
+    "second-brain/CLAUDE.md.tmp.25920.663449b6053d",
+    "second-brain/wiki/source",
+    "second-brain/wiki/concept",
+    "second-brain/wiki/entity",
+    "second-brain/wiki/article",
+    "second-brain/raw/assets",
+    "second-brain/wiki",
+    "second-brain/raw"
+  ]
+}
