@@ -10,7 +10,16 @@ const FORBIDDEN = [
   { re: /\bDate\.now\s*\(/, msg: 'Date.now() in engine — use the master clock / deterministic ids' },
   { re: /\bMath\.random\s*\(/, msg: 'Math.random() in engine — ids must be deterministic' },
   { re: /from\s+['"]react['"]/, msg: 'React import in engine — the engine must be framework-agnostic' },
+  // Browser-only globals make the engine untestable in Node. `globalThis` is fine.
+  { re: /(^|[^.\w])window\s*[.[]/, msg: 'window in engine — use globalThis with a guard' },
+  { re: /(^|[^.\w])document\s*[.[]/, msg: 'document in engine — the engine must not touch the DOM' },
+  { re: /\brequestAnimationFrame\s*\(/, msg: 'requestAnimationFrame in engine — timing belongs to the UI layer' },
 ];
+
+// Comments explain the rules (and quote the banned names), so scan code only.
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+}
 
 const violations = [];
 
@@ -20,7 +29,7 @@ function walk(dir) {
     const s = statSync(p);
     if (s.isDirectory()) walk(p);
     else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) {
-      const src = readFileSync(p, 'utf8');
+      const src = stripComments(readFileSync(p, 'utf8'));
       for (const { re, msg } of FORBIDDEN) {
         if (re.test(src)) violations.push(`${p}: ${msg}`);
       }

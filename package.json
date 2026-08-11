@@ -11,17 +11,22 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e": "playwright test --project=chromium",
+    "e2e:chrome": "playwright test --project=chrome",
+    "e2e:ui": "playwright test --ui",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:guardrails": "node scripts/check-guardrails.mjs"
   },
   "dependencies": {
+    "mp4-muxer": "^5.1.5",
     "mp4box": "^0.5.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

@@ -31,6 +31,10 @@ Guide for AI agents (and humans) working in this repo. Read before editing.
 Engine logic is test-first. Write the Vitest spec (red), implement to green.
 Run `npm test` before considering a change done. See `docs/TESTING.md`.
 
+Anything that touches decoding, playback, or export cannot be unit-tested (no
+WebCodecs in Node) — cover it in `e2e/` with Playwright instead. Two shipped bugs
+came from that gap; don't widen it.
+
 ## Layout
 
 ```
@@ -56,8 +60,19 @@ docs/
 
 ## Known tech debt
 
-- `src/engine/registry.ts` is a global singleton — replace with an `EditorEngine`
-  instance passed via React context when building the command registry.
-- `MediaBin` uses `performance.now()` for asset ids — switch to the deterministic
-  id counter.
-- No audio pipeline yet; first export is video-only.
+- The `Editor` instance is a module singleton in `store/projectStore.ts`. Fine for
+  one document; move to React context if we ever open several projects at once.
+- Playback restarts a decoder at every cut (a new `PlaybackSession` per clip).
+  Warm-decoder reuse + proxy media + a frame cache are the planned fix.
+- Audio uses `decodeAudioData` on the whole file (simple, but holds the decoded
+  track in memory). Fine for short clips; revisit for long files.
+- AAC encoder delay (priming) is left to the muxer — verify A/V sync on real
+  footage before trusting it for long exports.
+- Export runs on the main thread (yields between frames). RUNBOOK calls for a
+  Worker + OffscreenCanvas — not done yet.
+- No golden-file byte comparison for export output yet; e2e asserts frame count
+  and duration, and the pure parts are unit-tested.
+- Rotation metadata is still ignored, so a rotated source renders sideways in
+  both preview and export (consistent, but wrong).
+- Trim/move commands, clipboard, and a user-editable keymap are not built yet
+  (`ui/useShortcuts.ts` holds a fixed default map that already targets command ids).

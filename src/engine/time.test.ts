@@ -8,6 +8,7 @@ import {
   secToSample,
   formatTimecode,
   fpsToNumber,
+  nearestStandardFps,
 } from './time';
 
 describe('time-model', () => {
@@ -53,5 +54,23 @@ describe('time-model', () => {
   it('fpsToNumber', () => {
     expect(fpsToNumber(FPS_30)).toBe(30);
     expect(fpsToNumber(FPS_2997)).toBeCloseTo(29.97, 2);
+  });
+
+  it('snaps a measured rate to the nearest standard RATIONAL rate', () => {
+    // storing 29.97 as a float is exactly how an hour drifts by seconds
+    expect(nearestStandardFps(29.97)).toEqual({ num: 30000, den: 1001 });
+    expect(nearestStandardFps(29.9701)).toEqual({ num: 30000, den: 1001 });
+    expect(nearestStandardFps(25)).toEqual({ num: 25, den: 1 });
+    expect(nearestStandardFps(59.94)).toEqual({ num: 60000, den: 1001 });
+    expect(nearestStandardFps(23.976)).toEqual({ num: 24000, den: 1001 });
+  });
+
+  it('keeps an unusual rate exact instead of forcing it to a standard one', () => {
+    expect(fpsToNumber(nearestStandardFps(12.5))).toBeCloseTo(12.5, 9);
+  });
+
+  it('falls back to 30 for a nonsense rate', () => {
+    expect(nearestStandardFps(0)).toEqual(FPS_30);
+    expect(nearestStandardFps(NaN)).toEqual(FPS_30);
   });
 });

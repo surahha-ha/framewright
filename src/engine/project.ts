@@ -11,6 +11,7 @@ export function createProject(
     id: 'proj_1',
     name: 'Untitled',
     schemaVersion: 1,
+    nextId: 1,
     timeline: { fps, width, height },
     tracks: [
       { id: 'v1', type: 'video', clips: [] },

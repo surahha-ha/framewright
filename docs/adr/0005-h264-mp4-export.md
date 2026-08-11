@@ -16,6 +16,14 @@ if unavailable. Disable B-frames initially (simpler DTS/muxing). Insert keyframe
 fixed interval. **First export is video-only** (audio pipeline not built yet); AAC +
 priming/sync handling follows.
 
+## Update — audio landed
+
+Audio is decoded with `AudioContext.decodeAudioData` (not a second WebCodecs
+path), played back through WebAudio with the **audio clock as the master clock**,
+and exported by rendering the timeline offline (`OfflineAudioContext`) and
+encoding that to AAC. Rendering offline keeps export deterministic and makes the
+soundtrack follow cuts exactly like playback does.
+
 ## Consequences
 
 - Broad playback compatibility.

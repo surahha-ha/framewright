@@ -43,6 +43,15 @@ body {
   font-size: 12px;
   color: var(--muted);
 }
+.build {
+  margin-left: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--faint, #6d829a);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 8px;
+}
 .workspace {
   flex: 1;
   display: flex;
@@ -96,6 +105,18 @@ body {
 .dim {
   color: var(--muted);
   font-size: 11px;
+}
+.audio-report {
+  margin: 10px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b1219;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-word;
 }
 .preview {
   flex: 1;
@@ -174,17 +195,68 @@ body {
 }
 .clip {
   position: absolute;
-  inset: 6px;
+  top: 6px;
+  bottom: 6px;
   background: linear-gradient(180deg, #1c3a4a, #14293a);
   border: 1px solid #2f5b6e;
   border-radius: 6px;
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 8px;
   font-size: 12px;
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
+  box-sizing: border-box;
+}
+.clip.selected {
+  border-color: var(--teal);
+  box-shadow: inset 0 0 0 1px var(--teal);
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+  flex-wrap: wrap;
+}
+.toolbar button {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.toolbar button:hover:not(:disabled) {
+  border-color: var(--teal);
+}
+.toolbar button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.toolbar button:focus-visible,
+.transport button:focus-visible,
+.drop:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.export-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.export-busy progress {
+  width: 120px;
+}
+.toolbar .sep {
+  width: 1px;
+  height: 20px;
+  background: var(--line);
+  margin: 0 6px;
 }
 .playhead {
   position: absolute;

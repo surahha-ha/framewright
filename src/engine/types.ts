@@ -4,6 +4,7 @@
 //  - Frame rate is stored as a RATIONAL (num/den) so 29.97 = 30000/1001 is exact.
 //  - Sources (which may be VFR) are conformed onto this grid via the time-model.
 //  - The document is plain serializable JSON with stable string IDs (CRDT-friendly).
+//  - `nextId` is a document-scoped counter: ids are DETERMINISTIC (never Date.now()).
 
 export interface Rational {
   num: number;
@@ -37,7 +38,7 @@ export interface Clip {
   assetId: string;
   startFrame: number; // position on the timeline (frames)
   inFrame: number; // in-point within the (conformed) source, frames
-  outFrame: number; // out-point (exclusive), frames
+  outFrame: number; // out-point, EXCLUSIVE — ranges are half-open [in, out)
 }
 
 export interface Track {
@@ -50,6 +51,7 @@ export interface Project {
   id: string;
   name: string;
   schemaVersion: number;
+  nextId: number; // deterministic id counter
   timeline: TimelineConfig;
   tracks: Track[];
   assets: Asset[];

@@ -6,14 +6,16 @@
 
 import type { DemuxResult, DemuxSample } from './demux';
 import { PlaybackSession } from './playbackSession';
+import { secToUs, timescaleToUs } from './time';
 
 export class VideoDecodeService {
   private config: VideoDecoderConfig;
   private samples: DemuxSample[];
-  allocated = 0;
-  closed = 0;
+  /** sample indices sorted by presentation time (cts) — B-frames make decode
+   *  order != presentation order, so seeking must use this, not the raw array. */
+  private byCts: number[];
 
-  constructor(private demux: DemuxResult) {
+  constructor(demux: DemuxResult) {
     this.samples = demux.samples;
     this.config = {
       codec: demux.track.codec,
@@ -21,6 +23,9 @@ export class VideoDecodeService {
       codedHeight: demux.track.height,
       ...(demux.description ? { description: demux.description } : {}),
     };
+    this.byCts = this.samples
+      .map((_, i) => i)
+      .sort((a, b) => this.tsUs(this.samples[a]) - this.tsUs(this.samples[b]));
   }
 
   async isSupported(): Promise<boolean> {
@@ -37,7 +42,25 @@ export class VideoDecodeService {
   }
 
   private tsUs(s: DemuxSample): number {
-    return Math.round((s.cts * 1e6) / s.timescale);
+    return timescaleToUs(s.cts, s.timescale);
+  }
+
+  /** Decode-order index of the last frame presented at or before targetUs. */
+  private indexForUs(targetUs: number): number {
+    let lo = 0;
+    let hi = this.byCts.length - 1;
+    let best = this.byCts[0] ?? 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const idx = this.byCts[mid];
+      if (this.tsUs(this.samples[idx]) <= targetUs) {
+        best = idx;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return best;
   }
 
   /**
@@ -46,55 +69,59 @@ export class VideoDecodeService {
    */
   async decodeAtSec(targetSec: number): Promise<VideoFrame | null> {
     if (this.samples.length === 0) return null;
-    const targetUs = targetSec * 1e6;
-    let targetIdx = 0;
-    for (let i = 0; i < this.samples.length; i++) {
-      if (this.tsUs(this.samples[i]) <= targetUs) targetIdx = i;
-      else break;
-    }
-
+    const targetIdx = this.indexForUs(secToUs(targetSec));
     const targetTs = this.tsUs(this.samples[targetIdx]);
+
     let kf = targetIdx;
     while (kf > 0 && !this.samples[kf].is_sync) kf--;
     const endIdx = Math.min(targetIdx + 8, this.samples.length - 1);
 
-    return await new Promise<VideoFrame | null>((resolve, reject) => {
-      let matched: VideoFrame | null = null;
-      const dec = new VideoDecoder({
-        output: (frame) => {
-          this.allocated++;
-          if (matched === null && Math.abs(frame.timestamp - targetTs) <= 1) {
-            matched = frame;
-          } else {
-            frame.close();
-            this.closed++;
-          }
-        },
-        error: (e) => reject(e),
+    let matched: VideoFrame | null = null;
+    let dec: VideoDecoder | null = null;
+    try {
+      return await new Promise<VideoFrame | null>((resolve, reject) => {
+        dec = new VideoDecoder({
+          output: (frame) => {
+            if (matched === null && Math.abs(frame.timestamp - targetTs) <= 1) {
+              matched = frame; // handed to the caller
+            } else {
+              frame.close();
+            }
+          },
+          error: (e) => reject(e),
+        });
+        dec.configure(this.config);
+        for (let i = kf; i <= endIdx; i++) {
+          const s = this.samples[i];
+          dec.decode(
+            new EncodedVideoChunk({
+              type: s.is_sync ? 'key' : 'delta',
+              timestamp: this.tsUs(s),
+              duration: timescaleToUs(s.duration, s.timescale),
+              data: s.data,
+            }),
+          );
+        }
+        dec.flush()
+          .then(() => {
+            const out = matched;
+            matched = null; // ownership transfers to the caller
+            resolve(out);
+          })
+          .catch(reject);
       });
-      dec.configure(this.config);
-      for (let i = kf; i <= endIdx; i++) {
-        const s = this.samples[i];
-        dec.decode(
-          new EncodedVideoChunk({
-            type: s.is_sync ? 'key' : 'delta',
-            timestamp: this.tsUs(s),
-            duration: Math.round((s.duration * 1e6) / s.timescale),
-            data: s.data,
-          }),
-        );
+    } catch (err) {
+      // Every failure path must release the frame and the hardware decoder.
+      if (matched) (matched as VideoFrame).close();
+      matched = null;
+      throw err;
+    } finally {
+      if (matched) (matched as VideoFrame).close();
+      try {
+        dec?.close();
+      } catch {
+        /* already closed */
       }
-      dec
-        .flush()
-        .then(() => {
-          try {
-            dec.close();
-          } catch {
-            /* ignore */
-          }
-          resolve(matched);
-        })
-        .catch(reject);
-    });
+    }
   }
 }

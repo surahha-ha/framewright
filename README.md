@@ -8,14 +8,20 @@ the **First Playable Loop** — the walking skeleton that proves the riskiest pa
 end-to-end: import a video → decode with WebCodecs → render to canvas → play/scrub →
 minimal timeline.
 
-## Status — M1: First Playable Loop (E0–E4 slice)
+## Status — the loop is closed: import → cut → export
 
 - [x] E0 — Vite + React + TS setup
 - [x] E1 — media import + mp4box demux + WebCodecs decode service
-- [x] E2 — project data model + **canonical time-model** (`src/engine/time.ts`)
-- [x] E3 — canvas render + play/scrub (streaming playback + master clock)
-- [x] E4 — minimal single-track timeline + playhead
-- [ ] E5+ — command registry, cut/trim/split, clipboard, versions, export (next)
+- [x] E2 — project data model + **canonical time-model** + **command registry**
+- [x] E3 — canvas render + play/scrub (streaming decode, per-clip sessions)
+- [x] E4 — timeline with multiple clips, selection, playhead
+- [x] E5 — split (`C`) and ripple delete (`Del`), undo/redo, shortcuts
+- [x] E11 — **MP4 export** (H.264 + AAC)
+- [x] audio — decode, timeline-accurate playback (audio is the master clock),
+      and AAC export rendered offline so it matches the cut
+- [x] e2e — Playwright covering decode sessions, import/split/delete, export
+- [ ] next — trim/move, clipboard, version history, proxy media for smooth 4K
+      scrubbing, Worker-based export
 
 ## Architecture (key decisions)
 
@@ -34,7 +40,14 @@ See `docs/adr/` for full records. In short:
 
 ```bash
 npm install
-npm run dev      # open http://localhost:5173 in Chrome/Edge
+npm run dev      # open the printed http://127.0.0.1:<port> in Chrome/Edge
+```
+
+The dev server address lives in **`dev-server.ts`** (one place — Vite and
+Playwright both read it). Change the port there, or per-run:
+
+```bash
+FRAMEWRIGHT_PORT=1234 npm run dev
 ```
 
 > WebCodecs needs a recent **Chrome/Edge**. First slice targets **H.264 MP4**; HEVC is
@@ -46,6 +59,8 @@ npm run dev      # open http://localhost:5173 in Chrome/Edge
 - `npm run build` — typecheck + production build
 - `npm run typecheck` — types only
 - `npm test` / `npm run test:watch` — unit tests (Vitest)
+- `npm run e2e` — browser tests (Playwright). Import/export tests need H.264, so
+  run those with `npm run e2e:chrome` (bundled Chromium has no H.264).
 
 ## Testing
 
