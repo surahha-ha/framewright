@@ -1,20 +1,21 @@
 // framewright — keyboard shortcuts.
-// Keys map to COMMAND IDS (not behaviour), so remapping later is just data.
-import { useEffect } from 'react';
-import { editor, useStore } from '../store/projectStore';
-
-/**
- * Derived from the registry, so adding a command with a `defaultKey` binds it
- * everywhere at once (ADR-0003) instead of drifting out of sync with the toolbar.
- * `extras` are the aliases a keyboard has but a command declaration does not.
- */
-function defaultKeymap(): Record<string, string> {
-  const map: Record<string, string> = { backspace: 'clip.deleteRipple' };
-  for (const cmd of editor.commands()) {
-    if (cmd.defaultKey) map[cmd.defaultKey.toLowerCase()] = cmd.id;
-  }
-  return map;
-}
+//
+// Keys map to ACTION IDS (a command or an app action), never to behaviour, and
+// the map itself is data the user can edit (`keymapStore`). Nothing in this file
+// knows what any particular key does.
+//
+// Two properties are structural rather than remembered:
+//  - `c` and `mod+c` are different chords, so a single-key binding can never
+//    fire with a modifier held. Ctrl+C used to split the clip and Ctrl+W used to
+//    trim it on the way to closing the tab, where the pagehide flush then
+//    persisted the edit.
+//  - A control that owns a key keeps it: Space activates the focused button,
+//    the ruler and a range input keep their arrows.
+import { useEffect, useMemo } from 'react';
+import { useStore } from '../store/projectStore';
+import { chordOf, resolveKeymap, type ResolvedKeymap } from '../engine/keymap';
+import { bindables, perform, repeats, whyNot } from './actions';
+import { useKeymapStore } from './keymapStore';
 
 const TEXT_INPUT_TYPES = new Set([
   'text',
@@ -42,10 +43,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
   return false;
 }
 
-/** Space and Enter belong to the focused control, not to the global shortcut.
- *  `role="slider"` is deliberately NOT here: the playhead does nothing with
- *  Space, and swallowing it made play/pause dead while the timeline had focus.
- *  The ruler stops propagation for the arrows it does handle. */
+/** Space and Enter belong to the focused control, not to the global shortcut. */
 function isActivatable(el: EventTarget | null): boolean {
   const t = el as HTMLElement | null;
   if (!t) return false;
@@ -58,64 +56,90 @@ function isActivatable(el: EventTarget | null): boolean {
   );
 }
 
-/** Play/pause lives in Preview; the shortcut asks for it via a DOM event. */
-export const TOGGLE_PLAY_EVENT = 'framewright:togglePlay';
+const ARROWS = new Set(['arrowleft', 'arrowright', 'arrowup', 'arrowdown']);
+
+/**
+ * Does the focused control own this key itself? Only ever true for UNMODIFIED
+ * keys: `Alt`+← is a timeline nudge even while a clip button has focus, which is
+ * exactly the case where the user is aiming at that clip.
+ *
+ * `role="slider"` is deliberately not treated as activatable: the playhead does
+ * nothing with Space, and swallowing it made play/pause dead while the timeline
+ * had focus. The ruler stops propagation for the arrows it does handle.
+ */
+function controlOwnsKey(target: EventTarget | null, chord: string): boolean {
+  if (chord === 'space' || chord === 'enter') return isActivatable(target);
+  if (ARROWS.has(chord) || chord === 'home' || chord === 'end') {
+    return isActivatable(target) || target instanceof HTMLInputElement;
+  }
+  return false;
+}
+
+/** Copying selected text is not an editing shortcut. */
+function hasTextSelection(): boolean {
+  return !!globalThis.getSelection?.()?.toString();
+}
+
+/** The live keymap: defaults from the registry, overridden by the user. */
+export function useResolvedKeymap(): ResolvedKeymap {
+  const overrides = useKeymapStore((s) => s.overrides);
+  return useMemo(() => resolveKeymap(bindables(), overrides), [overrides]);
+}
 
 export function useShortcuts() {
-  const run = useStore((s) => s.run);
   const setStatus = useStore((s) => s.setStatus);
-  const undo = useStore((s) => s.undo);
-  const redo = useStore((s) => s.redo);
-  const seekTo = useStore((s) => s.seekTo);
+  const keymap = useResolvedKeymap();
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
-      const mod = e.metaKey || e.ctrlKey;
-      const key = e.key.toLowerCase();
+      const chord = chordOf(e);
+      if (!chord) return;
+      // A modal owns the keyboard while it is open; it handles its own keys.
+      if (useStore.getState().overlay !== 'none') return;
+      if (controlOwnsKey(e.target, chord)) return;
+      if (chord === 'mod+c' && hasTextSelection()) return;
 
-      if (mod && key === 'z') {
+      const id = keymap.byChord.get(chord);
+      if (!id) return;
+      // Holding a key must not fire an action dozens of times a second. Only the
+      // ones that MEAN "again" repeat: nudging a clip, stepping the playhead.
+      // Held `Ctrl+V` used to stack a paste per repeat, each its own undo entry.
+      if (e.repeat && !repeats(id)) {
         e.preventDefault();
-        e.shiftKey ? redo() : undo();
         return;
       }
-      if (key === ' ') {
-        // Let the focused button handle its own activation.
-        if (isActivatable(e.target) || e.repeat) return;
+
+      if (perform(id)) {
         e.preventDefault();
-        window.dispatchEvent(new Event(TOGGLE_PLAY_EVENT));
         return;
       }
-      if (key === 'arrowleft' || key === 'arrowright') {
-        // The timeline slider and range input move themselves.
-        if (isActivatable(e.target) || e.target instanceof HTMLInputElement) {
-          return;
-        }
-        if (mod || e.altKey) return; // leave browser/OS navigation alone
-        e.preventDefault();
-        seekTo(editor.playhead + (key === 'arrowright' ? 1 : -1));
-        return;
-      }
-      // Single-key bindings must NEVER fire with a modifier held. Without this,
-      // Ctrl+C split the clip, Ctrl+W trimmed it and then closed the tab (the
-      // pagehide flush persisting the edit), and Ctrl+Q trimmed the head.
-      if (mod || e.altKey) return;
-      const commandId = defaultKeymap()[key];
-      if (!commandId) return;
-      e.preventDefault();
-      if (run(commandId)) return;
-      // A shortcut that silently does nothing is indistinguishable from a broken
-      // key — especially for a screen reader user, who has no greyed-out button.
-      const cmd = editor.commands().find((c) => c.id === commandId);
-      setStatus(
-        cmd?.disabledReason?.({
-          project: editor.project,
-          playhead: editor.playhead,
-          selectedClipId: editor.selectedClipId,
-        }) ?? '지금은 쓸 수 없어요.',
-      );
+      // Leave the browser its key when we could not use it, but still say why:
+      // a shortcut that silently does nothing is indistinguishable from a broken
+      // one — especially for a screen reader user, who has no greyed-out button.
+      //
+      // `whyNot` covers both refusals: the command was not runnable at all, or
+      // it ran into a wall (a nudge against the clip next door). An export in
+      // progress has already said its own, better sentence.
+      if (!useStore.getState().isExporting) setStatus(whyNot(id));
     }
+    // Any key release ends the current coalescing gesture, so the next hold of a
+    // nudge key starts its own undo entry instead of folding into the last one.
+    //
+    // `blur` matters as much as `keyup`: the default nudge binding is Alt+arrow,
+    // and Alt+Tab takes the window away before the release ever reaches us. The
+    // gesture would then still be "open" minutes later, and the next nudge of
+    // the same clip would fold into an undo entry from before the interruption.
+    const endGesture = () => useStore.getState().endGesture();
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [run, undo, redo, seekTo, setStatus]);
+    window.addEventListener('keyup', endGesture);
+    window.addEventListener('blur', endGesture);
+    document.addEventListener('visibilitychange', endGesture);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', endGesture);
+      window.removeEventListener('blur', endGesture);
+      document.removeEventListener('visibilitychange', endGesture);
+    };
+  }, [keymap, setStatus]);
 }

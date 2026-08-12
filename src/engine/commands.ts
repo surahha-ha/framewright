@@ -3,15 +3,42 @@
 // `run` that returns a Patch. Buttons, menus, shortcuts and (later) the palette
 // all derive from this — add a command here and every entry point gets it.
 
-import type { Clip, Project, Track } from './types';
+import type { Clip, Project } from './types';
 import type { Op, Patch } from './ops';
-import { clipLength, resolveAt, sourceFrames, videoTrack } from './timeline';
+import {
+  clipLength,
+  locateClip,
+  resolveAt,
+  sourceFrames,
+  trimLimits,
+  videoTrack,
+} from './timeline';
+import { dragBounds, limitHit, type DragLimit, type DragMode } from './drag';
+import { formatTimecode } from './time';
+import {
+  entryLength,
+  pasteIndex,
+  pastePlan,
+  type ClipboardEntry,
+} from './clipboard';
 
 export interface EditorCtx {
   project: Project;
   playhead: number; // timeline frame
   selectedClipId: string | null;
+  /** What copy/cut put aside. Not document state — it outlives undo. */
+  clipboard?: ClipboardEntry | null;
 }
+
+/** Why a clip stopped moving, in words. Silence here reads as a bug, and one
+ *  wording keeps a drag and a nudge from explaining the same wall differently. */
+export const LIMIT_TEXT: Record<DragLimit, string> = {
+  timelineStart: '맨 앞이에요. 더 앞으로는 갈 수 없어요.',
+  neighbour: '옆 클립에 닿았어요.',
+  source: '원본 영상이 여기까지예요.',
+  minLength: '더 짧게는 줄일 수 없어요.',
+  none: '',
+};
 
 export interface Command<Args = void> {
   id: string;
@@ -19,12 +46,29 @@ export interface Command<Args = void> {
   icon?: string;
   /** Default binding, e.g. "c" or "mod+z". User keymaps override this. */
   defaultKey?: string;
-  /** Direct-manipulation commands (drag to trim/move) take arguments and are
-   *  driven by the mouse, so they are not offered as toolbar buttons. */
+  /** Not a toolbar button — reachable by key, palette or drag only. */
   hidden?: boolean;
-  /** Announced (status bar / screen reader) after the command actually ran.
-   *  Silence after a click reads as "nothing happened". */
-  done?: string;
+  /** Needs arguments only a drag can supply, so no button or palette entry
+   *  could ever run it. */
+  requiresArgs?: boolean;
+  /** A held key is ONE gesture and must be ONE undo step, exactly like a drag.
+   *  Only sound for commands whose forward ops are absolute assignments — a
+   *  relative op would compound as the key repeats. */
+  repeatable?: boolean;
+  /**
+   * Announced (status bar / screen reader) after the command actually ran.
+   * Silence after a click reads as "nothing happened".
+   *
+   * As a function it gets the ctx from both sides of the edit: `after` is where
+   * things ended up (a nudge reports the new position), `before` is the only
+   * place that still knows what was ASKED for (a paste reports where it decided
+   * to put the clip, which the finished document can no longer tell you).
+   */
+  done?: string | ((before: EditorCtx, after: EditorCtx) => string);
+  /** Clip to select once the command has run. A command that CREATES a clip has
+   *  to say which one, or the user is left guessing which of the clips that
+   *  just moved is the new one. */
+  selects?(before: EditorCtx): string;
   /** Why the button is greyed out right now. A disabled control that will not
    *  say what it is waiting for is indistinguishable from a broken one. */
   disabledReason?(ctx: EditorCtx): string;
@@ -42,57 +86,6 @@ export interface MoveArgs {
   clipId: string;
   /** New start position, as a TIMELINE frame. */
   startFrame: number;
-}
-
-export interface Located {
-  track: Track;
-  index: number;
-  clip: Clip;
-}
-
-export function locateClip(
-  project: Project,
-  clipId: string | null,
-): Located | null {
-  if (!clipId) return null;
-  for (const track of project.tracks) {
-    const index = track.clips.findIndex((c) => c.id === clipId);
-    if (index >= 0) return { track, index, clip: track.clips[index] };
-  }
-  return null;
-}
-
-/** Room a clip has to grow/shrink, in TIMELINE frames. Half-open throughout. */
-export function trimLimits(
-  project: Project,
-  clipId: string,
-): { minStart: number; maxStart: number; minEnd: number; maxEnd: number } | null {
-  const found = locateClip(project, clipId);
-  if (!found) return null;
-  const { track, index, clip } = found;
-  const start = clip.startFrame;
-  const end = start + clipLength(clip);
-
-  const prev = track.clips[index - 1];
-  const next = track.clips[index + 1];
-  const prevEnd = prev ? prev.startFrame + clipLength(prev) : 0;
-  const nextStart = next ? next.startFrame : Number.MAX_SAFE_INTEGER;
-
-  // Head cannot pass the source's first frame, the previous clip, or its own tail.
-  const headRoom = clip.inFrame; // frames available before the current in-point
-  const minStart = Math.max(prevEnd, start - headRoom);
-  const maxStart = end - 1; // keep at least one frame
-
-  // Tail cannot pass the end of the source, the next clip, or its own head.
-  // An unmeasurable source proves no headroom at all. Treating "unknown" as
-  // "infinite" let a trim invent frames that were never in the file — they
-  // exported as black and were only ever reported as `missingFrames`.
-  const total = sourceFrames(project, clip.assetId);
-  const tailRoom = total === null ? 0 : total - clip.outFrame;
-  const minEnd = start + 1;
-  const maxEnd = Math.min(nextStart, end + tailRoom);
-
-  return { minStart, maxStart, minEnd, maxEnd };
 }
 
 /** Split the clip under the playhead into two contiguous clips. */
@@ -200,6 +193,7 @@ export const trimStartCommand: Command<TrimArgs> = {
   id: 'clip.trimStart',
   label: '앞부분 자르기',
   hidden: true,
+  requiresArgs: true,
   canRun(ctx, args) {
     if (!args) return false;
     const limits = trimLimits(ctx.project, args.clipId);
@@ -242,6 +236,7 @@ export const trimEndCommand: Command<TrimArgs> = {
   id: 'clip.trimEnd',
   label: '뒷부분 자르기',
   hidden: true,
+  requiresArgs: true,
   canRun(ctx, args) {
     if (!args) return false;
     return !!trimLimits(ctx.project, args.clipId);
@@ -283,6 +278,7 @@ export const moveClipCommand: Command<MoveArgs> = {
   id: 'clip.move',
   label: '옮기기',
   hidden: true,
+  requiresArgs: true,
   canRun(ctx, args) {
     return !!args && !!locateClip(ctx.project, args.clipId);
   },
@@ -383,15 +379,15 @@ export const trimStartToPlayheadCommand: Command = {
   icon: '◧',
   defaultKey: 'q',
   done: '앞부분을 잘라냈어요 · 앞에 빈 곳이 생기면 "빈 곳 없애기"로 붙일 수 있어요.',
-  disabledReason: () =>
-    '재생 위치를 클립 안(맨 앞이 아닌 곳)으로 옮겨 주세요.',
+  disabledReason: () => '재생 위치를 클립 안(맨 앞이 아닌 곳)으로 옮겨 주세요.',
   canRun(ctx) {
     const hit = resolveAt(ctx.project, ctx.playhead);
     return !!hit && ctx.playhead > hit.clip.startFrame;
   },
   run(ctx) {
     const hit = resolveAt(ctx.project, ctx.playhead);
-    if (!hit) throw new Error('clip.trimStartToPlayhead: nothing under playhead');
+    if (!hit)
+      throw new Error('clip.trimStartToPlayhead: nothing under playhead');
     return trimStartCommand.run(ctx, {
       clipId: hit.clip.id,
       frame: ctx.playhead,
@@ -405,8 +401,7 @@ export const trimEndToPlayheadCommand: Command = {
   icon: '◨',
   defaultKey: 'w',
   done: '재생 위치부터 뒷부분을 잘라냈어요.',
-  disabledReason: () =>
-    '재생 위치를 클립 안(맨 앞이 아닌 곳)으로 옮겨 주세요.',
+  disabledReason: () => '재생 위치를 클립 안(맨 앞이 아닌 곳)으로 옮겨 주세요.',
   canRun(ctx) {
     const hit = resolveAt(ctx.project, ctx.playhead);
     return !!hit && ctx.playhead > hit.clip.startFrame;
@@ -421,13 +416,244 @@ export const trimEndToPlayheadCommand: Command = {
   },
 };
 
+/**
+ * One sentence for one edit, whatever caused it — a drag, a nudge key, or the
+ * palette. Reads the CURRENT document, so callers pass the state after the edit.
+ */
+export function describeEdit(
+  mode: DragMode,
+  project: Project,
+  clipId: string,
+): string {
+  const found = locateClip(project, clipId);
+  if (!found) return '';
+  const { track, index, clip } = found;
+  const fps = project.timeline.fps;
+  const prev = track.clips[index - 1];
+  const prevEnd = prev ? prev.startFrame + clipLength(prev) : 0;
+  const gap = clip.startFrame > prevEnd ? ' · 앞에 빈 곳이 생겼어요' : '';
+  if (mode === 'move') {
+    return `클립을 ${formatTimecode(clip.startFrame, fps)} 위치로 옮겼어요.${gap}`;
+  }
+  if (mode === 'trimStart') {
+    return `앞부분을 잘라냈어요 · 남은 길이 ${formatTimecode(clipLength(clip), fps)}${gap}`;
+  }
+  return `뒷부분을 잘라냈어요 · 남은 길이 ${formatTimecode(clipLength(clip), fps)}`;
+}
+
+/**
+ * Move or trim the selected clip by one frame.
+ *
+ * These used to be spelled out inside `ui/Timeline.tsx`, which made them the
+ * last bindings a user keymap could not reach. As commands they are data like
+ * everything else: bindable, listable in the palette, and testable in Node.
+ */
+function nudgeTarget(clip: Clip, mode: DragMode, step: 1 | -1): number {
+  const end = clip.startFrame + clipLength(clip);
+  return (mode === 'trimEnd' ? end : clip.startFrame) + step;
+}
+
+function nudgeCommand(
+  id: string,
+  label: string,
+  mode: DragMode,
+  step: 1 | -1,
+  defaultKey: string,
+): Command {
+  return {
+    id,
+    label,
+    hidden: true, // six more toolbar buttons would drown the five that matter
+    defaultKey,
+    repeatable: true,
+    canRun(ctx) {
+      const found = locateClip(ctx.project, ctx.selectedClipId);
+      if (!found) return false;
+      // A clip already against a wall CANNOT be nudged, and saying otherwise is
+      // how the palette ends up offering a row that closes and does nothing.
+      // The bound has to be the same one `run` clamps to, or the two disagree.
+      const bounds = dragBounds(ctx.project, found.clip.id, mode);
+      if (!bounds) return false;
+      const target = nudgeTarget(found.clip, mode, step);
+      const clamped = Math.min(bounds.max, Math.max(bounds.min, target));
+      const current = target - step;
+      return clamped !== current;
+    },
+    disabledReason(ctx) {
+      const found = locateClip(ctx.project, ctx.selectedClipId);
+      if (!found) {
+        return mode === 'move'
+          ? '옮길 클립을 먼저 골라 주세요.'
+          : '자를 클립을 먼저 골라 주세요.';
+      }
+      const bounds = dragBounds(ctx.project, found.clip.id, mode);
+      if (!bounds) return '지금은 쓸 수 없어요.';
+      const reason =
+        LIMIT_TEXT[limitHit(nudgeTarget(found.clip, mode, step), bounds)];
+      return reason || '더 이상 움직일 수 없어요.';
+    },
+    done(_before, after) {
+      return after.selectedClipId
+        ? describeEdit(mode, after.project, after.selectedClipId)
+        : '';
+    },
+    run(ctx) {
+      const found = locateClip(ctx.project, ctx.selectedClipId);
+      if (!found) throw new Error(`${id}: no selected clip`);
+      const clipId = found.clip.id;
+      const frame = nudgeTarget(found.clip, mode, step);
+      // Delegate, so a nudge and a drag can never disagree about the limits.
+      if (mode === 'move') {
+        return moveClipCommand.run(ctx, { clipId, startFrame: frame });
+      }
+      return mode === 'trimStart'
+        ? trimStartCommand.run(ctx, { clipId, frame })
+        : trimEndCommand.run(ctx, { clipId, frame });
+    },
+  };
+}
+
+export const NUDGE_COMMANDS: Command[] = [
+  nudgeCommand(
+    'clip.moveLeft',
+    '한 프레임 왼쪽으로',
+    'move',
+    -1,
+    'alt+arrowleft',
+  ),
+  nudgeCommand(
+    'clip.moveRight',
+    '한 프레임 오른쪽으로',
+    'move',
+    1,
+    'alt+arrowright',
+  ),
+  nudgeCommand(
+    'clip.headExtend',
+    '앞부분 한 프레임 늘리기',
+    'trimStart',
+    -1,
+    'alt+shift+arrowleft',
+  ),
+  nudgeCommand(
+    'clip.headShrink',
+    '앞부분 한 프레임 줄이기',
+    'trimStart',
+    1,
+    'alt+shift+arrowright',
+  ),
+  nudgeCommand(
+    'clip.tailShrink',
+    '뒷부분 한 프레임 줄이기',
+    'trimEnd',
+    -1,
+    'mod+alt+arrowleft',
+  ),
+  nudgeCommand(
+    'clip.tailExtend',
+    '뒷부분 한 프레임 늘리기',
+    'trimEnd',
+    1,
+    'mod+alt+arrowright',
+  ),
+];
+
+/**
+ * Put the clipboard's media on the timeline. See `clipboard.ts` for the
+ * placement rules — the short version is that a paste never splits, overwrites
+ * or drops anything, and it says where it landed.
+ */
+export const pasteCommand: Command = {
+  id: 'clip.paste',
+  label: '붙여넣기',
+  icon: '📋',
+  defaultKey: 'mod+v',
+  disabledReason(ctx) {
+    if (!ctx.clipboard) return '먼저 클립을 복사하거나 잘라내 주세요.';
+    return '복사해 둔 영상이 이 프로젝트에 없어요. 다시 복사해 주세요.';
+  },
+  /** The pasted clip, so the user can see which one is new among the clips the
+   *  push just moved. Computed from the pre-run counter, like the id itself. */
+  selects: (before) => `clip_${before.project.nextId}`,
+  done(before) {
+    const entry = before.clipboard;
+    if (!entry) return '붙여넣었어요.';
+    const plan = pastePlan(before.project, before.playhead, entryLength(entry));
+    const fps = before.project.timeline.fps;
+    const snap =
+      plan.snapped === 'start'
+        ? ' · 클립 앞에 넣었어요'
+        : plan.snapped === 'end'
+          ? ' · 클립 뒤에 넣었어요'
+          : '';
+    const push = plan.pushBy > 0 ? ' · 뒤 클립을 밀었어요' : '';
+    return `${formatTimecode(plan.startFrame, fps)} 위치에 붙여넣었어요.${snap}${push}`;
+  },
+  canRun(ctx) {
+    const entry = ctx.clipboard;
+    if (!entry || entryLength(entry) <= 0) return false;
+    // The source can disappear from under a clipboard entry (undo an import),
+    // and a clip pointing at a missing asset exports as black.
+    if (!ctx.project.assets.some((a) => a.id === entry.assetId)) return false;
+    // ...and it can be REPLACED, which is worse than missing: the id still
+    // resolves, so nothing looks wrong while a paste inserts frames measured
+    // against a different file. A range the source cannot cover proves that.
+    const total = sourceFrames(ctx.project, entry.assetId);
+    return total === null || entry.outFrame <= total;
+  },
+  run(ctx) {
+    const entry = ctx.clipboard;
+    if (!entry) throw new Error('clip.paste: nothing on the clipboard');
+    const track = videoTrack(ctx.project);
+    const length = entryLength(entry);
+    const plan = pastePlan(ctx.project, ctx.playhead, length);
+    const index = pasteIndex(ctx.project, plan.startFrame);
+    const clip: Clip = {
+      id: `clip_${ctx.project.nextId}`,
+      assetId: entry.assetId,
+      startFrame: plan.startFrame,
+      inFrame: entry.inFrame,
+      outFrame: entry.outFrame,
+    };
+    // Pushing preserves order, so the insert index is the same before and after.
+    const moved =
+      plan.pushBy > 0
+        ? track.clips.filter((c) => c.startFrame >= plan.startFrame)
+        : [];
+
+    const forward: Op[] = [
+      ...moved.map<Op>((c) => ({
+        kind: 'updateClip',
+        trackId: track.id,
+        clipId: c.id,
+        changes: { startFrame: c.startFrame + plan.pushBy },
+      })),
+      { kind: 'insertClip', trackId: track.id, index, clip },
+      { kind: 'setNextId', value: ctx.project.nextId + 1 },
+    ];
+    const inverse: Op[] = [
+      { kind: 'setNextId', value: ctx.project.nextId },
+      { kind: 'removeClip', trackId: track.id, index },
+      ...moved.map<Op>((c) => ({
+        kind: 'updateClip',
+        trackId: track.id,
+        clipId: c.id,
+        changes: { startFrame: c.startFrame },
+      })),
+    ];
+    return { forward, inverse };
+  },
+};
+
 export const BUILTIN_COMMANDS: Command<any>[] = [
   splitCommand,
   trimStartToPlayheadCommand,
   trimEndToPlayheadCommand,
   deleteRippleCommand,
+  pasteCommand,
   closeGapsCommand,
   trimStartCommand,
   trimEndCommand,
   moveClipCommand,
+  ...NUDGE_COMMANDS,
 ];

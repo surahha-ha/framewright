@@ -104,7 +104,11 @@ test.describe('PlaybackSession (real WebCodecs)', () => {
         let detail = '';
         for (let i = 0; i < 20; i++) {
           const f = await s.awaitFrameFor(secFor(i));
-          if (!f || f === HOLD || !near((f as VideoFrame).timestamp, usFor(i))) {
+          if (
+            !f ||
+            f === HOLD ||
+            !near((f as VideoFrame).timestamp, usFor(i))
+          ) {
             ok = false;
             detail = `frame ${i} -> ${f === HOLD ? 'HOLD' : (f as VideoFrame)?.timestamp}`;
             if (f && f !== HOLD) (f as VideoFrame).close();
@@ -195,6 +199,139 @@ test.describe('PlaybackSession (real WebCodecs)', () => {
         const past = await s.awaitFrameFor(secFor(200));
         check('endOfStream', past === null || past === HOLD, String(past));
         if (past && past !== HOLD) (past as VideoFrame).close();
+        s.stop();
+      }
+
+      return out;
+    }, codec!);
+
+    for (const [name, value] of Object.entries(results)) {
+      expect(value, name).toBe('ok');
+    }
+  });
+
+  /**
+   * KNOWN DEFECT — a file whose presentation does not start at zero is decoded
+   * two frames early, and its last frames are unreachable.
+   *
+   * Measured in real Chrome against `e2e/fixtures/sample-h264.mp4`: the playhead
+   * said 22 / 44 / 69 / 89 while the frame number burnt into the picture read
+   * 20 / 42 / 67 / 87. Probing the container explains it exactly — the file has
+   * B-frames, its first sample's `cts` is 1024 at timescale 15360 (two frames),
+   * and there is no edit list to take that offset back out. The timeline maps
+   * frame n to n/fps seconds and matches that against raw `cts`, so every frame
+   * is two early and the last two frames of the media cannot be reached at all.
+   *
+   * Not an E6 regression, and not a playback bug: preview and export share the
+   * mapping, so they still agree with each other. It is the frame→media mapping
+   * that is wrong, and the fix belongs with demux/player, not here.
+   *
+   * The existing test above cannot see this because it synthesises samples whose
+   * timestamps start at 0. This one shifts them, which is what a real encoder
+   * with B-frames produces.
+   */
+  test.fixme('a source whose presentation starts late is still frame-accurate', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    const codec = await pickCodec(page);
+    test.skip(!codec, 'no usable video codec in this browser');
+
+    const results = await page.evaluate(async (codecName: string) => {
+      const modulePath = '/src/engine/playbackSession.ts';
+      const { PlaybackSession, HOLD } = await import(modulePath);
+
+      const FPS = 30;
+      const COUNT = 60;
+      /** What a B-frame encoder leaves behind: presentation starts 2 frames in. */
+      const OFFSET_FRAMES = 2;
+      const usFor = (f: number) => Math.round((f * 1e6) / FPS);
+      const secFor = (f: number) => f / FPS;
+
+      const width = 160;
+      const height = 90;
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext('2d')!;
+      const samples: any[] = [];
+      let description: Uint8Array | undefined;
+      const encoder = new VideoEncoder({
+        output: (chunk, meta) => {
+          const d = meta?.decoderConfig?.description;
+          if (d && !description) description = new Uint8Array(d as ArrayBuffer);
+          const data = new Uint8Array(chunk.byteLength);
+          chunk.copyTo(data);
+          samples.push({
+            cts: chunk.timestamp + usFor(OFFSET_FRAMES),
+            dts: chunk.timestamp,
+            duration: Math.round(1e6 / FPS),
+            timescale: 1e6,
+            is_sync: chunk.type === 'key',
+            data,
+          });
+        },
+        error: (e) => {
+          throw e;
+        },
+      });
+      const encCfg: VideoEncoderConfig = {
+        codec: codecName,
+        width,
+        height,
+        bitrate: 400_000,
+        framerate: FPS,
+        latencyMode: 'realtime',
+      };
+      if (codecName.startsWith('avc1')) encCfg.avc = { format: 'avc' };
+      encoder.configure(encCfg);
+      for (let i = 0; i < COUNT; i++) {
+        ctx.fillStyle = `rgb(${i % 256},${(i * 3) % 256},${(i * 7) % 256})`;
+        ctx.fillRect(0, 0, width, height);
+        const f = new VideoFrame(canvas, {
+          timestamp: usFor(i),
+          duration: Math.round(1e6 / FPS),
+        });
+        encoder.encode(f, { keyFrame: i % 30 === 0 });
+        f.close();
+      }
+      await encoder.flush();
+      encoder.close();
+
+      const config: VideoDecoderConfig = {
+        codec: codecName,
+        codedWidth: width,
+        codedHeight: height,
+      };
+      if (description) config.description = description;
+
+      const out: Record<string, string> = {};
+      const nth = (f: any) =>
+        f && f !== HOLD
+          ? Math.round(((f.timestamp - usFor(OFFSET_FRAMES)) * FPS) / 1e6)
+          : String(f);
+
+      // Timeline frame 0 is the FIRST frame of the media, whatever the
+      // container's clock happens to start at.
+      {
+        const s = new PlaybackSession(samples, config, (e: any) => {
+          throw e;
+        });
+        s.start(0);
+        const f = await s.awaitFrameFor(secFor(0));
+        out.head = nth(f) === 0 ? 'ok' : `FAIL got ${nth(f)}`;
+        if (f && f !== HOLD) (f as VideoFrame).close();
+        s.stop();
+      }
+
+      // ...and the last timeline frame is the last frame of the media, not the
+      // one OFFSET_FRAMES before it.
+      {
+        const s = new PlaybackSession(samples, config, (e: any) => {
+          throw e;
+        });
+        s.start(secFor(COUNT - 5));
+        const f = await s.awaitFrameFor(secFor(COUNT - 1));
+        out.tail = nth(f) === COUNT - 1 ? 'ok' : `FAIL got ${nth(f)}`;
+        if (f && f !== HOLD) (f as VideoFrame).close();
         s.stop();
       }
 

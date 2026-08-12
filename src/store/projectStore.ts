@@ -13,6 +13,7 @@ import {
   STORAGE_KEY,
 } from '../engine/storage';
 import { shouldAutoSnapshot, type Version } from '../engine/persistence';
+import { copyEntry } from '../engine/clipboard';
 
 const repository = createLocalRepository();
 const AUTO_SNAPSHOT_INTERVAL_MS = 3 * 60_000;
@@ -25,8 +26,7 @@ export const editor: Editor = createEditor(loaded?.project ?? createProject());
 /** A blank autosave is not "previous work" — saying so on a first visit would
  *  make the message worthless the one time it matters. */
 const hadRealWork =
-  !!loaded &&
-  (loaded.project.assets.length > 0 || loaded.versions.length > 0);
+  !!loaded && (loaded.project.assets.length > 0 || loaded.versions.length > 0);
 
 let versions: Version[] = loaded?.versions ?? [];
 let generation = loaded?.generation ?? 0;
@@ -63,6 +63,9 @@ interface State {
   savedAt: number | null;
   /** Persistence is unavailable or blocked — the UI must not promise saving. */
   saveDisabledReason: string | null;
+  /** At most one modal is open at a time; both are keyboard-first surfaces. */
+  overlay: 'none' | 'palette' | 'shortcuts';
+  setOverlay: (overlay: 'none' | 'palette' | 'shortcuts') => void;
 
   sync: () => void;
   /**
@@ -74,6 +77,12 @@ interface State {
   run: (commandId: string, args?: unknown, coalesceKey?: string) => boolean;
   /** A held key was released: the next press starts a new undo entry. */
   endGesture: () => void;
+  /** Mirrors `editor.clipboard` for React — the clipboard is not document state,
+   *  so it deliberately survives undo and version restore. */
+  hasClipboard: boolean;
+  /** Both return whether anything was actually put on the clipboard. */
+  copyClip: () => boolean;
+  cutClip: () => boolean;
   undo: () => void;
   redo: () => void;
   saveVersion: (label: string) => void;
@@ -182,7 +191,10 @@ export const useStore = create<State>((set, get) => {
     canRedo: false,
     isPlaying: false,
     isExporting: false,
-    status: hadRealWork ? '이전 작업을 그대로 불러왔어요.' : '영상을 불러오세요.',
+    hasClipboard: false,
+    status: hadRealWork
+      ? '이전 작업을 그대로 불러왔어요.'
+      : '영상을 불러오세요.',
     seekVersion: 0,
     stopSignal: 0,
     versions,
@@ -200,21 +212,62 @@ export const useStore = create<State>((set, get) => {
       // An export renders the document it was started with. Letting it change
       // underneath would produce a file that silently disagrees with the screen.
       if (get().isExporting) {
-        set({ status: '내보내는 중에는 편집할 수 없어요. 먼저 취소해 주세요.' });
+        set({
+          status: '내보내는 중에는 편집할 수 없어요. 먼저 취소해 주세요.',
+        });
         return false;
       }
+      // Captured BEFORE the edit: a paste can only say where it decided to put
+      // the clip while the request is still in hand.
+      const before = editor.context();
       if (!editor.dispatch(commandId, args, coalesceKey)) return false;
       afterDocumentChange();
       const done = editor.commands().find((c) => c.id === commandId)?.done;
-      if (done) set({ status: done });
+      const text =
+        typeof done === 'function' ? done(before, editor.context()) : done;
+      // While another tab owns the document nothing here reaches disk. The
+      // warning is posted once, when the other tab appears — and then every
+      // successful edit used to overwrite it with its own cheerful sentence, so
+      // the user kept editing work that would vanish on reload. Repeat it.
+      const blocked = get().saveDisabledReason;
+      if (text) set({ status: blocked ? `${text} · ${blocked}` : text });
+      else if (blocked) set({ status: blocked });
       return true;
     },
 
     endGesture: () => editor.endCoalesce(),
 
+    copyClip: () => {
+      const entry = copyEntry(editor.project, editor.selectedClipId);
+      if (!entry) {
+        set({ status: '복사할 클립을 먼저 골라 주세요.' });
+        return false;
+      }
+      editor.setClipboard(entry);
+      set({
+        hasClipboard: true,
+        status: '클립을 복사했어요 · 재생 위치를 옮긴 뒤 붙여넣으세요.',
+      });
+      return true;
+    },
+
+    cutClip: () => {
+      if (!get().copyClip()) return false;
+      // Cut is copy + the delete we already have, so the two can never disagree
+      // about what "remove this clip" means.
+      if (!get().run('clip.deleteRipple')) {
+        set({ status: '클립을 복사했어요 · 지우지는 못했어요.' });
+        return false;
+      }
+      set({ status: '클립을 잘라냈어요 · 재생 위치에서 붙여넣을 수 있어요.' });
+      return true;
+    },
+
     undo: () => {
       if (get().isExporting) {
-        set({ status: '내보내는 중에는 편집할 수 없어요. 먼저 취소해 주세요.' });
+        set({
+          status: '내보내는 중에는 편집할 수 없어요. 먼저 취소해 주세요.',
+        });
         return;
       }
       if (!editor.undo()) return;
@@ -223,7 +276,9 @@ export const useStore = create<State>((set, get) => {
 
     redo: () => {
       if (get().isExporting) {
-        set({ status: '내보내는 중에는 편집할 수 없어요. 먼저 취소해 주세요.' });
+        set({
+          status: '내보내는 중에는 편집할 수 없어요. 먼저 취소해 주세요.',
+        });
         return;
       }
       if (!editor.redo()) return;
@@ -251,7 +306,9 @@ export const useStore = create<State>((set, get) => {
 
     restoreVersion: (versionId) => {
       if (get().isExporting) {
-        set({ status: '내보내는 중에는 되돌아갈 수 없어요. 먼저 취소해 주세요.' });
+        set({
+          status: '내보내는 중에는 되돌아갈 수 없어요. 먼저 취소해 주세요.',
+        });
         return;
       }
       const target = versions.find((v) => v.id === versionId);
@@ -309,6 +366,9 @@ export const useStore = create<State>((set, get) => {
       editor.select(clipId);
       set({ selectedClipId: editor.selectedClipId });
     },
+
+    overlay: 'none',
+    setOverlay: (overlay) => set({ overlay }),
 
     setPlaying: (isPlaying) => set({ isPlaying }),
     setExporting: (isExporting) => set({ isExporting }),

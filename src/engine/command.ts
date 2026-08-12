@@ -7,13 +7,22 @@ import type { Op, Patch } from './ops';
 import { applyOps } from './ops';
 import { clipLength, timelineDuration, videoTrack } from './timeline';
 import { BUILTIN_COMMANDS, type Command, type EditorCtx } from './commands';
+import type { ClipboardEntry } from './clipboard';
 
 export interface Editor {
   readonly project: Project;
   readonly playhead: number;
   readonly selectedClipId: string | null;
+  /**
+   * What copy/cut set aside. Deliberately NOT part of the document: undo must
+   * not empty your clipboard, and a version restore must not repopulate it.
+   */
+  readonly clipboard: ClipboardEntry | null;
 
   commands(): Command<any>[];
+  /** The ctx commands see — exposed so callers can evaluate `disabledReason`
+   *  and `done` against exactly what the dispatcher used. */
+  context(): EditorCtx;
   canRun(commandId: string, args?: unknown): boolean;
   /**
    * Returns true if the command ran. Unknown/blocked commands are no-ops.
@@ -27,6 +36,7 @@ export interface Editor {
 
   setPlayhead(frame: number): void;
   select(clipId: string | null): void;
+  setClipboard(entry: ClipboardEntry | null): void;
 
   /** End the current coalescing gesture (key released, pointer lifted). */
   endCoalesce(): void;
@@ -55,11 +65,17 @@ export function createEditor(initial: Project): Editor {
   let project = initial;
   let playhead = 0;
   let selectedClipId: string | null = null;
+  let clipboard: ClipboardEntry | null = null;
   const undoStack: Patch[] = [];
   const redoStack: Patch[] = [];
   let lastCoalesceKey: string | null = null;
 
-  const ctx = (): EditorCtx => ({ project, playhead, selectedClipId });
+  const ctx = (): EditorCtx => ({
+    project,
+    playhead,
+    selectedClipId,
+    clipboard,
+  });
 
   /** Keep the playhead inside the timeline — a shorter document would otherwise
    *  leave it stranded, freezing the preview and disabling every command. */
@@ -104,8 +120,12 @@ export function createEditor(initial: Project): Editor {
     get selectedClipId() {
       return selectedClipId;
     },
+    get clipboard() {
+      return clipboard;
+    },
 
     commands: () => [...registry.values()],
+    context: ctx,
 
     canRun(commandId, args) {
       const cmd = registry.get(commandId);
@@ -126,6 +146,9 @@ export function createEditor(initial: Project): Editor {
         return false;
       }
       commit(patch, coalesceKey);
+      // After the edit, so `pruneSelection` cannot drop the clip we just made.
+      const created = cmd.selects?.(c);
+      if (created) selectedClipId = created;
       return true;
     },
 
@@ -137,6 +160,9 @@ export function createEditor(initial: Project): Editor {
     },
     select(clipId) {
       selectedClipId = clipId;
+    },
+    setClipboard(entry) {
+      clipboard = entry;
     },
 
     endCoalesce() {
@@ -229,7 +255,11 @@ export function createEditor(initial: Project): Editor {
         { kind: 'setNextId', value: project.nextId + 2 },
       ];
       const inverse: Op[] = [
-        { kind: 'setNextId', value: project.nextId },
+        // NOTE: deliberately no `setNextId` here. Rewinding the counter would
+        // hand `asset_1` out twice in one session — undo an import, import a
+        // different file, and anything still holding the old id (the decode
+        // registry, the clipboard) would silently be pointing at the new file.
+        // Ids are cheap; a paste that inserts frames from the wrong video is not.
         { kind: 'removeClip', trackId: track.id, index: track.clips.length },
         { kind: 'removeAsset', assetId },
         ...(setsTimeline

@@ -1,80 +1,98 @@
 // framewright — edit toolbar.
-// Buttons are DERIVED from the command registry: every command shows up here
-// automatically, enabled/disabled by its own `canRun` (ADR-0003).
+// Buttons are DERIVED from the command registry and the app actions: adding
+// either one puts it here automatically, enabled/disabled by its own `canRun`
+// (ADR-0003). Nothing in this file knows what any particular button does.
 //
-// Unavailable commands are `aria-disabled`, not `disabled`. A natively disabled
+// Unavailable buttons are `aria-disabled`, not `disabled`. A natively disabled
 // button leaves the tab order entirely, so a keyboard user never discovers the
 // control exists — and never hears why it is waiting.
-import { editor, useStore } from '../store/projectStore';
+import { useStore } from '../store/projectStore';
+import { formatChord } from '../engine/keymap';
+import {
+  APP_ACTIONS,
+  canRun,
+  entries,
+  perform,
+  whyNot,
+  type Entry,
+} from './actions';
+import { useResolvedKeymap } from './useShortcuts';
 import { ExportButton } from './ExportButton';
 
+/** Commands in registry order, with each action slotted in after its anchor. */
+function toolbarEntries(): Entry[] {
+  const all = entries();
+  const out: Entry[] = [];
+  for (const entry of all) {
+    if (!entry.isCommand || entry.hiddenInToolbar) continue;
+    out.push(entry);
+    for (const action of APP_ACTIONS) {
+      if (action.anchorAfter !== entry.id) continue;
+      const slot = all.find((e) => e.id === action.id);
+      if (slot) out.push(slot);
+    }
+  }
+  return out;
+}
+
 export function Toolbar() {
-  const run = useStore((s) => s.run);
-  const undo = useStore((s) => s.undo);
-  const redo = useStore((s) => s.redo);
-  const canUndo = useStore((s) => s.canUndo);
-  const canRedo = useStore((s) => s.canRedo);
   const setStatus = useStore((s) => s.setStatus);
-  // subscribe so buttons re-evaluate canRun as the playhead/selection moves
+  const setOverlay = useStore((s) => s.setOverlay);
+  const keymap = useResolvedKeymap();
+  // subscribe so buttons re-evaluate canRun as the document/selection moves
   useStore((s) => s.playhead);
   useStore((s) => s.selectedClipId);
   useStore((s) => s.project);
+  useStore((s) => s.hasClipboard);
+  useStore((s) => s.canUndo);
+  useStore((s) => s.canRedo);
 
-  const ctx = {
-    project: editor.project,
-    playhead: editor.playhead,
-    selectedClipId: editor.selectedClipId,
-  };
+  function Button({
+    id,
+    label,
+    icon,
+  }: {
+    id: string;
+    label: string;
+    icon?: string;
+  }) {
+    const enabled = canRun(id);
+    const why = enabled ? '' : whyNot(id);
+    const chord = keymap.byAction.get(id) ?? null;
+    return (
+      <button
+        aria-disabled={!enabled}
+        onClick={() => {
+          // Saying why beats a click that does nothing at all.
+          if (!enabled) return setStatus(why);
+          perform(id);
+        }}
+        title={
+          enabled ? (chord ? `${label} (${formatChord(chord)})` : label) : why
+        }
+      >
+        <span aria-hidden="true">{icon}</span> {label}
+      </button>
+    );
+  }
 
   return (
     <div className="toolbar">
-      {/* `hidden` commands (trim/move) need a clip and a target frame, which only
-          a drag can supply — a button for them could never do anything. */}
-      {editor
-        .commands()
-        .filter((cmd) => !cmd.hidden)
-        .map((cmd) => {
-          const enabled = editor.canRun(cmd.id);
-          const why = enabled ? '' : (cmd.disabledReason?.(ctx) ?? '');
-          return (
-            <button
-              key={cmd.id}
-              aria-disabled={!enabled}
-              onClick={() => {
-                // Saying why beats a click that does nothing at all.
-                if (!enabled) return setStatus(why || `지금은 쓸 수 없어요.`);
-                run(cmd.id);
-              }}
-              title={
-                enabled
-                  ? cmd.defaultKey
-                    ? `${cmd.label} (${cmd.defaultKey})`
-                    : cmd.label
-                  : why || cmd.label
-              }
-            >
-              <span aria-hidden="true">{cmd.icon}</span> {cmd.label}
-            </button>
-          );
-        })}
+      {toolbarEntries().map((e) => (
+        <Button key={e.id} id={e.id} label={e.label} icon={e.icon} />
+      ))}
+      <span className="sep" />
+      <Button id="app.undo" label="되돌리기" icon="↩" />
+      <Button id="app.redo" label="다시 실행" icon="↪" />
       <span className="sep" />
       <button
-        onClick={() =>
-          canUndo ? undo() : setStatus('아직 되돌릴 편집이 없어요.')
-        }
-        aria-disabled={!canUndo}
-        title={canUndo ? '되돌리기 (Ctrl+Z)' : '아직 되돌릴 편집이 없어요.'}
+        onClick={() => setOverlay('palette')}
+        title={`명령 찾기 (${formatChord(keymap.byAction.get('app.palette') ?? null)})`}
       >
-        <span aria-hidden="true">↩</span> 되돌리기
+        <span aria-hidden="true">⌘</span> 명령 찾기
       </button>
-      <button
-        onClick={() =>
-          canRedo ? redo() : setStatus('다시 실행할 편집이 없어요.')
-        }
-        aria-disabled={!canRedo}
-        title={canRedo ? '다시 실행 (Ctrl+Shift+Z)' : '다시 실행할 편집이 없어요.'}
-      >
-        <span aria-hidden="true">↪</span> 다시
+      <button onClick={() => setOverlay('shortcuts')} title="단축키 설정">
+        <span aria-hidden="true">⌨</span> 단축키
       </button>
       <span className="sep" />
       <ExportButton />

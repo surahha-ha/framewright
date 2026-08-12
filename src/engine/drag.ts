@@ -6,19 +6,20 @@
 // see in a screenshot. Here it is unit-testable in Node.
 
 import type { Project } from './types';
-import { clipLength, snapFrame, timelineDuration } from './timeline';
-import { locateClip, trimLimits } from './commands';
+import {
+  clipLength,
+  locateClip,
+  snapFrame,
+  timelineDuration,
+  trimLimits,
+} from './timeline';
 
 export type DragMode = 'move' | 'trimStart' | 'trimEnd';
 
 /** Why a drag stopped. The UI turns this into a sentence — a clip that freezes
  *  under the pointer with no explanation reads as a bug, not as a limit. */
 export type DragLimit =
-  | 'timelineStart'
-  | 'neighbour'
-  | 'source'
-  | 'minLength'
-  | 'none';
+  'timelineStart' | 'neighbour' | 'source' | 'minLength' | 'none';
 
 export interface DragBounds {
   min: number;
@@ -61,7 +62,8 @@ export function dragBounds(
       min: limits.minEnd,
       minReason: 'minLength',
       max: limits.maxEnd,
-      maxReason: next && limits.maxEnd === next.startFrame ? 'neighbour' : 'source',
+      maxReason:
+        next && limits.maxEnd === next.startFrame ? 'neighbour' : 'source',
     };
   }
 
@@ -147,7 +149,9 @@ export function planDrag(plan: DragPlan): number {
     const endSnapped = byEnd !== wanted;
     if (startSnapped && endSnapped) {
       raw =
-        Math.abs(byStart - wanted) <= Math.abs(byEnd - wanted) ? byStart : byEnd;
+        Math.abs(byStart - wanted) <= Math.abs(byEnd - wanted)
+          ? byStart
+          : byEnd;
     } else if (startSnapped) {
       raw = byStart;
     } else if (endSnapped) {
@@ -158,7 +162,11 @@ export function planDrag(plan: DragPlan): number {
   } else {
     const anchor =
       plan.mode === 'trimStart' ? plan.originStart : plan.originEnd;
-    raw = snapFrame(anchor + plan.deltaFrames, plan.targets, plan.snapThreshold);
+    raw = snapFrame(
+      anchor + plan.deltaFrames,
+      plan.targets,
+      plan.snapThreshold,
+    );
   }
 
   return Math.min(plan.bounds.max, Math.max(plan.bounds.min, raw));

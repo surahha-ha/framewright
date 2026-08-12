@@ -33,23 +33,42 @@ function runGate() {
   }
 }
 
-/** Pull the numbers out rather than pasting a wall of log. */
-function summarise(out) {
-  const unit = out.match(/Tests\s+(\d+) passed/);
-  const ranE2e = /playwright test/.test(out);
-  const unitFail = out.match(/Tests\s+.*?(\d+) failed/);
-  const e2ePass = out.match(/(\d+) passed \(/);
-  const e2eFail = out.match(/(\d+) failed/);
+/**
+ * Pull the numbers out rather than pasting a wall of log.
+ *
+ * Two traps, both hit in practice: the runners colour their output, so a naive
+ * regex silently matches nothing; and vitest's own "11 passed (11)" looks
+ * exactly like Playwright's "23 passed (33.8s)". So strip ANSI first, then split
+ * the log at the e2e lifecycle banner and read each half on its own terms.
+ * A summary that quietly drops the unit count is worse than no summary — it
+ * reads as "the unit tests didn't run".
+ */
+function summarise(raw) {
+  // eslint-disable-next-line no-control-regex
+  const out = raw.replace(/\u001b\[[0-9;]*m/g, '');
+  const marker = out.indexOf('framewright@0.0.1 e2e');
+  const unitLog = marker < 0 ? out : out.slice(0, marker);
+  const e2eLog = marker < 0 ? '' : out.slice(marker);
+
   const parts = [];
-  if (unit) {
+  const unitPass = unitLog.match(/Tests\s+(\d+) passed/);
+  const unitFail = unitLog.match(/Tests\s+.*?(\d+) failed/);
+  if (unitPass) {
     parts.push(
-      `unit ${unit[1]} passed${unitFail ? `, ${unitFail[1]} failed` : ''}`,
+      `unit ${unitPass[1]} passed${unitFail ? `, ${unitFail[1]} failed` : ''}`,
     );
   }
-  if (e2ePass) {
-    parts.push(`e2e ${e2ePass[1]} passed${e2eFail ? `, ${e2eFail[1]} failed` : ''}`);
+
+  const e2ePass = e2eLog.match(/(\d+) passed/);
+  const e2eFail = e2eLog.match(/(\d+) failed/);
+  if (e2ePass || e2eFail) {
+    parts.push(
+      `e2e ${e2ePass?.[1] ?? 0} passed${e2eFail ? `, ${e2eFail[1]} failed` : ''}`,
+    );
+  } else if (e2eLog) {
+    parts.push('e2e did not run to completion');
   }
-  if (ranE2e && !e2ePass) parts.push('e2e did not run to completion');
+
   return parts.join(' · ') || 'no test counts found in output';
 }
 

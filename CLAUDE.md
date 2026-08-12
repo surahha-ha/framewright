@@ -60,6 +60,7 @@ run the whole loop yourself and come back once, at the end:
 ```
 implement → npm run verify → fix → persona review (all three) → fix
           → npm run verify → repeat until GREEN and zero blocker findings
+          → visual QA in real Chrome, if a browser is connected
 ```
 
 Rules for the loop:
@@ -73,8 +74,13 @@ Rules for the loop:
   disagreement about the design, and it is worth the owner's time. Everything
   else is not.
 - **Announce before any git operation** and wait. This is the one hard stop.
-- Visual/subjective review is the owner's, at the end. Don't ask them to be your
-  test runner.
+- **Look at it before handing it over.** If a Chrome is connected
+  (`list_connected_browsers`), drive the real UI and read the screenshots — the
+  gate cannot see a clipped label or an invisible gap. Every visual finding ships
+  with a new assertion so it cannot come back unseen. See docs/TESTING.md. If no
+  browser is connected, say so and skip it; do not guess at appearance.
+- Final taste and judgement are the owner's, at the end. Don't ask them to be
+  your test runner.
 
 ## Handoff — how work survives a session
 
@@ -82,11 +88,11 @@ Chat context dies. A session ends, a context window fills, the owner comes back
 three days later. Everything that matters therefore lives in files, and there are
 exactly three, with different lifetimes:
 
-| File | Lifetime | Answers |
-| --- | --- | --- |
-| `CLAUDE.md` (this file) | rarely changes | how we work, what must never break |
-| `docs/HANDOVER.md` | changes when the *project* changes | what this is for, who the owner is, what has already gone wrong |
-| `docs/STATUS.md` | **rewritten every unit of work** | where we are right now, and the next single step |
+| File                    | Lifetime                           | Answers                                                         |
+| ----------------------- | ---------------------------------- | --------------------------------------------------------------- |
+| `CLAUDE.md` (this file) | rarely changes                     | how we work, what must never break                              |
+| `docs/HANDOVER.md`      | changes when the _project_ changes | what this is for, who the owner is, what has already gone wrong |
+| `docs/STATUS.md`        | **rewritten every unit of work**   | where we are right now, and the next single step                |
 
 ### Starting a session
 
@@ -224,18 +230,57 @@ file that moved. Then run `check:refs` and `typecheck`.
   and duration, and the pure parts are unit-tested.
 - Rotation metadata is still ignored, so a rotated source renders sideways in
   both preview and export (consistent, but wrong).
-- Clipboard and a user-editable keymap are not built yet. The default map is now
-  DERIVED from each command's `defaultKey` (`ui/useShortcuts.ts`), but the
-  `Alt`+arrow nudge bindings still live in `ui/Timeline.tsx` and will not be
-  reachable by a future user keymap. Trim/move/close-gaps landed in E5.
+- **A source whose presentation does not start at zero is two frames early.**
+  The timeline maps frame `n` to `n/fps` seconds and matches that against raw
+  `cts`, so a file with B-frames and no edit list (like `e2e/fixtures/
+sample-h264.mp4`, first `cts` 1024 at timescale 15360) decodes two frames
+  early everywhere, and its last two frames cannot be reached at all. Preview
+  and export share the mapping, so they still agree with each other — it is the
+  frame→media mapping that is wrong. Found by visual QA; reproduced by the
+  `test.fixme` in `e2e/playback-session.spec.ts`, which the existing spec misses
+  because it synthesises timestamps starting at 0.
+- The keymap has no presets (Premiere / Final Cut style) and no import/export —
+  it is per-browser `localStorage` only, so a new machine starts from defaults.
+- The palette filters by plain substring on the label. No fuzzy match, no
+  initials, no recently-used ordering.
+- A paste always lands on the video track, and the insert point snaps to a clip
+  boundary rather than splitting. "Paste attributes" (E6's fourth item) is not
+  built — there are no clip attributes to paste yet.
+- `clip.copy` / `clip.cut` are app actions, so unlike every editor command they
+  are not testable in Node; their coverage is the e2e spec, which self-skips on
+  bundled Chromium (no H.264).
+- **Three controls say "잘라내기" and two of them mean different things.**
+  `clip.cut` (clipboard) sits next to `clip.trimStartToPlayhead` /
+  `trimEndToPlayhead` ("앞부분/뒷부분 잘라내기"), and `✂` (split) vs `✁` (cut)
+  are indistinguishable at toolbar size. Renaming is a naming decision for the
+  owner, not a defect to fix quietly — see `docs/STATUS.md`.
+- The nudge labels say "프레임", which is jargon for a first-time user, and the
+  nudges have no toolbar button to anchor the idea to.
+- The shortcuts panel is a flat ~21-row list with no grouping, and its "없애기"
+  (unbind) and "처음으로" (restore the default) buttons are adjacent and one word
+  apart in meaning.
+- The "명령 찾기" toolbar button uses `⌘` as its icon on what is a Windows-first
+  audience. The binding text itself is localised correctly (`Ctrl+K`).
+- Toolbar buttons carry their binding only in `title`; the timeline hint shows
+  `<kbd>` text permanently. Now that bindings are user-editable, the toolbar
+  should probably show them too.
+- Export is not in the command palette (it lives in `ExportButton`, not the
+  registry), so the palette does not in fact list everything the editor can do.
+- A keymap override for an action id that no longer exists is ignored but never
+  cleaned out of `localStorage`, and nothing reports it.
+- `drag.ts` uses `Number.MAX_SAFE_INTEGER` where `clipboard.ts` uses
+  `Number.POSITIVE_INFINITY` for the same "no clip to the right" sentinel.
+- `AppAction` and `Command` repeat five field names (`label`, `icon`,
+  `defaultKey`, `canRun`, `disabledReason`) with no shared base type. If a third
+  bindable kind ever appears, that is the rule-of-three trigger to extract one.
 - Dragging freezes the timeline scale for the gesture, so trimming a clip longer
   than the current timeline runs past the right edge until release (the readout
   shows the real numbers). A proper fix is timeline zoom, not a live rescale.
 - Trim/move drags are single-track only; there is one video track, so this is not
   yet a limitation — it becomes one the moment a second track exists.
-- The keyboard nudge step is one frame with no coarse alternative (`Shift` and
-  `Ctrl` are taken by the two trims). `Q`/`W` cover "go exactly here"; a
-  next-snap-target jump is still missing.
+- The keyboard nudge step is one frame with no coarse alternative. `Q`/`W` cover
+  "go exactly here"; a next-snap-target jump is still missing. (The six nudges
+  are rebindable now, but a bigger step is a different command, not a binding.)
 - The drag readout sits in the track header, not next to the pointer.
 - Deleting or splitting restores focus to a neighbouring clip only when focus
   fell to `<body>`; a more precise roving-focus model is still owed.

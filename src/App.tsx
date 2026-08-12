@@ -3,7 +3,9 @@ import { useEffect } from 'react';
 import { useStore } from './store/projectStore';
 import { retainOnly } from './engine/registry';
 import { retainOnlyAudio } from './engine/audio';
+import { CommandPalette } from './ui/CommandPalette';
 import { MediaBin } from './ui/MediaBin';
+import { ShortcutsPanel } from './ui/ShortcutsPanel';
 import { Preview } from './ui/Preview';
 import { Timeline } from './ui/Timeline';
 import { Toolbar } from './ui/Toolbar';
@@ -18,6 +20,7 @@ const BUILD = 'versions-1';
 export default function App() {
   const status = useStore((s) => s.status);
   const assets = useStore((s) => s.project.assets);
+  const overlay = useStore((s) => s.overlay);
   useShortcuts();
 
   // Free decode services (they pin the whole source in memory) for assets that
@@ -28,32 +31,45 @@ export default function App() {
     retainOnlyAudio(ids);
   }, [assets]);
 
+  const modal = overlay !== 'none';
+
   return (
-    <div className="app">
-      <header className="topbar">
-        <span className="brand">framewright</span>
-        <span className="tagline">web video editor</span>
-        {import.meta.env.DEV && (
-          <span
-            className="build"
-            title="빌드 표식(개발용) — 예상과 다르면 개발서버가 옛 코드를 서빙 중입니다"
-          >
-            {BUILD}
-          </span>
-        )}
-      </header>
-      <Toolbar />
-      <main className="workspace">
-        <div className="sidebar">
-          <MediaBin />
-          <VersionPanel />
-        </div>
-        <Preview />
-      </main>
-      <Timeline />
-      <footer className="statusbar" role="status">
-        {status}
-      </footer>
-    </div>
+    <>
+      {/* `aria-modal` alone does not reliably stop a screen reader's browse mode
+          from walking the page behind a dialog, so the editor itself is hidden
+          from the accessibility tree while one is open. The dialogs are siblings
+          of this element, not children, so focus never sits inside the hidden
+          subtree. */}
+      <div className="app" aria-hidden={modal || undefined}>
+        <header className="topbar">
+          <span className="brand">framewright</span>
+          <span className="tagline">web video editor</span>
+          {import.meta.env.DEV && (
+            <span
+              className="build"
+              title="빌드 표식(개발용) — 예상과 다르면 개발서버가 옛 코드를 서빙 중입니다"
+            >
+              {BUILD}
+            </span>
+          )}
+        </header>
+        <Toolbar />
+        <main className="workspace">
+          <div className="sidebar">
+            <MediaBin />
+            <VersionPanel />
+          </div>
+          <Preview />
+        </main>
+        <Timeline />
+        <footer className="statusbar" role="status">
+          {status}
+        </footer>
+      </div>
+      {/* Mounted only while open, so each opening starts clean and the closing
+          one can hand focus back to whatever the user was on. */}
+      {overlay === 'palette' && <CommandPalette />}
+      {overlay === 'shortcuts' && <ShortcutsPanel />}
+    </>
   );
 }

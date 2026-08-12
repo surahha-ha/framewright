@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createEditor } from './command';
-import { trimLimits } from './commands';
+import { trimLimits } from './timeline';
 import { createProject } from './project';
 import { clipLength, snapFrame, timelineDuration } from './timeline';
 import type { Clip, Project } from './types';
@@ -26,7 +26,9 @@ function seed(): Project {
         meta: { durationSec: 10 }, // 300 frames at 30fps
       },
     ],
-    tracks: p.tracks.map((t) => (t.type === 'video' ? { ...t, clips: [clip] } : t)),
+    tracks: p.tracks.map((t) =>
+      t.type === 'video' ? { ...t, clips: [clip] } : t,
+    ),
   };
 }
 
@@ -66,9 +68,21 @@ describe('trim limits', () => {
           ? {
               ...t,
               clips: [
-                { id: 'left', assetId: 'asset_1', startFrame: 0, inFrame: 0, outFrame: 10 },
+                {
+                  id: 'left',
+                  assetId: 'asset_1',
+                  startFrame: 0,
+                  inFrame: 0,
+                  outFrame: 10,
+                },
                 { ...clips(base)[0], startFrame: 20 },
-                { id: 'right', assetId: 'asset_1', startFrame: 200, inFrame: 0, outFrame: 10 },
+                {
+                  id: 'right',
+                  assetId: 'asset_1',
+                  startFrame: 200,
+                  inFrame: 0,
+                  outFrame: 10,
+                },
               ],
             }
           : t,
@@ -151,7 +165,13 @@ describe('clip.move', () => {
               ...t,
               clips: [
                 clips(base)[0],
-                { id: 'right', assetId: 'asset_1', startFrame: 150, inFrame: 0, outFrame: 20 },
+                {
+                  id: 'right',
+                  assetId: 'asset_1',
+                  startFrame: 150,
+                  inFrame: 0,
+                  outFrame: 20,
+                },
               ],
             }
           : t,

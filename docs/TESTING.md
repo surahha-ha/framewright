@@ -8,7 +8,9 @@
    `isContinuous`). **This is where we do TDD.**
 2. **Browser e2e (Playwright).** Everything that needs real WebCodecs: decode
    sessions, playback, import, split/delete in the real UI, and export.
-3. **Manual harness.** `webcodecs_verify.html` for exploratory codec /
+3. **Visual QA (Claude in Chrome).** A real Chrome, driven and _looked at_.
+   See below — this is a distinct layer, not a slower e2e.
+4. **Manual harness.** `webcodecs_verify.html` for exploratory codec /
    seek-latency / memory checks on real footage.
 
 ## Why the split
@@ -65,12 +67,71 @@ Playwright's bundled Chromium is the **open-source build: it has no H.264**
 Two shipped bugs live on as tests, because both were invisible to unit tests:
 
 - **"plays fast after a cut"** — a clip starting mid-source answered with the
-  newest *buffered* frame instead of the requested one while the decoder was
+  newest _buffered_ frame instead of the requested one while the decoder was
   still catching up. Rule extracted as `drainPlan`; behaviour covered in
   `e2e/playback-session.spec.ts`.
 - **"freezes when you split during playback"** — the fix above stopped consuming
   frames while undecided, jamming the buffer. Covered by the same spec, plus
   `isContinuous` (a split must not restart the decoder at all).
+
+## Visual QA — what Playwright structurally cannot do
+
+Playwright checks what someone **thought to assert**. It will happily report all
+green while the drag readout overflows its container, the gap hatching is
+invisible against the track, a label is clipped to "빈 곳 없애…", or the timeline
+collapses at 1280px. Nobody wrote an assertion for those, because you do not
+know to write it until you have seen it.
+
+Claude in Chrome closes that gap: it drives the user's real Chrome and takes
+screenshots that get _read_. Two things follow from "real Chrome":
+
+- **H.264 works**, so import, playback and export run on actual footage — no
+  self-skipping, unlike bundled Chromium.
+- It is the browser the owner actually uses, with their zoom, fonts and window
+  size.
+
+### It is a layer, not a gate
+
+Visual QA is **not** part of `npm run verify` and never will be. It is
+non-deterministic, needs a live extension connection, and its output is a
+judgement rather than a boolean. Treat it as the step between "the gate is
+green" and "the owner looks at it".
+
+### The rule that keeps it from becoming a treadmill
+
+**Every visual finding must leave behind an assertion.** If the readout
+overflows, the fix ships with an e2e check on its width or on
+`scrollWidth <= clientWidth`. If a control is unreachable at a narrow width, the
+fix ships with a viewport-sized spec. Otherwise the same defect returns and is
+only caught by someone happening to look again — which is exactly the failure
+mode this project already has a history of.
+
+### What to actually look at
+
+Assertions cover behaviour; look for what they cannot say:
+
+- **Text**: anything clipped, wrapped mid-word, or overflowing — the status bar,
+  the drag readout, toolbar labels, clip names in a narrow clip.
+- **The timeline at rest and mid-drag**: does a gap read as a gap? Is the pinned
+  stub of an off-screen clip visible? Are the trim handles findable on hover,
+  and on keyboard focus?
+- **Disabled state**: `aria-disabled` buttons must _look_ unavailable — the
+  hover style must not fire on them.
+- **Contrast and focus rings** on the real background, not in a mockup.
+- **A real drag with a real mouse**: does the clip land where you aimed? Does
+  snapping feel like help or like fighting?
+- **Console**: any error or warning during import → play → edit → export.
+- **Narrow window** (~1280px) and a **long timeline** (a dozen clips).
+
+### Running it
+
+The owner must have the Claude in Chrome extension connected, with site
+permission granted for the dev server host (`127.0.0.1:9990`). Check with
+`list_connected_browsers` first; an empty list means it is not available and the
+visual pass is simply skipped — say so rather than guessing.
+
+Save the screenshots and send them. The owner's own pass should start from
+evidence, not from a blank page.
 
 ## The e2e DOM contract
 
@@ -78,22 +139,32 @@ Playwright tests reach into the DOM, so the DOM is an API. These selectors and
 attributes are a **contract**: change one and you must change the specs in the
 same commit. Anything not on this list is free to change.
 
-| Contract | Meaning |
-| --- | --- |
-| `.ruler` | the playhead, `role="slider"`, `aria-valuenow` = current frame |
-| `.track` | the clip strip, `role="group"`; clicking it scrubs |
-| `.timeline .clip` | one clip button, in timeline order |
-| `.gap` | a hole in the strip (decorative, `aria-hidden`) |
-| `.statusbar` | `role="status"`; the last thing that happened, in words |
-| `.transport .dim` | `playhead / total`, in frames |
-| clip `aria-label` | identity + position + length. **Never state.** |
-| clip `aria-pressed` | selected or not. The ONLY place selection lives. |
+| Contract                | Meaning                                                        |
+| ----------------------- | -------------------------------------------------------------- |
+| `.ruler`                | the playhead, `role="slider"`, `aria-valuenow` = current frame |
+| `.track`                | the clip strip, `role="group"`; clicking it scrubs             |
+| `.timeline .clip`       | one clip button, in timeline order                             |
+| `.gap`                  | a hole in the strip (decorative, `aria-hidden`)                |
+| `.statusbar`            | `role="status"`; the last thing that happened, in words        |
+| `.transport .dim`       | `playhead / total`, in frames                                  |
+| clip `aria-label`       | identity + position + length. **Never state.**                 |
+| clip `aria-pressed`     | selected or not. The ONLY place selection lives.               |
+| `.track-hint`           | the key hints under the track, rendered FROM the keymap        |
+| `.overlay`              | the modal backdrop; clicking it closes the dialog              |
+| dialog "명령 찾기"      | the palette: a `combobox` over a `listbox` of `option`s        |
+| palette `option`        | one entry; `aria-disabled` carries "cannot run now"            |
+| dialog "단축키"         | the keymap settings; one row per bindable action               |
+| row button `aria-label` | `"<라벨> 단축키 바꾸기"` — how a spec picks a row              |
+
+The keymap lives in `localStorage` under `framewright.keymap.v1` and **outlives a
+reload**. A spec that rebinds anything must clear that key first, or the previous
+test decides what this one's keys do.
 
 ### Rule: never assert on a value that mixes identity and state
 
 Four e2e tests failed at once because the clip's `aria-label` carried
 `, 선택됨`. Every "did undo restore this?" check compared the label before and
-after — but clicking the clip to drag it also *selected* it, so the label moved
+after — but clicking the clip to drag it also _selected_ it, so the label moved
 for a reason that had nothing to do with the edit.
 
 The lesson is not "write the test differently". It is that **an accessible name

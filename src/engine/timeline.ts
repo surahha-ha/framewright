@@ -71,6 +71,63 @@ export function snapFrame(
   return best;
 }
 
+export interface Located {
+  track: Track;
+  index: number;
+  clip: Clip;
+}
+
+/** Find a clip anywhere in the document, with the track and index it sits in. */
+export function locateClip(
+  project: Project,
+  clipId: string | null,
+): Located | null {
+  if (!clipId) return null;
+  for (const track of project.tracks) {
+    const index = track.clips.findIndex((c) => c.id === clipId);
+    if (index >= 0) return { track, index, clip: track.clips[index] };
+  }
+  return null;
+}
+
+/** Room a clip has to grow/shrink, in TIMELINE frames. Half-open throughout. */
+export function trimLimits(
+  project: Project,
+  clipId: string,
+): {
+  minStart: number;
+  maxStart: number;
+  minEnd: number;
+  maxEnd: number;
+} | null {
+  const found = locateClip(project, clipId);
+  if (!found) return null;
+  const { track, index, clip } = found;
+  const start = clip.startFrame;
+  const end = start + clipLength(clip);
+
+  const prev = track.clips[index - 1];
+  const next = track.clips[index + 1];
+  const prevEnd = prev ? prev.startFrame + clipLength(prev) : 0;
+  const nextStart = next ? next.startFrame : Number.MAX_SAFE_INTEGER;
+
+  // Head cannot pass the source's first frame, the previous clip, or its own tail.
+  const headRoom = clip.inFrame; // frames available before the current in-point
+  const minStart = Math.max(prevEnd, start - headRoom);
+  const maxStart = end - 1; // keep at least one frame
+
+  // Tail cannot pass the end of the source, the next clip, or its own head.
+  // An unmeasurable source proves no headroom at all. Treating "unknown" as
+  // "infinite" let a trim invent frames that were never in the file — they
+  // exported as black and were only ever reported as `missingFrames`.
+  const total = sourceFrames(project, clip.assetId);
+  const tailRoom = total === null ? 0 : total - clip.outFrame;
+  const minEnd = start + 1;
+  const maxEnd = Math.min(nextStart, end + tailRoom);
+
+  return { minStart, maxStart, minEnd, maxEnd };
+}
+
 export interface Resolved {
   trackId: string;
   clip: Clip;

@@ -11,6 +11,8 @@ ones, don't delete.
 | 0003 | Command registry as the spine      | Accepted |
 | 0004 | Local-first, sync-ready storage    | Accepted |
 | 0005 | H.264 / MP4 export target          | Accepted |
+| 0006 | Direct manipulation, one undo step | Accepted |
+| 0007 | Bindings as data; paste placement  | Accepted |
 
 ## Template
 

@@ -31,7 +31,10 @@ import {
   type DragLimit,
   type DragMode,
 } from '../engine/drag';
+import { describeEdit, LIMIT_TEXT } from '../engine/commands';
+import { formatChord } from '../engine/keymap';
 import { formatTimecode } from '../engine/time';
+import { useResolvedKeymap } from './useShortcuts';
 import type { Clip } from '../engine/types';
 
 /** How close to an edge counts as "grab the edge" rather than "grab the clip". */
@@ -65,15 +68,6 @@ interface DragState {
   active: boolean;
 }
 
-/** Why the clip stopped moving, in words. Silence here reads as a bug. */
-const LIMIT_TEXT: Record<DragLimit, string> = {
-  timelineStart: '맨 앞이에요. 더 앞으로는 갈 수 없어요.',
-  neighbour: '옆 클립에 닿았어요.',
-  source: '원본 영상이 여기까지예요.',
-  minLength: '더 짧게는 줄일 수 없어요.',
-  none: '',
-};
-
 export function Timeline() {
   const barRef = useRef<HTMLDivElement>(null);
   /** Grabbing a trim handle must not also scrub: "trim to the playhead" only
@@ -86,7 +80,7 @@ export function Timeline() {
   const select = useStore((s) => s.select);
   const run = useStore((s) => s.run);
   const setStatus = useStore((s) => s.setStatus);
-  const endGesture = useStore((s) => s.endGesture);
+  const keymap = useResolvedKeymap();
   const [drag, setDrag] = useState<DragState | null>(null);
   /** The handlers live on `window` (see below) and must see the newest drag. */
   const dragRef = useRef<DragState | null>(null);
@@ -240,30 +234,11 @@ export function Timeline() {
     announce(d.mode, d.clipId);
   }
 
-  /** One sentence per edit, in one wording, whatever triggered it. */
+  /** One sentence per edit, in one wording, whatever triggered it — the nudge
+   *  commands announce themselves through the same `describeEdit`. */
   function announce(mode: DragMode, clipId: string) {
-    const now = videoTrack(useStore.getState().project).clips.find(
-      (c) => c.id === clipId,
-    );
-    if (!now) return;
-    const gapAhead = gapBefore(clipId);
-    const tail = gapAhead ? ' · 앞에 빈 곳이 생겼어요' : '';
-    setStatus(
-      mode === 'move'
-        ? `클립을 ${formatTimecode(now.startFrame, fps)} 위치로 옮겼어요.${tail}`
-        : mode === 'trimStart'
-          ? `앞부분을 잘라냈어요 · 남은 길이 ${formatTimecode(clipLength(now), fps)}${tail}`
-          : `뒷부분을 잘라냈어요 · 남은 길이 ${formatTimecode(clipLength(now), fps)}`,
-    );
-  }
-
-  /** Is there empty space immediately before this clip, right now? */
-  function gapBefore(clipId: string): boolean {
-    const list = videoTrack(useStore.getState().project).clips;
-    const i = list.findIndex((c) => c.id === clipId);
-    if (i < 0) return false;
-    const prev = list[i - 1];
-    return list[i].startFrame > (prev ? prev.startFrame + clipLength(prev) : 0);
+    const text = describeEdit(mode, useStore.getState().project, clipId);
+    if (text) setStatus(text);
   }
 
   // Global end-of-gesture handling. Registered only while a drag is live.
@@ -333,40 +308,19 @@ export function Timeline() {
     }
     if (!e.altKey) return;
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const step = e.key === 'ArrowRight' ? 1 : -1;
+    // The nudge itself is a bound command now (`clip.moveLeft` and friends), run
+    // by the global keymap so a user rebinding reaches it. All this control does
+    // is make sure the clip under the keyboard is the one that gets nudged —
+    // focus is not selection, and acting on the clip you cannot see is worse
+    // than doing nothing. Deliberately no preventDefault: the event must reach
+    // the window handler.
     select(clip.id);
-    const start = clip.startFrame;
-    const end = start + clipLength(clip);
-    const mode: DragMode = e.shiftKey
-      ? 'trimStart'
-      : e.ctrlKey || e.metaKey
-        ? 'trimEnd'
-        : 'move';
-    const command = dragCommand(
-      mode,
-      clip.id,
-      (mode === 'trimEnd' ? end : start) + step,
-      start,
-      end,
-    );
-    if (!command) return;
-
-    // A held key is one gesture, so it must be one undo step — the same promise
-    // the drag path makes. The key is passed on EVERY press, including the first;
-    // `onKeyUp` ends the gesture, so the next hold starts a fresh entry.
-    const ok = run(command.id, command.args, `nudge:${mode}:${clip.id}`);
-    if (!ok) {
-      const bounds = dragBounds(project, clip.id, mode);
-      const target = mode === 'trimEnd' ? end + step : start + step;
-      const reason = bounds ? LIMIT_TEXT[limitHit(target, bounds)] : '';
-      setStatus(reason || '더 이상 움직일 수 없어요.');
-      return;
-    }
     lastFocused.current = { id: clip.id, index };
-    announce(mode, clip.id);
+  }
+
+  /** How a binding is written in the hint line, straight from the keymap. */
+  function key(actionId: string): string {
+    return formatChord(keymap.byAction.get(actionId) ?? null);
   }
 
   // ---------------------------------------------------------------- geometry
@@ -391,21 +345,25 @@ export function Timeline() {
   function clipStyle(g: { start: number; length: number }) {
     const left = pct(g.start);
     if (left >= 100) {
-      return { left: `calc(100% - ${MIN_CLIP_PX + 2}px)`, width: `${MIN_CLIP_PX}px` };
+      return {
+        left: `calc(100% - ${MIN_CLIP_PX + 2}px)`,
+        width: `${MIN_CLIP_PX}px`,
+      };
     }
     return { left: left + '%', width: pct(g.length) + '%' };
   }
 
   const readout = (() => {
     if (!drag?.active) return null;
-    const limit = LIMIT_TEXT[
-      limitHit(drag.frame, {
-        min: drag.min,
-        max: drag.max,
-        minReason: drag.minReason,
-        maxReason: drag.maxReason,
-      })
-    ];
+    const limit =
+      LIMIT_TEXT[
+        limitHit(drag.frame, {
+          min: drag.min,
+          max: drag.max,
+          minReason: drag.minReason,
+          maxReason: drag.maxReason,
+        })
+      ];
     const body =
       drag.mode === 'move'
         ? `옮기는 중 → ${formatTimecode(drag.frame, fps)}`
@@ -496,7 +454,6 @@ export function Timeline() {
               onPointerDown={(e) => beginDrag(c, e)}
               onPointerMove={onDragMove}
               onKeyDown={(e) => onClipKey(c, i, e)}
-              onKeyUp={endGesture}
             >
               <span className="clip-handle start" aria-hidden="true" />
               <span className="clip-mark" aria-hidden="true">
@@ -509,13 +466,17 @@ export function Timeline() {
         })}
         <div className="playhead" style={{ left: pct(playhead) + '%' }} />
       </div>
+      {/* Read from the live keymap, so a rebinding shows up here instead of
+          leaving the hint quietly lying about which keys work. */}
       <p className="track-hint">
         클립을 끌어 옮기고, 양 끝을 끌면 앞뒤를 잘라낼 수 있어요. 클립을 고른 뒤{' '}
-        <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> 옮기기,{' '}
-        <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> 앞부분,{' '}
-        <kbd>Alt</kbd>+<kbd>Ctrl</kbd>+<kbd>←</kbd>/<kbd>→</kbd> 뒷부분,{' '}
-        <kbd>Delete</kbd> 지우기. 재생 위치까지 한 번에 잘라내려면{' '}
-        <kbd>Q</kbd>(앞), <kbd>W</kbd>(뒤)를 눌러요.
+        <kbd>{key('clip.moveLeft')}</kbd>/<kbd>{key('clip.moveRight')}</kbd>{' '}
+        옮기기, <kbd>{key('clip.headExtend')}</kbd>/
+        <kbd>{key('clip.headShrink')}</kbd> 앞부분,{' '}
+        <kbd>{key('clip.tailShrink')}</kbd>/<kbd>{key('clip.tailExtend')}</kbd>{' '}
+        뒷부분, <kbd>{key('clip.deleteRipple')}</kbd> 지우기. 재생 위치까지 한
+        번에 잘라내려면 <kbd>{key('clip.trimStartToPlayhead')}</kbd>(앞),{' '}
+        <kbd>{key('clip.trimEndToPlayhead')}</kbd>(뒤)를 눌러요.
       </p>
     </section>
   );

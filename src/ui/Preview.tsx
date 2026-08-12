@@ -16,7 +16,7 @@ import { buildAudioSchedule } from '../engine/audioSchedule';
 import { AudioPlayer } from '../engine/audioPlayer';
 import { audioContext, getAudioBuffer, resumeAudio } from '../engine/audio';
 import type { PlaybackSession } from '../engine/playbackSession';
-import { TOGGLE_PLAY_EVENT } from './useShortcuts';
+import { TOGGLE_PLAY_EVENT } from './actions';
 
 export function Preview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -165,7 +165,9 @@ export function Preview() {
     if (schedule.length > 0 && audioRef.current.scheduledCount === 0) {
       setStatus('이 영상에는 재생할 수 있는 오디오가 없어요.');
     } else if (ctx.state !== 'running') {
-      setStatus('브라우저가 소리를 막고 있어요. 화면을 한 번 클릭한 뒤 다시 재생해 주세요.');
+      setStatus(
+        '브라우저가 소리를 막고 있어요. 화면을 한 번 클릭한 뒤 다시 재생해 주세요.',
+      );
     }
   }
 
@@ -231,7 +233,9 @@ export function Preview() {
             sessionRef.current?.stop();
             sessionRef.current = svc.createPlaybackSession((e) => {
               console.error('playback decode error:', e);
-              setStatus('영상을 재생하는 중 문제가 생겨 멈췄어요. 다시 재생해 보세요.');
+              setStatus(
+                '영상을 재생하는 중 문제가 생겨 멈췄어요. 다시 재생해 보세요.',
+              );
               stopPlayback();
             });
             sessionRef.current.start(sourceSec);
@@ -296,9 +300,7 @@ export function Preview() {
           </p>
         )}
         {total === 0 && (
-          <p className="stage-note">
-            왼쪽에 영상을 넣으면 여기에 표시돼요.
-          </p>
+          <p className="stage-note">왼쪽에 영상을 넣으면 여기에 표시돼요.</p>
         )}
       </div>
       <div className="transport">

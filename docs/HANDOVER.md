@@ -38,7 +38,7 @@ persona (`docs/TESTERS.md` explains the reasoning).
 
 ## Where the work stands
 
-Done: **E0–E5.**
+Done: **E0–E6.**
 
 - E0–E1 — time model, document, command registry + undo, persistence/versions
 - E2 — import, demux, decode, preview playback (audio as master clock)
@@ -52,12 +52,18 @@ Done: **E0–E5.**
   - `.ruler` / `.track` split (ARIA presentational-children fix), `aria-disabled`
     toolbar, gap rendering, black preview in gaps
   - ADR-0006 records the decisions
+- E6 — **keymap as data, ⌘K command palette, clipboard**
+  - `src/engine/keymap.ts` — chords, parsing, conflict-reporting resolution
+  - `src/engine/clipboard.ts` — what a copy holds, where a paste lands
+  - `clip.paste` plus six bindable nudge commands (the `Alt`+arrow bindings that
+    used to be hardcoded in `ui/Timeline.tsx`)
+  - `src/ui/actions.ts` — app actions (undo/redo/copy/cut/play/seek/overlays),
+    the things a key can run that are not document edits
+  - `ui/CommandPalette.tsx`, `ui/ShortcutsPanel.tsx`, `ui/keymapStore.ts`
+  - ADR-0007 records the decisions
 
-Next, in order: **E6** clipboard (cut/copy/paste, paste attributes), a
-user-editable keymap with presets, and a ⌘K command palette — the palette is
-nearly free because commands are already data. Then E7 (text/subtitles,
-transitions, audio volume/fades, transform), E8 (style presets, shorts reframe),
-E9 (silence auto-cut).
+Next, in order: **E7** (text/subtitles, transitions, audio volume/fades,
+transform), E8 (style presets, shorts reframe), E9 (silence auto-cut).
 
 Still owed regardless of epic: timeline zoom + ruler ticks + thumbnails +
 waveform, preview depth (quality toggle, loop range, fullscreen, safe area),
@@ -90,7 +96,7 @@ specs are allowed to depend on. Read it before changing markup.
 Every one of these passed a green test suite:
 
 - **Playback ran fast after a cut** — a clip starting mid-source answered with
-  the newest *buffered* frame while the decoder caught up. Fix: `drainPlan`.
+  the newest _buffered_ frame while the decoder caught up. Fix: `drainPlan`.
 - **Freeze when splitting during playback** — caused by the fix above not
   consuming frames while undecided, which jammed the queue.
 - **Silent audio** — the playback loop re-cued audio every frame because it
