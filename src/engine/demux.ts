@@ -96,21 +96,22 @@ export async function demuxVideo(file: File): Promise<DemuxResult> {
   if (timer !== undefined) clearTimeout(timer);
 
   if (!track) throw new Error('demux failed: no track');
-  const complete =
-    outcome === 'done' || samples.length >= (track as VideoTrackInfo).nbSamples;
+  // Assigned inside a callback, so narrow it once here for the rest of the fn.
+  const info = track as VideoTrackInfo;
+  const complete = outcome === 'done' || samples.length >= info.nbSamples;
 
   // Fallback duration from samples if header duration is missing/zero.
-  if (!track.durationSec || !isFinite(track.durationSec)) {
+  if (!info.durationSec || !isFinite(info.durationSec)) {
     let maxEnd = 0;
     for (const s of samples) {
       const e = timescaleToSec(s.cts + s.duration, s.timescale);
       if (e > maxEnd) maxEnd = e;
     }
-    track.durationSec = maxEnd;
+    info.durationSec = maxEnd;
   }
 
   const { isVFR, nominalFps } = analyzeFrameRate(samples);
-  return { track, samples, description, isVFR, nominalFps, complete };
+  return { track: info, samples, description, isVFR, nominalFps, complete };
 }
 
 export interface AudioTrackInfo {
@@ -189,9 +190,10 @@ export async function demuxAudio(file: File): Promise<DemuxAudioResult | null> {
   mp4.flush();
   await ready;
   if (noAudio || !track) return null;
+  const info = track as AudioTrackInfo; // assigned in a callback
   await Promise.race([done, new Promise<void>((r) => setTimeout(r, 5000))]);
   if (samples.length === 0) return null;
-  return { track, samples, description };
+  return { track: info, samples, description };
 }
 
 /** AAC needs its AudioSpecificConfig (inside esds) as the decoder description. */

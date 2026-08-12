@@ -7,12 +7,13 @@ import { MediaBin } from './ui/MediaBin';
 import { Preview } from './ui/Preview';
 import { Timeline } from './ui/Timeline';
 import { Toolbar } from './ui/Toolbar';
+import { VersionPanel } from './ui/VersionPanel';
 import { useShortcuts } from './ui/useShortcuts';
 
 /** Bump when shipping a change you need to confirm is actually loaded.
  *  Shown in the top bar — if it does not match, the dev server is serving a
  *  stale module graph (restart it and hard-reload). */
-const BUILD = 'audio-fallback-3';
+const BUILD = 'versions-1';
 
 export default function App() {
   const status = useStore((s) => s.status);
@@ -32,13 +33,21 @@ export default function App() {
       <header className="topbar">
         <span className="brand">framewright</span>
         <span className="tagline">web video editor</span>
-        <span className="build" title="빌드 표식 — 예상과 다르면 개발서버가 옛 코드를 서빙 중입니다">
-          {BUILD}
-        </span>
+        {import.meta.env.DEV && (
+          <span
+            className="build"
+            title="빌드 표식(개발용) — 예상과 다르면 개발서버가 옛 코드를 서빙 중입니다"
+          >
+            {BUILD}
+          </span>
+        )}
       </header>
       <Toolbar />
       <main className="workspace">
-        <MediaBin />
+        <div className="sidebar">
+          <MediaBin />
+          <VersionPanel />
+        </div>
         <Preview />
       </main>
       <Timeline />

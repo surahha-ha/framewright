@@ -5,7 +5,7 @@ import { editor, useStore } from '../store/projectStore';
 import { demuxAudio, demuxVideo } from '../engine/demux';
 import { framesForDuration, nearestStandardFps } from '../engine/time';
 import { VideoDecodeService } from '../engine/decoder';
-import { setDecodeService } from '../engine/registry';
+import { getDecodeService, setDecodeService } from '../engine/registry';
 import { decodeAudio, decodeAudioTrack, setAudioBuffer } from '../engine/audio';
 
 export function MediaBin() {
@@ -13,8 +13,44 @@ export function MediaBin() {
   const [hot, setHot] = useState(false);
   const [audioReport, setAudioReport] = useState('');
   const project = useStore((s) => s.project);
+  // Assets the document remembers but whose media is not loaded (after reload).
+  const missingMedia = project.assets.filter((a) => !getDecodeService(a.id));
   const sync = useStore((s) => s.sync);
   const setStatus = useStore((s) => s.setStatus);
+
+  /**
+   * Decode this file's audio and bind it to an asset. Tries the quick path,
+   * then demux + WebCodecs (which handles files decodeAudioData refuses).
+   * A silent video is fine — a silently FAILED decode is not, so the reason is
+   * always reported.
+   */
+  async function attachAudio(
+    assetId: string,
+    file: File,
+    audioBytes: ArrayBuffer,
+  ) {
+    let audio = await decodeAudio(audioBytes);
+    const quickError = audio.error;
+    let demuxNote = '';
+    if (!audio.buffer) {
+      const demuxedAudio = await demuxAudio(file);
+      if (!demuxedAudio) {
+        demuxNote = '컨테이너에 오디오 트랙 없음';
+      } else {
+        demuxNote = `트랙 ${demuxedAudio.track.codec} ${demuxedAudio.track.sampleRate}Hz ${demuxedAudio.track.channelCount}ch, 샘플 ${demuxedAudio.samples.length}, desc=${demuxedAudio.description ? demuxedAudio.description.length + 'B' : '없음'}`;
+        audio = await decodeAudioTrack(demuxedAudio);
+      }
+    }
+    if (audio.buffer) setAudioBuffer(assetId, audio.buffer);
+
+    const report = audio.buffer
+      ? `오디오 OK · ${audio.via} · ${audio.buffer.numberOfChannels}ch ${audio.buffer.sampleRate}Hz`
+      : `오디오 실패 · decodeAudioData: ${quickError ?? '-'} · demux: ${demuxNote || '-'} · webcodecs: ${audio.error ?? '-'}`;
+    setAudioReport(report);
+    // eslint-disable-next-line no-console
+    console.log('[framewright] audio:', report);
+    return audio;
+  }
 
   async function onFile(file: File) {
     setStatus(`읽는 중: ${file.name}`);
@@ -30,6 +66,20 @@ export function MediaBin() {
         );
         return;
       }
+      // Reloading restores the project but not the media (files live only in
+      // memory). Picking the same file again re-links it instead of adding a
+      // duplicate clip — otherwise reopening your work would double it.
+      const missing = project.assets.find(
+        (a) => a.name === file.name && !getDecodeService(a.id),
+      );
+      if (missing) {
+        setDecodeService(missing.id, svc);
+        await attachAudio(missing.id, file, audioBytes);
+        sync();
+        setStatus(`${file.name} 을(를) 다시 연결했어요.`);
+        return;
+      }
+
       // The first import defines the sequence: its resolution and (rational)
       // frame rate become the timeline's, so nothing is stretched or re-timed.
       const isFirst = project.assets.length === 0;
@@ -56,31 +106,7 @@ export function MediaBin() {
       );
       setDecodeService(assetId, svc);
 
-      // Try the quick path first; fall back to demux + WebCodecs, which handles
-      // files decodeAudioData refuses. A silent video is fine — a silently
-      // FAILED decode is not, so the reason is reported either way.
-      let audio = await decodeAudio(audioBytes);
-      const quickError = audio.error;
-      let demuxNote = '';
-      if (!audio.buffer) {
-        const demuxedAudio = await demuxAudio(file);
-        if (!demuxedAudio) {
-          demuxNote = '컨테이너에 오디오 트랙 없음';
-        } else {
-          demuxNote = `트랙 ${demuxedAudio.track.codec} ${demuxedAudio.track.sampleRate}Hz ${demuxedAudio.track.channelCount}ch, 샘플 ${demuxedAudio.samples.length}, desc=${demuxedAudio.description ? demuxedAudio.description.length + 'B' : '없음'}`;
-          audio = await decodeAudioTrack(demuxedAudio);
-        }
-      }
-      if (audio.buffer) setAudioBuffer(assetId, audio.buffer);
-
-      // Persist the diagnosis: the status line gets overwritten as soon as you
-      // press play, which hid the real reason last time.
-      const audioReport = audio.buffer
-        ? `오디오 OK · ${audio.via} · ${audio.buffer.numberOfChannels}ch ${audio.buffer.sampleRate}Hz`
-        : `오디오 실패 · decodeAudioData: ${quickError ?? '-'} · demux: ${demuxNote || '-'} · webcodecs: ${audio.error ?? '-'}`;
-      setAudioReport(audioReport);
-      // eslint-disable-next-line no-console
-      console.log('[framewright] audio:', audioReport);
+      const audio = await attachAudio(assetId, file, audioBytes);
 
       sync();
       const audioNote = audio.buffer
@@ -140,12 +166,25 @@ export function MediaBin() {
           if (f) void onFile(f);
         }}
       />
+      {missingMedia.length > 0 && (
+        <div className="relink" role="status">
+          이전 작업을 열었어요. 아래 영상을 다시 선택하면 그대로 이어서 편집할 수
+          있어요.
+          <ul>
+            {missingMedia.map((a) => (
+              <li key={a.id}>{a.name}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <ul className="asset-list">
         {project.assets.map((a) => (
-          <li key={a.id}>
-            🎬 {a.name}
+          <li key={a.id} className={getDecodeService(a.id) ? '' : 'missing'}>
+            {getDecodeService(a.id) ? '🎬' : '⚠'} {a.name}
             <span className="dim">
-              {a.meta.width}×{a.meta.height}
+              {getDecodeService(a.id)
+                ? `${a.meta.width}×${a.meta.height}`
+                : '다시 선택 필요'}
             </span>
           </li>
         ))}

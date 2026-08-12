@@ -12,13 +12,19 @@ export function ExportButton() {
   const [phase, setPhase] = useState<string>('');
   const abortRef = useRef<AbortController | null>(null);
 
+  const setExporting = useStore((s) => s.setExporting);
   const total = videoDuration(project);
   const busy = progress !== null;
+  // Exporting with unloaded media would hand the user a black video after a
+  // convincing progress bar. Refuse up front instead.
+  const missingMedia = project.assets.filter((a) => !getDecodeService(a.id));
+  const blocked = total === 0 || missingMedia.length > 0;
 
   async function onExport() {
     const controller = new AbortController();
     abortRef.current = controller;
     setProgress(0);
+    setExporting(true);
     setStatus('내보내는 중…');
     try {
       const result = await exportProject(project, getDecodeService, {
@@ -68,25 +74,42 @@ export function ExportButton() {
     } finally {
       setProgress(null);
       setPhase('');
+      setExporting(false);
       abortRef.current = null;
     }
   }
 
-  if (busy) {
-    return (
-      <span className="export-busy">
-        <progress value={progress ?? 0} max={100} aria-label="내보내기 진행률" />
-        <span className="dim">
-          {progress}% {phase}
-        </span>
-        <button onClick={() => abortRef.current?.abort()}>취소</button>
-      </span>
-    );
-  }
-
+  // One stable container: swapping the button out entirely dropped focus to
+  // <body> mid-export, which made 취소 unreachable by keyboard.
   return (
-    <button onClick={onExport} disabled={total === 0} title="MP4로 내보내기">
-      ⬇ 내보내기
-    </button>
+    <span className="export-slot">
+      {busy ? (
+        <>
+          <progress
+            value={progress ?? 0}
+            max={100}
+            aria-label="내보내기 진행률"
+          />
+          <span className="dim" role="status" aria-live="polite">
+            {progress}% {phase}
+          </span>
+          <button autoFocus onClick={() => abortRef.current?.abort()}>
+            취소
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={onExport}
+          disabled={blocked}
+          title={
+            missingMedia.length > 0
+              ? '영상 파일을 다시 선택한 뒤 내보낼 수 있어요'
+              : 'MP4로 내보내기'
+          }
+        >
+          ⬇ 내보내기
+        </button>
+      )}
+    </span>
   );
 }

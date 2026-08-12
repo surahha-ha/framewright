@@ -53,10 +53,27 @@ docs/
 
 ## Definition of done for a change
 
-- Unit tests written/updated and passing (`npm test`)
-- `npm run typecheck` clean
+Run these in order. **`typecheck` is not optional** — a duplicate import or a
+use-before-declaration compiles away silently in dev and then breaks the whole
+page, which makes every e2e failure look like an unrelated selector problem.
+
+1. `npm run check:refs` — duplicate/unresolved imports
+2. `npm run typecheck` — types, including TS2448 use-before-declaration
+3. `npm test` — unit tests
+4. `npm run e2e` — browser behaviour (see `docs/TESTING.md`)
+5. Persona review when UI or engine behaviour changed (`docs/TESTERS.md`)
+
+Also:
+
 - Relevant frame-accuracy invariants hold (see `docs/TESTING.md`)
 - Touches an architectural decision? Add/update an ADR.
+
+### When you change UI structure
+
+Renaming, moving, or replacing a component is not done when the new file looks
+right. Before finishing: re-check every place that imported or referenced it,
+confirm nothing imports a symbol twice, and confirm no dead import points at a
+file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 

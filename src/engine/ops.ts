@@ -17,7 +17,10 @@ export type Op =
   | { kind: 'addAsset'; asset: Asset }
   | { kind: 'removeAsset'; assetId: string }
   | { kind: 'setTimeline'; config: TimelineConfig }
-  | { kind: 'setNextId'; value: number };
+  | { kind: 'setNextId'; value: number }
+  /** Whole-document replace — used by "restore a version", which must itself be
+   *  undoable so restoring can never be the thing that loses your work. */
+  | { kind: 'replaceProject'; project: Project };
 
 export interface Patch {
   forward: Op[];
@@ -66,6 +69,8 @@ export function applyOp(project: Project, op: Op): Project {
       return { ...project, timeline: op.config };
     case 'setNextId':
       return { ...project, nextId: op.value };
+    case 'replaceProject':
+      return op.project;
   }
 }
 

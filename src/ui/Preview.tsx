@@ -39,8 +39,11 @@ export function Preview() {
   const isPlaying = useStore((s) => s.isPlaying);
   const setPlaying = useStore((s) => s.setPlaying);
   const setStatus = useStore((s) => s.setStatus);
+  const stopSignal = useStore((s) => s.stopSignal);
   const fps = project.timeline.fps;
   const total = timelineDuration(project);
+  // The document remembers clips whose media is not loaded (e.g. after reload).
+  const missingMedia = project.assets.some((a) => !getDecodeService(a.id));
 
   // Live mirrors for the rAF loop.
   const projectRef = useRef(project);
@@ -208,6 +211,7 @@ export function Preview() {
             sessionRef.current?.stop();
             sessionRef.current = svc.createPlaybackSession((e) => {
               console.error('playback decode error:', e);
+              setStatus('영상을 재생하는 중 문제가 생겨 멈췄어요. 다시 재생해 보세요.');
               stopPlayback();
             });
             sessionRef.current.start(sourceSec);
@@ -234,6 +238,13 @@ export function Preview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying]);
 
+  // The document was replaced underneath us (a version restore) — the running
+  // loop's timing base and scheduled audio belong to the old timeline.
+  useEffect(() => {
+    if (stopSignal > 0 && isPlaying) stopPlayback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopSignal]);
+
   // Pause when the tab is hidden (rAF throttling would desync the clock).
   useEffect(() => {
     const onVis = () => {
@@ -249,6 +260,18 @@ export function Preview() {
       <div className="panel-title">프리뷰</div>
       <div className="stage">
         <canvas ref={canvasRef} />
+        {total > 0 && missingMedia && (
+          <p className="stage-note" role="status">
+            영상 파일이 아직 연결되지 않아 화면이 비어 있어요.
+            <br />
+            왼쪽에서 같은 영상을 다시 선택하면 이어서 편집할 수 있어요.
+          </p>
+        )}
+        {total === 0 && (
+          <p className="stage-note">
+            왼쪽에 영상을 넣으면 여기에 표시돼요.
+          </p>
+        )}
       </div>
       <div className="transport">
         <button

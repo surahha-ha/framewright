@@ -26,6 +26,9 @@ export interface Editor {
   undo(): boolean;
   redo(): boolean;
 
+  /** Replace the whole document (restore a version). Undoable, like any edit. */
+  restoreProject(project: Project): void;
+
   /** Import is an edit too — it goes through the same patch/undo machinery. */
   importAsset(
     asset: Omit<Asset, 'id'>,
@@ -47,10 +50,28 @@ export function createEditor(initial: Project): Editor {
 
   const ctx = (): EditorCtx => ({ project, playhead, selectedClipId });
 
+  /** Keep the playhead inside the timeline — a shorter document would otherwise
+   *  leave it stranded, freezing the preview and disabling every command. */
+  function clampPlayhead(): void {
+    const last = Math.max(0, timelineDuration(project) - 1);
+    playhead = Math.min(last, Math.max(0, playhead));
+  }
+
+  /** Drop a selection pointing at a clip that no longer exists. */
+  function pruneSelection(): void {
+    if (!selectedClipId) return;
+    const exists = project.tracks.some((t) =>
+      t.clips.some((c) => c.id === selectedClipId),
+    );
+    if (!exists) selectedClipId = null;
+  }
+
   function commit(patch: Patch): void {
     project = applyOps(project, patch.forward);
     undoStack.push(patch);
     redoStack.length = 0; // a new edit invalidates redo
+    clampPlayhead();
+    pruneSelection();
   }
 
   return {
@@ -98,6 +119,8 @@ export function createEditor(initial: Project): Editor {
       if (!patch) return false;
       project = applyOps(project, patch.inverse);
       redoStack.push(patch);
+      clampPlayhead(); // the timeline may now be shorter
+      pruneSelection();
       return true;
     },
 
@@ -106,7 +129,26 @@ export function createEditor(initial: Project): Editor {
       if (!patch) return false;
       project = applyOps(project, patch.forward); // replayed, not re-run
       undoStack.push(patch);
+      clampPlayhead();
+      pruneSelection();
       return true;
+    },
+
+    restoreProject(next) {
+      // NEVER rewind the id counter. Ids are handed out to media in registries
+      // that outlive a restore, so reusing one would make a later import claim
+      // an old asset's id — and the editor would silently play the wrong file.
+      const safe: Project = {
+        ...next,
+        nextId: Math.max(next.nextId, project.nextId),
+      };
+      commit({
+        forward: [{ kind: 'replaceProject', project: safe }],
+        inverse: [{ kind: 'replaceProject', project }],
+      });
+      // The old playhead may be past the end of the restored timeline.
+      this.setPlayhead(playhead);
+      selectedClipId = null;
     },
 
     importAsset(assetInput, durationFrames, sequence) {

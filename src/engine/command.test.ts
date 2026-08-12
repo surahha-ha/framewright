@@ -151,6 +151,91 @@ describe('import defines the sequence', () => {
   });
 });
 
+describe('restoring a version', () => {
+  it('replaces the document and is itself undoable', () => {
+    // Restoring must never be the thing that loses your work.
+    const ed = createEditor(seed());
+    const original = JSON.parse(JSON.stringify(ed.project));
+    ed.setPlayhead(40);
+    ed.dispatch('clip.split');
+    const edited = JSON.stringify(ed.project);
+
+    ed.restoreProject(JSON.parse(JSON.stringify(original)));
+    expect(videoClips(ed.project)).toEqual(videoClips(original));
+    expect(ed.project.assets).toEqual(original.assets);
+
+    ed.undo();
+    expect(JSON.stringify(ed.project)).toBe(edited);
+  });
+
+  it('never rewinds the id counter, so asset ids are never reused', () => {
+    // The decode/audio registries are keyed by asset id and outlive a restore.
+    // Reusing an id would make a later import claim an old asset's media and
+    // the editor would silently play (and export) the wrong file.
+    const ed = createEditor(createProject());
+    const empty = JSON.parse(JSON.stringify(ed.project));
+    ed.importAsset({ kind: 'video', name: 'a.mp4', meta: {} }, 100);
+    const afterImport = ed.project.nextId;
+
+    ed.restoreProject(empty);
+    expect(ed.project.nextId).toBeGreaterThanOrEqual(afterImport);
+
+    const next = ed.importAsset({ kind: 'video', name: 'b.mp4', meta: {} }, 50);
+    expect(next.assetId).not.toBe('asset_1');
+  });
+
+  it('clears a selection pointing at a clip that no longer exists', () => {
+    const ed = createEditor(seed());
+    ed.setPlayhead(40);
+    ed.dispatch('clip.split');
+    ed.select(videoClips(ed.project)[0].id);
+    ed.dispatch('clip.deleteRipple');
+    expect(ed.selectedClipId).toBeNull();
+  });
+
+  it('re-clamps the playhead when undo/redo shrinks the timeline', () => {
+    const ed = createEditor(seed()); // 100 frames
+    const short = createProject();
+    ed.restoreProject({
+      ...short,
+      tracks: short.tracks.map((t) =>
+        t.type === 'video'
+          ? {
+              ...t,
+              clips: [
+                { id: 'c', assetId: 'a', startFrame: 0, inFrame: 0, outFrame: 10 },
+              ],
+            }
+          : t,
+      ),
+    });
+    ed.undo(); // back to 100 frames
+    ed.setPlayhead(99);
+    ed.redo(); // back to 10 frames
+    expect(ed.playhead).toBeLessThanOrEqual(9);
+  });
+
+  it('clamps a playhead that is past the restored end', () => {
+    const ed = createEditor(seed());
+    ed.setPlayhead(99);
+    const short = createProject();
+    ed.restoreProject({
+      ...short,
+      tracks: short.tracks.map((t) =>
+        t.type === 'video'
+          ? {
+              ...t,
+              clips: [
+                { id: 'c', assetId: 'a', startFrame: 0, inFrame: 0, outFrame: 10 },
+              ],
+            }
+          : t,
+      ),
+    });
+    expect(ed.playhead).toBeLessThanOrEqual(9);
+  });
+});
+
 describe('undo / redo', () => {
   it('undo restores the document exactly', () => {
     const ed = createEditor(seed());

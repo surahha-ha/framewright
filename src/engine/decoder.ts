@@ -77,23 +77,28 @@ export class VideoDecodeService {
     const endIdx = Math.min(targetIdx + 8, this.samples.length - 1);
 
     let matched: VideoFrame | null = null;
-    let dec: VideoDecoder | null = null;
+    let fail: ((e: unknown) => void) | null = null;
+
+    // The decoder is created OUTSIDE the promise so the cleanup path below is
+    // guaranteed to see it — a decoder leaked per failed scrub kills the tab.
+    const decoder = new VideoDecoder({
+      output: (frame) => {
+        if (matched === null && Math.abs(frame.timestamp - targetTs) <= 1) {
+          matched = frame; // handed to the caller
+        } else {
+          frame.close();
+        }
+      },
+      error: (e) => fail?.(e),
+    });
+
     try {
-      return await new Promise<VideoFrame | null>((resolve, reject) => {
-        dec = new VideoDecoder({
-          output: (frame) => {
-            if (matched === null && Math.abs(frame.timestamp - targetTs) <= 1) {
-              matched = frame; // handed to the caller
-            } else {
-              frame.close();
-            }
-          },
-          error: (e) => reject(e),
-        });
-        dec.configure(this.config);
+      decoder.configure(this.config);
+      await new Promise<void>((resolve, reject) => {
+        fail = reject;
         for (let i = kf; i <= endIdx; i++) {
           const s = this.samples[i];
-          dec.decode(
+          decoder.decode(
             new EncodedVideoChunk({
               type: s.is_sync ? 'key' : 'delta',
               timestamp: this.tsUs(s),
@@ -102,23 +107,17 @@ export class VideoDecodeService {
             }),
           );
         }
-        dec.flush()
-          .then(() => {
-            const out = matched;
-            matched = null; // ownership transfers to the caller
-            resolve(out);
-          })
-          .catch(reject);
+        decoder.flush().then(() => resolve(), reject);
       });
-    } catch (err) {
-      // Every failure path must release the frame and the hardware decoder.
-      if (matched) (matched as VideoFrame).close();
-      matched = null;
-      throw err;
+      const out = matched as VideoFrame | null;
+      matched = null; // ownership transfers to the caller
+      return out;
     } finally {
-      if (matched) (matched as VideoFrame).close();
+      // Every path — success, error, abort — releases the frame and the decoder.
+      (matched as VideoFrame | null)?.close();
+      matched = null;
       try {
-        dec?.close();
+        decoder.close();
       } catch {
         /* already closed */
       }

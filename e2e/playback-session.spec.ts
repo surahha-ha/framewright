@@ -21,9 +21,12 @@ test.describe('PlaybackSession (real WebCodecs)', () => {
     test.skip(!codec, 'no usable video codec in this browser');
 
     const results = await page.evaluate(async (codecName: string) => {
-      const { PlaybackSession, HOLD } = await import(
-        '/src/engine/playbackSession.ts'
-      );
+      // A URL the Vite dev server serves and transforms at runtime — not a
+      // package specifier. Kept in a variable so TypeScript does not try to
+      // resolve it (a `@ts-expect-error` only covers the very next line, which
+      // is not where the error lands in a multi-line import call).
+      const modulePath = '/src/engine/playbackSession.ts';
+      const { PlaybackSession, HOLD } = await import(modulePath);
 
       const FPS = 30;
       const usFor = (f: number) => Math.round((f * 1e6) / FPS);

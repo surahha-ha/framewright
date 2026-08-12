@@ -4,7 +4,13 @@
   --line: #26374a;
   --ink: #eaf1f8;
   --muted: #9db2c7;
+  --faint: #7d92a7;
   --teal: #2dd4bf;
+  --amber: #fbbf24;
+  --rose: #fb7185;
+}
+h2.panel-title {
+  font-weight: 700;
 }
 * {
   box-sizing: border-box;
@@ -66,12 +72,103 @@ body {
   border-bottom: 1px solid var(--line);
   flex: none;
 }
-.bin {
-  width: 240px;
+.sidebar {
+  width: 260px;
+  flex: none;
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+.bin {
+  display: flex;
+  flex-direction: column;
   flex: none;
+}
+.versions {
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+.saved-line {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 8px 12px 4px;
+  font-family: ui-monospace, monospace;
+}
+.versions button {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.versions button:hover {
+  border-color: var(--teal);
+}
+.versions button.wide {
+  margin: 4px 12px 8px;
+}
+.versions button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--faint);
+  padding: 5px 7px;
+}
+.versions button:focus-visible,
+.versions input:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.name-row {
+  display: flex;
+  gap: 6px;
+  margin: 4px 12px 8px;
+}
+.name-row input {
+  flex: 1;
+  min-width: 0;
+  background: #0b1219;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.empty-hint {
+  margin: 0 12px;
+  font-size: 11.5px;
+  color: var(--faint);
+  line-height: 1.6;
+}
+.version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px;
+}
+.version-list li {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.v-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.v-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 5px;
 }
 .drop {
   margin: 12px;
@@ -106,6 +203,24 @@ body {
   color: var(--muted);
   font-size: 11px;
 }
+.relink {
+  margin: 0 12px 10px;
+  padding: 10px;
+  border: 1px solid #5a4520;
+  background: #241f10;
+  border-radius: 8px;
+  color: #fbbf24;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.relink ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--ink);
+}
+.asset-list li.missing {
+  color: #fbbf24;
+}
 .audio-report {
   margin: 10px 12px;
   padding: 8px 10px;
@@ -134,6 +249,22 @@ body {
   overflow: hidden;
   min-height: 0;
   padding: 8px;
+}
+.stage {
+  position: relative;
+}
+.stage-note {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  max-width: 80%;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+  pointer-events: none;
 }
 .stage canvas {
   max-width: 100%;
@@ -209,9 +340,68 @@ body {
   overflow: hidden;
   box-sizing: border-box;
 }
+.clip {
+  gap: 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.clip:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
 .clip.selected {
   border-color: var(--teal);
   box-shadow: inset 0 0 0 1px var(--teal);
+}
+.clip-mark {
+  color: var(--teal);
+  flex: none;
+}
+.clip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.track-hint {
+  margin: 6px 12px 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.track-hint kbd {
+  font-family: ui-monospace, monospace;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.save-warning {
+  margin: 6px 12px 8px;
+  padding: 8px 10px;
+  border: 1px solid #5a4520;
+  background: #241f10;
+  border-radius: 8px;
+  color: var(--amber);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.v-desc {
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+.versions button.danger {
+  border-color: #5a2530;
+  color: var(--rose);
+}
+.export-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.export-slot progress {
+  width: 120px;
 }
 .toolbar {
   display: flex;
