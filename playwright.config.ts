@@ -26,7 +26,13 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev',
     url: DEV_URL,
-    reuseExistingServer: !process.env.CI,
+    // ALWAYS reuse a dev server that is already up. The default
+    // (`!process.env.CI`) turns "I have `npm run dev` open" into a hard failure
+    // the moment anything sets CI — which is exactly what `npm run handoff`
+    // does. Reuse is safe here: Vite serves modules from disk, so a running
+    // server is never stale. (Restart it by hand after changing vite.config.ts
+    // or dependencies.)
+    reuseExistingServer: true,
     timeout: 120_000,
     // Surface Vite's output so a startup failure is visible, not just a timeout.
     stdout: 'pipe',

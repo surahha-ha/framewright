@@ -51,6 +51,139 @@ docs/
 
 - `npm run dev` · `npm run build` · `npm run typecheck` · `npm test`
 
+## Working mode — run the loop, don't ask
+
+The owner has asked for this explicitly: **do not stop between steps to report or
+to ask permission.** For a unit of work (an epic, or one numbered backlog item),
+run the whole loop yourself and come back once, at the end:
+
+```
+implement → npm run verify → fix → persona review (all three) → fix
+          → npm run verify → repeat until GREEN and zero blocker findings
+```
+
+Rules for the loop:
+
+- **`npm run verify` must be green before you claim anything is done.** Not "the
+  engine tests pass" — the whole gate, e2e included.
+- A persona finding in the blocker tier is a defect, not feedback. Fix it and run
+  the gate again. Lower tiers go into "Known tech debt" below, never silently
+  dropped.
+- If the same fix fails twice in a row, stop and report — that is a real
+  disagreement about the design, and it is worth the owner's time. Everything
+  else is not.
+- **Announce before any git operation** and wait. This is the one hard stop.
+- Visual/subjective review is the owner's, at the end. Don't ask them to be your
+  test runner.
+
+## Handoff — how work survives a session
+
+Chat context dies. A session ends, a context window fills, the owner comes back
+three days later. Everything that matters therefore lives in files, and there are
+exactly three, with different lifetimes:
+
+| File | Lifetime | Answers |
+| --- | --- | --- |
+| `CLAUDE.md` (this file) | rarely changes | how we work, what must never break |
+| `docs/HANDOVER.md` | changes when the *project* changes | what this is for, who the owner is, what has already gone wrong |
+| `docs/STATUS.md` | **rewritten every unit of work** | where we are right now, and the next single step |
+
+### Starting a session
+
+1. Read `docs/STATUS.md`, then `docs/HANDOVER.md`, then this file.
+2. **Run `npm run verify` before writing any code.** The doc says what the last
+   session believed; the gate says what is true. When they disagree, the gate
+   wins and the disagreement is the first thing to fix.
+
+### Ending a unit of work — before reporting anything
+
+1. `npm run handoff` — runs the gate and stamps its real result (green or red)
+   into `docs/STATUS.md`. It cannot be faked; that is the point.
+2. Rewrite the rest of `docs/STATUS.md`: where we are, what is in flight, the
+   **next single step**, what is blocked or needs the owner, and any decision a
+   future session would otherwise get wrong.
+3. Move every persona finding you did not fix into "Known tech debt" below.
+4. Add or update an ADR if an architectural decision changed.
+
+Write `STATUS.md` for a reader with zero memory of any conversation. No "as
+discussed", no "the fix from earlier", no pronoun pointing at chat history. If a
+future session has to ask the owner what you meant, the handoff failed.
+
+### When to end the session and start a fresh one
+
+**Default boundary: one epic.** Finish E6 end to end, gate green, then hand off
+and stop. Every new session pays a fixed re-orientation cost — read three docs,
+run the gate — so cutting per backlog item pays that cost three times for the
+same work. Cutting per epic pays it once.
+
+A cut is only **safe** when all four hold:
+
+1. `npm run verify` is green (or `STATUS.md` records, honestly, that it is red
+   and exactly why)
+2. `npm run handoff` has stamped the real result
+3. `STATUS.md` names the **next single step**
+4. the work is committed — and the owner was asked first
+
+Override the default and cut early, mid-epic, when any of these fire:
+
+- **Context drops to 40% remaining.** This is a hard stop, not a guideline, and
+  it outranks finishing the epic. At 40% you still have room to run the gate,
+  rewrite `STATUS.md` properly and commit; at 15% you do not, and the handoff
+  becomes the rushed, vague kind that costs the next session an hour. Hand off
+  before, not after — a half-finished unit with an honest `STATUS.md` is
+  recoverable; a finished one nobody can find is not.
+- **The same bug has survived three hypotheses.** By then the session is full of
+  wrong theories, and every new idea is anchored to them. A fresh session reading
+  only `STATUS.md` sees the problem clean. Write down what you ruled out and why —
+  that is the valuable part, not the theories.
+- **The kind of work changes** — implementation → planning, or a broad refactor.
+  Carrying implementation detail into a design conversation makes the design
+  smaller than it should be.
+- **Right before something risky** (a dependency change, a wide rename), so the
+  previous session is a clean checkpoint to return to.
+
+Never cut mid-epic with a red gate and no explanation. That hands the next
+session a broken tree and no idea which of the breakage was intentional.
+
+## Hooks and subagents
+
+Both are already configured (`.claude/`). Two things follow from that.
+
+### What runs without you asking
+
+- **PreToolUse** blocks edits to lockfiles, `.env` and `.git/`.
+- **PostToolUse** formats the file you just wrote, then runs `check:guardrails`
+  and `check:refs` — so a duplicate import surfaces at the edit, not three
+  files later when the page is blank.
+- **Stop** runs refs → guardrails → typecheck → unit tests and **refuses to let
+  the turn end while they are red**, handing the failure back as feedback. After
+  three consecutive red stops it relents and tells you to report being stuck
+  instead. e2e is not in this hook (too slow per turn); it belongs to the
+  explicit `npm run verify`.
+- **SessionStart** prints the live handoff from `docs/STATUS.md`.
+
+None of that replaces running `npm run verify` yourself. The hook is a net, not
+the gate.
+
+### Use the persona subagents — do not role-play them
+
+`.claude/agents/` holds `tester-qa`, `tester-a11y` and `tester-novice`
+(read-only), plus `framewright-reviewer`, `test-writer` and `export-qc`. Spawn
+them with the Task tool, in parallel, once the gate is green. Two reasons, and
+the second is the one that bites:
+
+1. **They are not anchored to your implementation.** A separate context reviewing
+   the diff finds things the author cannot see. In the E5 round the personas
+   found two blockers — `Ctrl+C` splitting the clip, and a `role="slider"` that
+   deleted every clip's name from the accessibility tree — that no test caught.
+2. **Their tokens are not your tokens.** Persona review is the most expensive
+   step in the loop. Run it inline and it eats the context you need for the
+   handoff. Run it as subagents and only the findings come back.
+
+Feed each one the changed file list and what to focus on; ask for tiered findings
+(blocker / major / minor) with file:line and a concrete failing scenario. Fix
+every blocker, re-run the gate, and put the rest in "Known tech debt".
+
 ## Definition of done for a change
 
 Run these in order. **`typecheck` is not optional** — a duplicate import or a
@@ -91,5 +224,27 @@ file that moved. Then run `check:refs` and `typecheck`.
   and duration, and the pure parts are unit-tested.
 - Rotation metadata is still ignored, so a rotated source renders sideways in
   both preview and export (consistent, but wrong).
-- Trim/move commands, clipboard, and a user-editable keymap are not built yet
-  (`ui/useShortcuts.ts` holds a fixed default map that already targets command ids).
+- Clipboard and a user-editable keymap are not built yet. The default map is now
+  DERIVED from each command's `defaultKey` (`ui/useShortcuts.ts`), but the
+  `Alt`+arrow nudge bindings still live in `ui/Timeline.tsx` and will not be
+  reachable by a future user keymap. Trim/move/close-gaps landed in E5.
+- Dragging freezes the timeline scale for the gesture, so trimming a clip longer
+  than the current timeline runs past the right edge until release (the readout
+  shows the real numbers). A proper fix is timeline zoom, not a live rescale.
+- Trim/move drags are single-track only; there is one video track, so this is not
+  yet a limitation — it becomes one the moment a second track exists.
+- The keyboard nudge step is one frame with no coarse alternative (`Shift` and
+  `Ctrl` are taken by the two trims). `Q`/`W` cover "go exactly here"; a
+  next-snap-target jump is still missing.
+- The drag readout sits in the track header, not next to the pointer.
+- Deleting or splitting restores focus to a neighbouring clip only when focus
+  fell to `<body>`; a more precise roving-focus model is still owed.
+- Selecting a clip with Enter parks the playhead on its first frame, where `Q`/`W`
+  cannot run. The refusal is now announced, but the flow still needs a step the
+  user has to work out (move the playhead first).
+- A clip can be moved past the end of the timeline, which lengthens the document
+  and exports the new empty space as black. The drag readout warns ("앞에 빈 곳이
+  생겨요"), but there is no hard limit and no snap-back.
+- `ExportButton` still uses native `disabled`, so its reason ("영상 파일을 다시
+  선택한 뒤…") is unreachable by keyboard. The rest of the toolbar moved to
+  `aria-disabled`.

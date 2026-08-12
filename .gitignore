@@ -7,3 +7,8 @@ dist-ssr
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
+
+# Delivery folder for .claude/ — cloud sessions cannot write there directly,
+# so they drop the tree here and `npm run setup:claude` installs it. The
+# installed .claude/ is what belongs in git; this is just the courier.
+_claude-setup

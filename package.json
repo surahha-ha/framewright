@@ -18,7 +18,10 @@
     "e2e:ui": "playwright test --ui",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check:guardrails": "node scripts/check-guardrails.mjs"
+    "check:guardrails": "node scripts/check-guardrails.mjs",
+    "verify": "npm run check:refs && npm run check:guardrails && npm run typecheck && npm test && npm run e2e",
+    "handoff": "node scripts/handoff.mjs",
+    "setup:claude": "node scripts/install-claude-config.mjs"
   },
   "dependencies": {
     "mp4-muxer": "^5.1.5",
