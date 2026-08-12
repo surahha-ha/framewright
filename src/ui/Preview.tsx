@@ -70,6 +70,17 @@ export function Preview() {
     ctx.drawImage(frame, 0, 0);
   }
 
+  /** A gap has no picture. Holding the previous frame is what makes a hole in
+   *  the timeline look like footage — and export writes black there, so the
+   *  preview would be lying about the file it is going to produce. */
+  function drawBlank() {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
   /** Draw and always release the frame, even if drawing throws. */
   function drawAndRelease(frame: VideoFrame) {
     try {
@@ -88,7 +99,10 @@ export function Preview() {
         const timelineFrame = pendingRef.current;
         pendingRef.current = null;
         const hit = resolveAt(projectRef.current, timelineFrame);
-        if (!hit) continue;
+        if (!hit) {
+          drawBlank();
+          continue;
+        }
         const svc = getDecodeService(hit.clip.assetId);
         if (!svc) continue;
         let frame: VideoFrame | null = null;
@@ -105,7 +119,13 @@ export function Preview() {
   }
 
   useEffect(() => {
-    if (isPlaying || total === 0) return;
+    if (isPlaying) return;
+    if (total === 0) {
+      // Deleting the last clip must clear the picture. The empty-state note is
+      // absolutely positioned, so a stale frame would sit behind it.
+      drawBlank();
+      return;
+    }
     pendingRef.current = playhead;
     void pump();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -221,6 +241,14 @@ export function Preview() {
           const vf = sessionRef.current?.frameFor(sourceSec) ?? null;
           if (vf) drawAndRelease(vf);
         }
+      } else {
+        // In a gap: show black, and forget the decoder's position so the clip on
+        // the far side re-cues instead of being judged "continuous" across it.
+        drawBlank();
+        sessionRef.current?.stop();
+        sessionRef.current = null;
+        sessionAssetRef.current = null;
+        lastSourceRef.current = -1;
       }
 
       lastSetRef.current = frame;

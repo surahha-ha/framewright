@@ -3,11 +3,18 @@
 import { useEffect } from 'react';
 import { editor, useStore } from '../store/projectStore';
 
-const DEFAULT_KEYMAP: Record<string, string> = {
-  c: 'clip.split',
-  delete: 'clip.deleteRipple',
-  backspace: 'clip.deleteRipple',
-};
+/**
+ * Derived from the registry, so adding a command with a `defaultKey` binds it
+ * everywhere at once (ADR-0003) instead of drifting out of sync with the toolbar.
+ * `extras` are the aliases a keyboard has but a command declaration does not.
+ */
+function defaultKeymap(): Record<string, string> {
+  const map: Record<string, string> = { backspace: 'clip.deleteRipple' };
+  for (const cmd of editor.commands()) {
+    if (cmd.defaultKey) map[cmd.defaultKey.toLowerCase()] = cmd.id;
+  }
+  return map;
+}
 
 const TEXT_INPUT_TYPES = new Set([
   'text',
@@ -35,7 +42,10 @@ function isTypingTarget(el: EventTarget | null): boolean {
   return false;
 }
 
-/** Space and Enter belong to the focused control, not to the global shortcut. */
+/** Space and Enter belong to the focused control, not to the global shortcut.
+ *  `role="slider"` is deliberately NOT here: the playhead does nothing with
+ *  Space, and swallowing it made play/pause dead while the timeline had focus.
+ *  The ruler stops propagation for the arrows it does handle. */
 function isActivatable(el: EventTarget | null): boolean {
   const t = el as HTMLElement | null;
   if (!t) return false;
@@ -44,8 +54,7 @@ function isActivatable(el: EventTarget | null): boolean {
     tag === 'BUTTON' ||
     tag === 'A' ||
     tag === 'SELECT' ||
-    t.getAttribute?.('role') === 'button' ||
-    t.getAttribute?.('role') === 'slider'
+    t.getAttribute?.('role') === 'button'
   );
 }
 
@@ -54,6 +63,7 @@ export const TOGGLE_PLAY_EVENT = 'framewright:togglePlay';
 
 export function useShortcuts() {
   const run = useStore((s) => s.run);
+  const setStatus = useStore((s) => s.setStatus);
   const undo = useStore((s) => s.undo);
   const redo = useStore((s) => s.redo);
   const seekTo = useStore((s) => s.seekTo);
@@ -86,13 +96,26 @@ export function useShortcuts() {
         seekTo(editor.playhead + (key === 'arrowright' ? 1 : -1));
         return;
       }
-      const commandId = DEFAULT_KEYMAP[key];
-      if (commandId) {
-        e.preventDefault();
-        run(commandId);
-      }
+      // Single-key bindings must NEVER fire with a modifier held. Without this,
+      // Ctrl+C split the clip, Ctrl+W trimmed it and then closed the tab (the
+      // pagehide flush persisting the edit), and Ctrl+Q trimmed the head.
+      if (mod || e.altKey) return;
+      const commandId = defaultKeymap()[key];
+      if (!commandId) return;
+      e.preventDefault();
+      if (run(commandId)) return;
+      // A shortcut that silently does nothing is indistinguishable from a broken
+      // key — especially for a screen reader user, who has no greyed-out button.
+      const cmd = editor.commands().find((c) => c.id === commandId);
+      setStatus(
+        cmd?.disabledReason?.({
+          project: editor.project,
+          playhead: editor.playhead,
+          selectedClipId: editor.selectedClipId,
+        }) ?? '지금은 쓸 수 없어요.',
+      );
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [run, undo, redo, seekTo]);
+  }, [run, undo, redo, seekTo, setStatus]);
 }

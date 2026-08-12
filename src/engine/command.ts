@@ -13,13 +13,23 @@ export interface Editor {
   readonly playhead: number;
   readonly selectedClipId: string | null;
 
-  commands(): Command[];
-  canRun(commandId: string): boolean;
-  /** Returns true if the command ran. Unknown/blocked commands are no-ops. */
-  dispatch(commandId: string): boolean;
+  commands(): Command<any>[];
+  canRun(commandId: string, args?: unknown): boolean;
+  /**
+   * Returns true if the command ran. Unknown/blocked commands are no-ops.
+   *
+   * `coalesceKey` folds this edit into the previous undo entry when the key
+   * matches the last one — a held arrow key is ONE gesture and must be ONE undo
+   * step, exactly like a drag. Only safe for commands whose forward ops are
+   * absolute assignments (trim/move are); a relative op would compound.
+   */
+  dispatch(commandId: string, args?: unknown, coalesceKey?: string): boolean;
 
   setPlayhead(frame: number): void;
   select(clipId: string | null): void;
+
+  /** End the current coalescing gesture (key released, pointer lifted). */
+  endCoalesce(): void;
 
   canUndo(): boolean;
   canRedo(): boolean;
@@ -39,7 +49,7 @@ export interface Editor {
 }
 
 export function createEditor(initial: Project): Editor {
-  const registry = new Map<string, Command>();
+  const registry = new Map<string, Command<any>>();
   for (const c of BUILTIN_COMMANDS) registry.set(c.id, c);
 
   let project = initial;
@@ -47,6 +57,7 @@ export function createEditor(initial: Project): Editor {
   let selectedClipId: string | null = null;
   const undoStack: Patch[] = [];
   const redoStack: Patch[] = [];
+  let lastCoalesceKey: string | null = null;
 
   const ctx = (): EditorCtx => ({ project, playhead, selectedClipId });
 
@@ -66,9 +77,18 @@ export function createEditor(initial: Project): Editor {
     if (!exists) selectedClipId = null;
   }
 
-  function commit(patch: Patch): void {
+  function commit(patch: Patch, coalesceKey?: string): void {
     project = applyOps(project, patch.forward);
-    undoStack.push(patch);
+    const top = undoStack[undoStack.length - 1];
+    if (coalesceKey && coalesceKey === lastCoalesceKey && top) {
+      // Keep the ORIGINAL inverse (that is what "back to before the gesture"
+      // means) and adopt the newest forward, which is absolute and therefore
+      // still correct when replayed from the pre-gesture state.
+      top.forward = patch.forward;
+    } else {
+      undoStack.push(patch);
+    }
+    lastCoalesceKey = coalesceKey ?? null;
     redoStack.length = 0; // a new edit invalidates redo
     clampPlayhead();
     pruneSelection();
@@ -87,17 +107,25 @@ export function createEditor(initial: Project): Editor {
 
     commands: () => [...registry.values()],
 
-    canRun(commandId) {
+    canRun(commandId, args) {
       const cmd = registry.get(commandId);
-      return !!cmd && cmd.canRun(ctx());
+      return !!cmd && cmd.canRun(ctx(), args);
     },
 
-    dispatch(commandId) {
+    dispatch(commandId, args, coalesceKey) {
       const cmd = registry.get(commandId);
       if (!cmd) return false;
       const c = ctx();
-      if (!cmd.canRun(c)) return false;
-      commit(cmd.run(c));
+      if (!cmd.canRun(c, args)) return false;
+      let patch;
+      try {
+        patch = cmd.run(c, args);
+      } catch {
+        // A drag that lands where the clip already is is not an error, and must
+        // not push an empty entry onto the undo stack.
+        return false;
+      }
+      commit(patch, coalesceKey);
       return true;
     },
 
@@ -111,10 +139,15 @@ export function createEditor(initial: Project): Editor {
       selectedClipId = clipId;
     },
 
+    endCoalesce() {
+      lastCoalesceKey = null;
+    },
+
     canUndo: () => undoStack.length > 0,
     canRedo: () => redoStack.length > 0,
 
     undo() {
+      lastCoalesceKey = null;
       const patch = undoStack.pop();
       if (!patch) return false;
       project = applyOps(project, patch.inverse);
@@ -125,6 +158,7 @@ export function createEditor(initial: Project): Editor {
     },
 
     redo() {
+      lastCoalesceKey = null;
       const patch = redoStack.pop();
       if (!patch) return false;
       project = applyOps(project, patch.forward); // replayed, not re-run

@@ -14,8 +14,8 @@ test.describe('editor shell', () => {
     await page.goto('/');
     await expect(page.getByText('framewright')).toBeVisible();
     // Nothing imported yet: every editing action must be unavailable.
-    await expect(page.getByRole('button', { name: /분할/ })).toBeDisabled();
-    await expect(page.getByRole('button', { name: /삭제/ })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /나누기/ })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /지우기/ })).toBeDisabled();
     await expect(page.getByRole('button', { name: /되돌리기/ })).toBeDisabled();
     await expect(page.getByRole('button', { name: /내보내기/ })).toBeDisabled();
     await expect(page.getByRole('button', { name: '재생' })).toBeDisabled();
@@ -62,7 +62,7 @@ test.describe('import → split → undo', () => {
 
     // Move the playhead into the middle and split.
     await page.locator('.track').click({ position: { x: 200, y: 20 } });
-    await expect(page.getByRole('button', { name: /분할/ })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /나누기/ })).toBeEnabled();
     await page.keyboard.press('c');
     await expect(page.locator('.timeline .clip')).toHaveCount(2);
 
@@ -172,5 +172,106 @@ test.describe('export', () => {
     expect(head.includes(Buffer.from('moov'))).toBe(true);
     expect(head.includes(Buffer.from('avc1'))).toBe(true);
     expect(head.includes(Buffer.from('mp4a'))).toBe(true);
+  });
+});
+
+test.describe('trim and move (direct manipulation)', () => {
+  /** Real pointer drag: press, move in steps, release. */
+  async function drag(
+    page: import('@playwright/test').Page,
+    clip: import('@playwright/test').Locator,
+    dx: number,
+    grab: 'start' | 'end' | 'body',
+  ) {
+    const box = (await clip.boundingBox())!;
+    const y = box.y + box.height / 2;
+    const x =
+      grab === 'start'
+        ? box.x + 3
+        : grab === 'end'
+          ? box.x + box.width - 3
+          : box.x + box.width / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx / 2, y, { steps: 5 });
+    await page.mouse.move(x + dx, y, { steps: 5 });
+    await page.mouse.up();
+  }
+
+  /** The clip's own accessible name carries its start and length. */
+  async function label(clip: import('@playwright/test').Locator) {
+    return (await clip.getAttribute('aria-label')) ?? '';
+  }
+
+  async function importFixture(page: import('@playwright/test').Page) {
+    await page.goto('/');
+    test.skip(
+      !(await supportsH264(page)),
+      'this browser has no H.264 (use `npm run e2e:chrome`)',
+    );
+    await page.setInputFiles('input[type="file"]', FIXTURE);
+    await expect(page.locator('.timeline .clip')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+  }
+
+  test('dragging the body moves the clip, and undo puts it back', async ({
+    page,
+  }) => {
+    await importFixture(page);
+    const clip = page.locator('.timeline .clip').first();
+    const before = await label(clip);
+
+    await drag(page, clip, 60, 'body');
+    await expect(clip).not.toHaveAttribute('aria-label', before);
+    // Moving does not change the clip's length, only where it sits.
+    const frames = (t: string) => t.match(/(\d+)프레임/)?.[1];
+    expect(frames(await label(clip))).toBe(frames(before));
+
+    await page.keyboard.press('Control+z');
+    await expect(clip).toHaveAttribute('aria-label', before);
+  });
+
+  test('dragging the right edge trims the clip shorter', async ({ page }) => {
+    await importFixture(page);
+    const clip = page.locator('.timeline .clip').first();
+    const lengthOf = async () =>
+      Number((await label(clip)).match(/(\d+)프레임/)?.[1] ?? '0');
+    const before = await lengthOf();
+
+    await drag(page, clip, -80, 'end');
+    expect(await lengthOf()).toBeLessThan(before);
+
+    await page.keyboard.press('Control+z');
+    expect(await lengthOf()).toBe(before);
+  });
+
+  test('a click without movement selects but never edits', async ({ page }) => {
+    await importFixture(page);
+    const clip = page.locator('.timeline .clip').first();
+    const before = await label(clip);
+
+    await clip.click();
+    await expect(clip).toHaveAttribute('aria-pressed', 'true');
+    expect(await label(clip)).toBe(before);
+    // The import is the only entry on the undo stack: one undo must empty the
+    // timeline. If the click had recorded a patch, a clip would survive.
+    await page.keyboard.press('Control+z');
+    await expect(page.locator('.timeline .clip')).toHaveCount(0);
+  });
+
+  test('Alt+arrow moves the focused clip without a mouse', async ({ page }) => {
+    await importFixture(page);
+    const clip = page.locator('.timeline .clip').first();
+    const before = await label(clip);
+
+    await clip.focus();
+    await page.keyboard.press('Alt+ArrowRight');
+    await expect(clip).not.toHaveAttribute('aria-label', before);
+    // Focus must survive the edit, or holding the key would go nowhere.
+    await expect(clip).toBeFocused();
+
+    await page.keyboard.press('Alt+ArrowLeft');
+    await expect(clip).toHaveAttribute('aria-label', before);
   });
 });

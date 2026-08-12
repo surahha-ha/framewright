@@ -53,6 +53,12 @@ export function MediaBin() {
   }
 
   async function onFile(file: File) {
+    // Import is an edit like any other, so it must respect the export guard —
+    // otherwise the document changes under a render that already started.
+    if (useStore.getState().isExporting) {
+      setStatus('내보내는 중에는 불러올 수 없어요. 먼저 취소해 주세요.');
+      return;
+    }
     setStatus(`읽는 중: ${file.name}`);
     try {
       // decodeAudioData detaches the buffer it is given, and the demuxer keeps

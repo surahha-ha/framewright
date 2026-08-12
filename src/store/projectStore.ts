@@ -17,6 +17,7 @@ import { shouldAutoSnapshot, type Version } from '../engine/persistence';
 const repository = createLocalRepository();
 const AUTO_SNAPSHOT_INTERVAL_MS = 3 * 60_000;
 const SAVE_DEBOUNCE_MS = 600;
+const RECUE_DEBOUNCE_MS = 120;
 
 const loaded = repository.load();
 export const editor: Editor = createEditor(loaded?.project ?? createProject());
@@ -35,6 +36,7 @@ let lastSnapshotTs: number | null = versions.length
   : null;
 let editsSinceSnapshot = 0;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let recueTimer: ReturnType<typeof setTimeout> | undefined;
 /** Set when another tab owns the document — we stop writing rather than clobber. */
 let saveBlocked = false;
 
@@ -63,7 +65,15 @@ interface State {
   saveDisabledReason: string | null;
 
   sync: () => void;
-  run: (commandId: string) => void;
+  /**
+   * Direct-manipulation commands (trim/move) carry arguments; the rest take none.
+   * `coalesceKey` folds a held-key repeat into one undo step.
+   * Returns whether the command actually ran — announcing an edit that was
+   * refused is how a UI teaches people not to trust it.
+   */
+  run: (commandId: string, args?: unknown, coalesceKey?: string) => boolean;
+  /** A held key was released: the next press starts a new undo entry. */
+  endGesture: () => void;
   undo: () => void;
   redo: () => void;
   saveVersion: (label: string) => void;
@@ -112,6 +122,26 @@ export const useStore = create<State>((set, get) => {
   function scheduleSave() {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(persistNow, SAVE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Publish a document change to the UI. While playing, the audio schedule was
+   * built once at play time — without a seek bump the picture follows the edit
+   * and the sound keeps playing the old arrangement.
+   */
+  function afterDocumentChange() {
+    set(snapshot());
+    if (get().isPlaying) {
+      // Trailing debounce: a held nudge key fires ~30×/s, and bumping the seek
+      // every time tore down and rebuilt the decoder and the audio schedule that
+      // often — the picture froze for as long as the key was held.
+      if (recueTimer) clearTimeout(recueTimer);
+      recueTimer = setTimeout(() => {
+        recueTimer = undefined;
+        if (get().isPlaying) set((s) => ({ seekVersion: s.seekVersion + 1 }));
+      }, RECUE_DEBOUNCE_MS);
+    }
+    afterEdit();
   }
 
   /** After every document change: autosave, and snapshot now and then. */
@@ -166,22 +196,38 @@ export const useStore = create<State>((set, get) => {
       afterEdit();
     },
 
-    run: (commandId) => {
-      if (!editor.dispatch(commandId)) return;
-      set(snapshot());
-      afterEdit();
+    run: (commandId, args, coalesceKey) => {
+      // An export renders the document it was started with. Letting it change
+      // underneath would produce a file that silently disagrees with the screen.
+      if (get().isExporting) {
+        set({ status: '내보내는 중에는 편집할 수 없어요. 먼저 취소해 주세요.' });
+        return false;
+      }
+      if (!editor.dispatch(commandId, args, coalesceKey)) return false;
+      afterDocumentChange();
+      const done = editor.commands().find((c) => c.id === commandId)?.done;
+      if (done) set({ status: done });
+      return true;
     },
 
+    endGesture: () => editor.endCoalesce(),
+
     undo: () => {
+      if (get().isExporting) {
+        set({ status: '내보내는 중에는 편집할 수 없어요. 먼저 취소해 주세요.' });
+        return;
+      }
       if (!editor.undo()) return;
-      set(snapshot());
-      afterEdit();
+      afterDocumentChange();
     },
 
     redo: () => {
+      if (get().isExporting) {
+        set({ status: '내보내는 중에는 편집할 수 없어요. 먼저 취소해 주세요.' });
+        return;
+      }
       if (!editor.redo()) return;
-      set(snapshot());
-      afterEdit();
+      afterDocumentChange();
     },
 
     saveVersion: (label) => {
