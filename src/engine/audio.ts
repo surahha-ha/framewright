@@ -8,6 +8,7 @@
 // this editor targets; revisit with streaming decode if long files show up.
 
 import type { DemuxAudioResult } from './demux';
+import { timescaleToUs } from './time';
 
 let sharedContext: AudioContext | null = null;
 
@@ -134,8 +135,8 @@ export async function decodeAudioTrack(
       decoder.decode(
         new EncodedAudioChunk({
           type: s.is_sync ? 'key' : 'delta',
-          timestamp: Math.round((s.cts * 1e6) / s.timescale),
-          duration: Math.round((s.duration * 1e6) / s.timescale),
+          timestamp: timescaleToUs(s.cts, s.timescale),
+          duration: timescaleToUs(s.duration, s.timescale),
           data: s.data,
         }),
       );

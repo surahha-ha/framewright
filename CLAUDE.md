@@ -225,20 +225,35 @@ file that moved. Then run `check:refs` and `typecheck`.
 - AAC encoder delay (priming) is left to the muxer — verify A/V sync on real
   footage before trusting it for long exports.
 - Export runs on the main thread (yields between frames). RUNBOOK calls for a
-  Worker + OffscreenCanvas — not done yet.
+  Worker + OffscreenCanvas — not done yet. **This is probably worse than it
+  looks:** the yield is `setTimeout(…, 0)` (`exporter.ts:312,317`), and Chrome
+  clamps timers in a hidden tab to one per second — then to one per _minute_
+  after five minutes hidden, silent and without WebRTC, which is exactly what an
+  export is. Playback already handles being hidden (`visibilitychange` pauses
+  it); export does not. **Not measured yet** — one export with the tab in the
+  background settles it.
 - No golden-file byte comparison for export output yet; e2e asserts frame count
   and duration, and the pure parts are unit-tested.
 - Rotation metadata is still ignored, so a rotated source renders sideways in
   both preview and export (consistent, but wrong).
-- **A source whose presentation does not start at zero is two frames early.**
-  The timeline maps frame `n` to `n/fps` seconds and matches that against raw
-  `cts`, so a file with B-frames and no edit list (like `e2e/fixtures/
-sample-h264.mp4`, first `cts` 1024 at timescale 15360) decodes two frames
-  early everywhere, and its last two frames cannot be reached at all. Preview
-  and export share the mapping, so they still agree with each other — it is the
-  frame→media mapping that is wrong. Found by visual QA; reproduced by the
-  `test.fixme` in `e2e/playback-session.spec.ts`, which the existing spec misses
-  because it synthesises timestamps starting at 0.
+- **A/V sync assumes the audio track has no presentation offset of its own.**
+  ADR-0008 rebases every track to its own first sample. That is right when the
+  video's offset is reorder delay and the audio's is zero — the shape that
+  produced the defect — but nothing verifies it. If a file's audio genuinely
+  starts later in its own container, both tracks are zeroed anyway and drift
+  apart by the difference, uniformly and with no warning. The audio pipeline
+  cannot even see it: `decodeAudioData` never goes through demux, and
+  `decodeAudioTrack` concatenates decoded PCM in callback order, ignoring `cts`.
+  No fixture of that shape exists to fix against.
+- **The edit list (`elst`) is still not read.** `min(cts)` gives the same answer
+  for the reorder-delay case, but a file that expresses a trim as an edit is
+  treated as if the trimmed material were still there.
+- **A project saved before ADR-0008 shifts when its media is re-linked.** The
+  status line says so (the asset has no recorded `startOffsetSec`), but there is
+  no migration and no way to re-cut automatically. The warning also repeats on
+  every later re-link, because the re-link path does not write the offset into
+  the asset — doing so is a document edit, and a re-link should not push an undo
+  entry.
 - The keymap has no presets (Premiere / Final Cut style) and no import/export —
   it is per-browser `localStorage` only, so a new machine starts from defaults.
 - The palette filters by plain substring on the label. No fuzzy match, no

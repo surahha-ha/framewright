@@ -13,6 +13,7 @@ ones, don't delete.
 | 0005 | H.264 / MP4 export target          | Accepted |
 | 0006 | Direct manipulation, one undo step | Accepted |
 | 0007 | Bindings as data; paste placement  | Accepted |
+| 0008 | Media time starts at first picture | Accepted |
 
 ## Template
 

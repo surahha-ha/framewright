@@ -67,9 +67,7 @@ test.describe('import → split → undo', () => {
     await expect(page.locator('.timeline .clip')).toHaveCount(2);
 
     // Splitting removes nothing: the timeline length is unchanged.
-    const totalAfterSplit = await page
-      .locator('.transport .dim')
-      .innerText();
+    const totalAfterSplit = await page.locator('.transport .dim').innerText();
 
     await page.keyboard.press('Control+z');
     await expect(page.locator('.timeline .clip')).toHaveCount(1);
@@ -112,6 +110,58 @@ test.describe('import → split → undo', () => {
     await page.keyboard.press('Control+z');
     await expect(page.locator('.timeline .clip')).toHaveCount(2);
     expect(await lengthOf()).toBe(before);
+  });
+});
+
+test.describe('re-linking media after a reload', () => {
+  /**
+   * Found by visual QA, not by the gate: the picture stayed black after
+   * re-linking until the playhead happened to move. Re-linking changes NOTHING
+   * in the document — same project object, same playhead — so the preview's
+   * scrub effect never re-ran. Hence `mediaVersion` in the store.
+   */
+  test('the picture comes back without touching the playhead', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    test.skip(
+      !(await supportsH264(page)),
+      'this browser has no H.264 (use `npm run e2e:chrome`)',
+    );
+
+    await page.setInputFiles('input[type="file"]', FIXTURE);
+    await expect(page.locator('.timeline .clip')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+
+    // A reload restores the document but not the media: files live in memory.
+    await page.reload();
+    await expect(page.locator('.stage-note')).toContainText('연결되지 않아');
+
+    await page.setInputFiles('input[type="file"]', FIXTURE);
+    await expect(page.locator('.statusbar')).toContainText('다시 연결했어요', {
+      timeout: 15_000,
+    });
+
+    // The playhead has not moved. The stage must still be showing the frame.
+    const painted = async () =>
+      page.evaluate(() => {
+        const canvas = document.querySelector(
+          '.stage canvas',
+        ) as HTMLCanvasElement | null;
+        if (!canvas || !canvas.width) return false;
+        const ctx = canvas.getContext('2d');
+        const data = ctx?.getImageData(0, 0, canvas.width, canvas.height).data;
+        if (!data) return false;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] || data[i + 1] || data[i + 2]) return true;
+        }
+        return false;
+      });
+    await expect
+      .poll(painted, { timeout: 15_000, message: 'preview stayed black' })
+      .toBe(true);
+    expect(await page.locator('.transport .dim').innerText()).toContain('0 /');
   });
 });
 

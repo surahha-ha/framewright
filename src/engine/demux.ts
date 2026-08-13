@@ -3,7 +3,7 @@
 // so the decode service can feed them to WebCodecs.
 
 import MP4Box from 'mp4box';
-import { timescaleToSec } from './time';
+import { secToTimescale, timescaleToSec } from './time';
 
 export interface VideoTrackInfo {
   id: number;
@@ -15,6 +15,13 @@ export interface VideoTrackInfo {
   durationSec: number;
 }
 
+/**
+ * One encoded sample. `cts` is REBASED: it is measured from this track's first
+ * presented sample, not from the container's clock. Everything downstream
+ * (decoder, playback, export) matches `frame / fps` seconds against it, so a
+ * source that starts late in its own container must not drag that offset along
+ * — see `rebaseToPresentationStart` and ADR-0008.
+ */
 export interface DemuxSample {
   cts: number;
   dts: number;
@@ -22,6 +29,89 @@ export interface DemuxSample {
   timescale: number;
   is_sync: boolean;
   data: Uint8Array;
+}
+
+/**
+ * Take the track's presentation start out of its samples, so `cts` 0 is the
+ * first picture the file shows.
+ *
+ * A file with B-frames and no edit list presents its first picture one reorder
+ * delay in — `e2e/fixtures/sample-h264.mp4` starts at cts 1024 at timescale
+ * 15360, two frames at 30fps. The timeline maps frame n to n/fps seconds, so
+ * leaving that offset in place renders every frame two early AND puts the last
+ * two frames of the media past the end of the timeline, where nothing can reach
+ * them. This is ffmpeg's default behaviour too (each stream is rebased to its
+ * own earliest timestamp unless `-copyts` says otherwise).
+ *
+ * The offset is corrected in BOTH directions. A signed composition offset
+ * (`ctts` version 1) puts the first picture *before* zero, which strands it
+ * exactly the way a late start strands the tail: no non-negative timeline
+ * position can ever ask for it.
+ *
+ * Pure and non-mutating; the sample bytes are shared, not copied.
+ */
+export function rebaseToPresentationStart(samples: DemuxSample[]): {
+  samples: DemuxSample[];
+  startOffsetSec: number;
+} {
+  if (samples.length === 0) return { samples, startOffsetSec: 0 };
+  // The EARLIEST presentation time, which is not the first sample in decode
+  // order once B-frames are involved.
+  let base: DemuxSample | null = null;
+  let startOffsetSec = Infinity;
+  for (const s of samples) {
+    // A corrupt box must strand one sample, not poison every timestamp with
+    // Infinity.
+    if (!(s.timescale > 0)) continue;
+    const sec = timescaleToSec(s.cts, s.timescale);
+    if (sec < startOffsetSec) {
+      startOffsetSec = sec;
+      base = s;
+    }
+  }
+  if (!base || startOffsetSec === 0 || !isFinite(startOffsetSec)) {
+    return { samples, startOffsetSec: 0 };
+  }
+  // A track carries ONE timescale (it lives in mdhd), so this is the same
+  // integer for every sample; the per-sample branch exists only so a mixed
+  // input cannot be shifted by the wrong amount.
+  const baseTimescale = base.timescale;
+  const baseOffset = secToTimescale(startOffsetSec, baseTimescale);
+  return {
+    samples: samples.map((s) => {
+      const offset =
+        s.timescale === baseTimescale
+          ? baseOffset
+          : secToTimescale(startOffsetSec, s.timescale);
+      return { ...s, cts: s.cts - offset, dts: s.dts - offset };
+    }),
+    startOffsetSec,
+  };
+}
+
+/**
+ * How far the rebased samples actually reach, and whether that number can be
+ * trusted as the media's duration.
+ *
+ * `trusted` is false as soon as one sample has no duration, because then the
+ * span understates the media by at least a frame — and shortening a clip is a
+ * worse failure than believing the container header.
+ */
+export function presentationSpan(samples: DemuxSample[]): {
+  spanSec: number;
+  trusted: boolean;
+} {
+  let spanSec = 0;
+  let trusted = samples.length > 0;
+  for (const s of samples) {
+    if (!(s.duration > 0) || !(s.timescale > 0)) {
+      trusted = false;
+      continue;
+    }
+    const end = timescaleToSec(s.cts + s.duration, s.timescale);
+    if (end > spanSec) spanSec = end;
+  }
+  return { spanSec, trusted };
 }
 
 export interface DemuxResult {
@@ -32,6 +122,9 @@ export interface DemuxResult {
   nominalFps: number;
   /** false when sample extraction timed out — the clip would be truncated. */
   complete: boolean;
+  /** How late in its own container this track's first picture sat, before the
+   *  samples were rebased. Diagnostics only — `samples` already has it out. */
+  startOffsetSec: number;
 }
 
 export async function demuxVideo(file: File): Promise<DemuxResult> {
@@ -92,7 +185,10 @@ export async function demuxVideo(file: File): Promise<DemuxResult> {
   const timedOut = new Promise<'timeout'>((r) => {
     timer = setTimeout(() => r('timeout'), 15000);
   });
-  const outcome = await Promise.race([done.then(() => 'done' as const), timedOut]);
+  const outcome = await Promise.race([
+    done.then(() => 'done' as const),
+    timedOut,
+  ]);
   if (timer !== undefined) clearTimeout(timer);
 
   if (!track) throw new Error('demux failed: no track');
@@ -100,18 +196,33 @@ export async function demuxVideo(file: File): Promise<DemuxResult> {
   const info = track as VideoTrackInfo;
   const complete = outcome === 'done' || samples.length >= info.nbSamples;
 
-  // Fallback duration from samples if header duration is missing/zero.
-  if (!info.durationSec || !isFinite(info.durationSec)) {
-    let maxEnd = 0;
-    for (const s of samples) {
-      const e = timescaleToSec(s.cts + s.duration, s.timescale);
-      if (e > maxEnd) maxEnd = e;
-    }
-    info.durationSec = maxEnd;
+  // Everything past this point works in PRESENTATION time, counted from this
+  // track's first picture — see rebaseToPresentationStart.
+  const { samples: rebased, startOffsetSec } =
+    rebaseToPresentationStart(samples);
+
+  // The header is the container's word for how long the track is; the samples
+  // ARE the media. Where we have all of them and they carry durations, they win
+  // — the header is not reduced by the offset just removed, and a timeline that
+  // claims frames the media cannot fill freezes on the last picture in preview
+  // and writes it again in export, silently and at the right frame count.
+  const { spanSec, trusted } = presentationSpan(rebased);
+  if (complete && trusted) {
+    info.durationSec = spanSec;
+  } else if (!info.durationSec || !isFinite(info.durationSec)) {
+    info.durationSec = spanSec;
   }
 
-  const { isVFR, nominalFps } = analyzeFrameRate(samples);
-  return { track: info, samples, description, isVFR, nominalFps, complete };
+  const { isVFR, nominalFps } = analyzeFrameRate(rebased);
+  return {
+    track: info,
+    samples: rebased,
+    description,
+    isVFR,
+    nominalFps,
+    complete,
+    startOffsetSec,
+  };
 }
 
 export interface AudioTrackInfo {
@@ -126,6 +237,8 @@ export interface DemuxAudioResult {
   track: AudioTrackInfo;
   samples: DemuxSample[];
   description?: Uint8Array;
+  /** As on DemuxResult: what was taken out, for diagnostics only. */
+  startOffsetSec: number;
 }
 
 /**
@@ -193,11 +306,18 @@ export async function demuxAudio(file: File): Promise<DemuxAudioResult | null> {
   const info = track as AudioTrackInfo; // assigned in a callback
   await Promise.race([done, new Promise<void>((r) => setTimeout(r, 5000))]);
   if (samples.length === 0) return null;
-  return { track: info, samples, description };
+  // Same rule as video: cts counts from this track's own first sample, so both
+  // tracks answer in presentation time and neither drags a container offset in.
+  const { samples: rebased, startOffsetSec } =
+    rebaseToPresentationStart(samples);
+  return { track: info, samples: rebased, description, startOffsetSec };
 }
 
 /** AAC needs its AudioSpecificConfig (inside esds) as the decoder description. */
-function getAudioDescription(mp4: any, trackId: number): Uint8Array | undefined {
+function getAudioDescription(
+  mp4: any,
+  trackId: number,
+): Uint8Array | undefined {
   try {
     const trak = mp4.getTrackById(trackId);
     for (const entry of trak.mdia.minf.stbl.stsd.entries) {

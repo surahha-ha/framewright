@@ -40,6 +40,7 @@ export function Preview() {
   const setPlaying = useStore((s) => s.setPlaying);
   const setStatus = useStore((s) => s.setStatus);
   const stopSignal = useStore((s) => s.stopSignal);
+  const mediaVersion = useStore((s) => s.mediaVersion);
   const fps = project.timeline.fps;
   const total = timelineDuration(project);
   // The document remembers clips whose media is not loaded (e.g. after reload).
@@ -128,8 +129,11 @@ export function Preview() {
     }
     pendingRef.current = playhead;
     void pump();
+    // `mediaVersion` is here because re-linking a file changes NOTHING in the
+    // document — same project object, same playhead — so without it the stage
+    // stays black until the user happens to move the playhead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playhead, project, isPlaying]);
+  }, [playhead, project, isPlaying, mediaVersion]);
 
   useEffect(() => {
     return () => {

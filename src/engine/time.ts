@@ -78,6 +78,11 @@ export function timescaleToSec(value: number, timescale: number): number {
   return value / timescale;
 }
 
+/** seconds -> container timescale units (the inverse of timescaleToSec). */
+export function secToTimescale(sec: number, timescale: number): number {
+  return Math.round(sec * timescale);
+}
+
 /** seconds -> microseconds (WebCodecs timestamps). */
 export function secToUs(sec: number): number {
   return Math.round(sec * 1e6);

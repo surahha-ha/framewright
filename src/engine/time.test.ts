@@ -9,6 +9,8 @@ import {
   formatTimecode,
   fpsToNumber,
   nearestStandardFps,
+  timescaleToSec,
+  secToTimescale,
 } from './time';
 
 describe('time-model', () => {
@@ -38,6 +40,14 @@ describe('time-model', () => {
     expect(framesForDuration(10, FPS_30)).toBe(300);
     expect(framesForDuration(0, FPS_30)).toBe(1);
     expect(framesForDuration(10, FPS_2997)).toBe(300); // 299.7 -> 300
+  });
+
+  it('round-trips container timescale units <-> seconds', () => {
+    // 15360 with 512-unit frames is what a real 30fps H.264 file carries.
+    for (const units of [0, 512, 1024, 46080]) {
+      expect(secToTimescale(timescaleToSec(units, 15360), 15360)).toBe(units);
+    }
+    expect(secToTimescale(1, 90000)).toBe(90000);
   });
 
   it('secToSample cuts audio on sample boundaries', () => {

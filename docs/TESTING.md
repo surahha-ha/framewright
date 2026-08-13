@@ -97,12 +97,32 @@ Playwright's bundled Chromium is the **open-source build: it has no H.264**
 
 - `e2e/playback-session.spec.ts` picks whatever codec the browser supports — it
   runs everywhere.
+- `e2e/source-offset.spec.ts` needs **no** codec at all: demux only parses the
+  container. It therefore runs everywhere too, which is the point — the defect it
+  guards was found in the real H.264 fixture, and a spec that self-skipped on the
+  machine running the gate would have guarded nothing.
 - Import/export tests need H.264 (our fixture and our export target) and
   **self-skip** on bundled Chromium. Run them with `npm run e2e:chrome`.
 
 ## Regression tests worth knowing about
 
-Two shipped bugs live on as tests, because both were invisible to unit tests:
+Three shipped bugs live on as tests, because all three were invisible to unit
+tests:
+
+- **"the picture is two frames behind the playhead"** — a source whose
+  presentation does not start at zero (B-frames, no edit list) was matched
+  against raw container `cts`, so every frame rendered early and the last two
+  frames of the media were unreachable. Found by visual QA, not by the gate.
+  Rule extracted as `rebaseToPresentationStart` (ADR-0008); covered by
+  `e2e/source-offset.spec.ts` against the **real fixture** and by
+  `e2e/playback-session.spec.ts` through a real decode session.
+- **"the picture stays black after re-linking a file"** — re-linking changes
+  nothing in the document (same project object, same playhead), so the preview's
+  scrub effect never re-ran and the stage stayed black until the playhead
+  happened to move. Fixed with `mediaVersion` in the store; covered by
+  `e2e/editor.spec.ts` → "the picture comes back without touching the playhead",
+  which reads the canvas pixels rather than trusting the DOM. Also found by
+  visual QA, in the same pass.
 
 - **"plays fast after a cut"** — a clip starting mid-source answered with the
   newest _buffered_ frame instead of the requested one while the decoder was

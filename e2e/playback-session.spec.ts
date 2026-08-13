@@ -211,26 +211,26 @@ test.describe('PlaybackSession (real WebCodecs)', () => {
   });
 
   /**
-   * KNOWN DEFECT — a file whose presentation does not start at zero is decoded
-   * two frames early, and its last frames are unreachable.
+   * REGRESSION — a file whose presentation does not start at zero used to be
+   * decoded two frames early, with its last frames unreachable.
    *
    * Measured in real Chrome against `e2e/fixtures/sample-h264.mp4`: the playhead
    * said 22 / 44 / 69 / 89 while the frame number burnt into the picture read
-   * 20 / 42 / 67 / 87. Probing the container explains it exactly — the file has
+   * 20 / 42 / 67 / 87. Probing the container explained it exactly — the file has
    * B-frames, its first sample's `cts` is 1024 at timescale 15360 (two frames),
    * and there is no edit list to take that offset back out. The timeline maps
-   * frame n to n/fps seconds and matches that against raw `cts`, so every frame
-   * is two early and the last two frames of the media cannot be reached at all.
+   * frame n to n/fps seconds and matched that against raw `cts`, so every frame
+   * was two early and the last two frames of the media could not be reached.
    *
-   * Not an E6 regression, and not a playback bug: preview and export share the
-   * mapping, so they still agree with each other. It is the frame→media mapping
-   * that is wrong, and the fix belongs with demux/player, not here.
-   *
-   * The existing test above cannot see this because it synthesises samples whose
-   * timestamps start at 0. This one shifts them, which is what a real encoder
-   * with B-frames produces.
+   * The fix is `rebaseToPresentationStart` in demux (ADR-0008): the container
+   * offset is taken out at the seam that owns container quirks, so playback,
+   * scrub and export all inherit it. This test therefore drives the SAME seam
+   * the app does — demux rebase, then the session — rather than the session
+   * alone. The test above cannot see any of this because it synthesises samples
+   * whose timestamps already start at 0; this one shifts them, which is what a
+   * real encoder with B-frames produces.
    */
-  test.fixme('a source whose presentation starts late is still frame-accurate', async ({
+  test('a source whose presentation does not start at zero is still frame-accurate', async ({
     page,
   }) => {
     await page.goto('/');
@@ -240,11 +240,18 @@ test.describe('PlaybackSession (real WebCodecs)', () => {
     const results = await page.evaluate(async (codecName: string) => {
       const modulePath = '/src/engine/playbackSession.ts';
       const { PlaybackSession, HOLD } = await import(modulePath);
+      const demuxPath = '/src/engine/demux.ts';
+      const { rebaseToPresentationStart } = await import(demuxPath);
 
       const FPS = 30;
       const COUNT = 60;
-      /** What a B-frame encoder leaves behind: presentation starts 2 frames in. */
-      const OFFSET_FRAMES = 2;
+      /**
+       * Both shapes a container can hand us. `+2` is what an unsigned-`ctts`
+       * B-frame encoder leaves behind (the real fixture). `-2` is the same thing
+       * expressed with signed `ctts` v1 offsets — the first picture sits BEFORE
+       * zero, where no non-negative timeline position can ask for it.
+       */
+      const OFFSETS = [2, -2];
       const usFor = (f: number) => Math.round((f * 1e6) / FPS);
       const secFor = (f: number) => f / FPS;
 
@@ -261,7 +268,7 @@ test.describe('PlaybackSession (real WebCodecs)', () => {
           const data = new Uint8Array(chunk.byteLength);
           chunk.copyTo(data);
           samples.push({
-            cts: chunk.timestamp + usFor(OFFSET_FRAMES),
+            cts: chunk.timestamp,
             dts: chunk.timestamp,
             duration: Math.round(1e6 / FPS),
             timescale: 1e6,
@@ -304,35 +311,74 @@ test.describe('PlaybackSession (real WebCodecs)', () => {
       if (description) config.description = description;
 
       const out: Record<string, string> = {};
+      // Frame numbers count from the first PRESENTED picture, so no offset is
+      // subtracted here — if one were needed, the fix would not be a fix.
       const nth = (f: any) =>
-        f && f !== HOLD
-          ? Math.round(((f.timestamp - usFor(OFFSET_FRAMES)) * FPS) / 1e6)
-          : String(f);
+        f && f !== HOLD ? Math.round((f.timestamp * FPS) / 1e6) : String(f);
 
-      // Timeline frame 0 is the FIRST frame of the media, whatever the
-      // container's clock happens to start at.
-      {
-        const s = new PlaybackSession(samples, config, (e: any) => {
-          throw e;
-        });
-        s.start(0);
-        const f = await s.awaitFrameFor(secFor(0));
-        out.head = nth(f) === 0 ? 'ok' : `FAIL got ${nth(f)}`;
-        if (f && f !== HOLD) (f as VideoFrame).close();
-        s.stop();
-      }
+      for (const offsetFrames of OFFSETS) {
+        const key = offsetFrames > 0 ? 'late' : 'early';
+        const shift = usFor(offsetFrames);
+        const shifted = samples.map((s) => ({
+          ...s,
+          cts: s.cts + shift,
+          dts: s.dts + shift,
+        }));
+        // The samples reach the decode path the way the app delivers them:
+        // through demux, which takes the container's offset out.
+        const rebased = rebaseToPresentationStart(shifted);
+        const playable = rebased.samples;
 
-      // ...and the last timeline frame is the last frame of the media, not the
-      // one OFFSET_FRAMES before it.
-      {
-        const s = new PlaybackSession(samples, config, (e: any) => {
-          throw e;
-        });
-        s.start(secFor(COUNT - 5));
-        const f = await s.awaitFrameFor(secFor(COUNT - 1));
-        out.tail = nth(f) === COUNT - 1 ? 'ok' : `FAIL got ${nth(f)}`;
-        if (f && f !== HOLD) (f as VideoFrame).close();
-        s.stop();
+        // Timeline frame 0 is the FIRST frame of the media, whatever the
+        // container's clock happens to start at.
+        {
+          const s = new PlaybackSession(playable, config, (e: any) => {
+            throw e;
+          });
+          s.start(0);
+          const f = await s.awaitFrameFor(secFor(0));
+          out[`${key}Head`] = nth(f) === 0 ? 'ok' : `FAIL got ${nth(f)}`;
+          if (f && f !== HOLD) (f as VideoFrame).close();
+          s.stop();
+        }
+
+        // ...and the last timeline frame is the last frame of the media, not
+        // the one `offsetFrames` before it.
+        {
+          const s = new PlaybackSession(playable, config, (e: any) => {
+            throw e;
+          });
+          s.start(secFor(COUNT - 5));
+          const f = await s.awaitFrameFor(secFor(COUNT - 1));
+          out[`${key}Tail`] =
+            nth(f) === COUNT - 1 ? 'ok' : `FAIL got ${nth(f)}`;
+          if (f && f !== HOLD) (f as VideoFrame).close();
+          s.stop();
+        }
+
+        // ...and every frame in between, so this cannot pass on the two ends
+        // while the middle is off by one.
+        {
+          const s = new PlaybackSession(playable, config, (e: any) => {
+            throw e;
+          });
+          s.start(0);
+          let bad = '';
+          for (let i = 0; i < COUNT && !bad; i++) {
+            const f = await s.awaitFrameFor(secFor(i));
+            if (nth(f) !== i) bad = `frame ${i} -> ${nth(f)}`;
+            if (f && f !== HOLD) (f as VideoFrame).close();
+          }
+          out[`${key}EveryFrame`] = bad ? `FAIL ${bad}` : 'ok';
+          s.stop();
+        }
+
+        // Reported last on purpose: the frame checks above are the point, and
+        // seeing THEM fail first is what tells you the mapping broke.
+        out[`${key}OffsetReported`] =
+          Math.abs(rebased.startOffsetSec - offsetFrames / FPS) < 1e-6
+            ? 'ok'
+            : `FAIL got ${rebased.startOffsetSec}`;
       }
 
       return out;

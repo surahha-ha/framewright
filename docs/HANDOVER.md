@@ -62,6 +62,11 @@ Done: **E0–E6.**
   - `ui/CommandPalette.tsx`, `ui/ShortcutsPanel.tsx`, `ui/keymapStore.ts`
   - ADR-0007 records the decisions
 
+- After E6, one correctness fix outside any epic: **a source whose presentation
+  does not start at zero** (B-frames, no edit list) was decoded two frames early
+  and its last frames were unreachable. `rebaseToPresentationStart` in
+  `demux.ts`; ADR-0008 records why the fix belongs to demux and not to playback.
+
 Next, in order: **E7** (text/subtitles, transitions, audio volume/fades,
 transform), E8 (style presets, shorts reframe), E9 (silence auto-cut).
 
@@ -106,6 +111,13 @@ Every one of these passed a green test suite:
 - **A blank page from a duplicate import** — see standing rule 2.
 - **Four e2e failures from one bad `aria-label`** — the accessible name carried
   the selection state, so it moved for reasons unrelated to the edit under test.
+- **Every frame two early, and the last two unreachable** — the timeline matched
+  `frame / fps` seconds against raw container `cts`. Found only by looking at the
+  picture: the fixture burns its frame number in, and it disagreed with the
+  playhead. Fixed at the demux seam (ADR-0008).
+- **The picture stayed black after re-linking a file** — re-linking changes
+  nothing in the document, so the preview never redrew. Found in the same visual
+  pass; the assertion that guards it now reads canvas pixels, not the DOM.
 
 The pattern: the failures live in the seams between decoder, clock, and UI, and
 in things no unit test looks at. Distrust green.

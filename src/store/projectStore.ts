@@ -59,6 +59,11 @@ interface State {
   seekVersion: number;
   /** Bumped when something (e.g. a restore) must stop playback immediately. */
   stopSignal: number;
+  /** Bumped when a file is attached to an asset (import, or re-link after a
+   *  reload). Re-linking changes no document state at all — the project object
+   *  is identical — so without this nothing tells the preview that the picture
+   *  it is holding black can now actually be drawn. */
+  mediaVersion: number;
   versions: Version[];
   savedAt: number | null;
   /** Persistence is unavailable or blocked — the UI must not promise saving. */
@@ -94,6 +99,8 @@ interface State {
   setPlaying: (b: boolean) => void;
   setExporting: (b: boolean) => void;
   setStatus: (s: string) => void;
+  /** Call after a decode service is registered for an asset. */
+  noteMediaAttached: () => void;
 }
 
 export const useStore = create<State>((set, get) => {
@@ -197,6 +204,7 @@ export const useStore = create<State>((set, get) => {
       : '영상을 불러오세요.',
     seekVersion: 0,
     stopSignal: 0,
+    mediaVersion: 0,
     versions,
     savedAt: null,
     saveDisabledReason: isStorageAvailable()
@@ -373,6 +381,7 @@ export const useStore = create<State>((set, get) => {
     setPlaying: (isPlaying) => set({ isPlaying }),
     setExporting: (isExporting) => set({ isExporting }),
     setStatus: (status) => set({ status }),
+    noteMediaAttached: () => set((s) => ({ mediaVersion: s.mediaVersion + 1 })),
   };
 });
 

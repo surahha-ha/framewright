@@ -10,155 +10,141 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-08-13 04:00 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-08-13 05:42 UTC — `npm run verify` **GREEN**
 
-- unit 167 passed · e2e 41 passed
+- unit 181 passed · e2e 44 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
 
-**E6 is closed and green: the keymap is data, the ⌘K palette exists, and
-copy / cut / paste work.** ADR-0007 records the three decisions worth arguing
-about; `docs/HANDOVER.md` lists what shipped.
+**The two-frame source-offset defect is fixed.** It was the "A" option of four
+that the owner was offered after E6; they declined to pick and said to take the
+recommendation, so A was taken. E6 and the e2e worker change are already
+committed (`4cdf618`, `1ce3921`, `d723949`); **this work is not committed yet.**
 
-Four persona subagents (qa, a11y, novice, framewright-reviewer) reviewed the
-diff. Both blocker-tier findings are fixed, with a test each, plus six major and
-two minor ones. Everything not fixed is in "Known tech debt" in `CLAUDE.md`.
+The defect, restated for someone who never saw it: `e2e/fixtures/sample-h264.mp4`
+has B-frames and no edit list, so its first sample's `cts` is **1024** at
+timescale **15360** — two frames at 30fps. The timeline maps frame _n_ to
+`n/fps` seconds and matched that against raw container `cts`, so every frame
+rendered two early **and the last two frames of the media could not be reached at
+all**. Visual QA caught it (the fixture burns its own frame number into the
+picture; the playhead read 22 / 44 / 69 / 89 while the picture read
+20 / 42 / 67 / 87). No test in the suite could see it.
 
-The two blockers, because they are the kind that come back:
+**The fix is `rebaseToPresentationStart` in `src/engine/demux.ts`** — the seam
+that owns container quirks, so playback, scrub and export all inherit it at once.
+Each track's samples are shifted so its earliest `cts` becomes 0.
+**ADR-0008 is the argument**; read it before changing any of this.
 
-1. **A clipboard entry could point at a _replaced_ asset.** `importAsset`'s
-   inverse used to rewind `nextId`, so undo-an-import → import-another-file
-   handed the second file `asset_1` — the id the clipboard was still holding.
-   Paste then inserted frames measured against a completely different video and
-   nothing looked wrong. The inverse no longer rewinds the counter (there is a
-   comment at `command.ts` saying why), and `clip.paste` also refuses a range the
-   current source cannot cover.
-2. **The nudge commands' `canRun` ignored the bounds their `run` enforces.** A
-   clip already against a wall was listed in the palette as runnable; pressing
-   Enter closed the palette and did nothing. `canRun` now clamps exactly the way
-   `run` does, a property test asserts the two can never disagree, and the
-   palette reports a refusal instead of closing on a no-op.
+Two more corrections came with it, both from the review round and both real:
 
-## Visual QA — done this time, and it found a real defect
+1. **The correction runs in both directions.** `ctts` version 1 offsets are
+   signed, so a file can present its first picture _before_ zero. The first guard
+   only handled a late start, which left the mirrored defect intact — verified by
+   reverting the guard and watching `earlyTail` return media frame 57 where 59
+   was asked for.
+2. **The clip's length now comes from the samples, not the container header.**
+   The header duration is not reduced by the offset just removed. Where the two
+   disagree, a timeline sized from the header claims frames the media cannot
+   fill: preview freezes on the last picture and export writes it again, at the
+   right frame count, silently. `presentationSpan` measures the real span and
+   wins whenever the extraction is complete and every sample carries a duration.
 
-A Chrome was connected, so the pass that E5 shipped without actually happened.
-Drove the real app end to end: import `e2e/fixtures/sample-h264.mp4` → split →
-copy → paste → drag a clip open into a gap → hover states → console.
+## Visual QA — done, and it found a second defect
 
-**Everything E6 added behaved.** The paste status line reads
-"00:01:14 위치에 붙여넣었어요 · 클립 앞에 넣었어요 · 뒤 클립을 밀었어요", the
-pasted clip is visibly the selected one, the gap draws hatched, the preview goes
-black inside it, disabled buttons do not light up on hover, and the console is
-clean apart from one deliberate audio log.
+Driven in the owner's real Chrome (deviceId `da2a0786-…`, the one with permission
+for `127.0.0.1:9990`), because that is the only place H.264 and the owner's own
+fonts/zoom exist.
 
-Three things worth keeping:
+- **The fix is visible in the real app.** Playhead 22 → picture 22; playhead 89
+  (the last frame) → picture 89. Before, those read 20 and 87, and 88–89 were
+  unreachable.
+- **Found: the picture stayed black after re-linking a file**, until the playhead
+  happened to move. Re-linking changes _nothing_ in the document — same project
+  object, same playhead — so the preview's scrub effect never re-ran. Fixed with
+  `mediaVersion` in `store/projectStore.ts`, bumped by `noteMediaAttached()`.
+  The assertion that keeps it from coming back reads the **canvas pixels**
+  (`e2e/editor.spec.ts` → "the picture comes back without touching the
+  playhead"); it fails on the old code.
+- **The re-link warning renders correctly** and is not clipped: "sample-h264.mp4
+  을(를) 다시 연결했어요. ⚠ 이 영상은 시작 지점이 어긋나 있어 바로잡았어요 —
+  예전에 잘라 둔 자리가 2프레임만큼 달라 보일 수 있어요."
 
-- `.toolbar` already has `flex-wrap: wrap`, so the twelve buttons wrap rather
-  than overflow. At 1280px they still fit on one line.
-- No disabled-reason text in the palette is clipped at 1280px. That is now an
-  e2e assertion (`.pal-why` `scrollWidth <= clientWidth`), because `.pal-why` is
-  `white-space: nowrap` + ellipsis and one longer sentence would silently turn a
-  reason into "재생 위치를 클립 안(맨 앞이…".
-- **The preview is two frames early on this fixture — see below.** This is what
-  the pass was for; no test in the suite could have seen it.
+That warning exists because a project saved **before** this fix chose its cut
+points against the old mapping, so re-linking moves the picture under them.
+`AssetMeta.startOffsetSec` records what was removed at import, so a re-link can
+tell "imported with the correction" from "imported before it existed" and only
+warns for the second.
 
-### The defect: presentation that does not start at zero
+## What the review round found, and what was done with it
 
-The fixture burns its own frame number into the picture. The playhead read
-22 / 44 / 69 / 89 while the picture read **20 / 42 / 67 / 87**. Probing the
-container (`mp4box`, first eight samples) explains it exactly:
+Three subagents reviewed the diff (`framewright-reviewer`, `tester-qa`,
+`export-qc`). One blocker (the negative-offset guard above) — fixed. Of the
+majors: the duration-from-samples fix above, and two that were **not** fixed on
+purpose and now live in "Known tech debt" in `CLAUDE.md`:
 
-- the file has B-frames, the first sample's `cts` is **1024** at timescale
-  **15360** — two frames — and **there is no edit list** to take that back out;
-- `PlaybackSession` matches a requested `fromSec` (computed as `frame / fps`)
-  against raw `cts` (`playbackSession.ts`, `tsUs`), and nothing subtracts the
-  media's start offset.
-
-So every frame is two early, and the last two frames of the media are
-unreachable — the timeline's last frame renders source frame 87 of 89.
-
-**This is not an E6 regression** and it is not a playback bug: preview and export
-share the mapping, so they still agree with each other (golden rule 7 holds).
-What is wrong is the frame→media mapping, which belongs to demux/player.
-
-It was left unfixed on purpose: it is a different subsystem from this epic, it
-touches the riskiest code in the project, and it deserves its own TDD round.
-`e2e/playback-session.spec.ts` now carries a `test.fixme` that reproduces it with
-synthetic samples shifted by two frames — the existing spec cannot see it because
-it synthesises timestamps starting at 0. Delete the `.fixme` when you fix it.
-
-The owner's own taste pass is still theirs to do; it does not block E7.
-
-Note: the pass left a three-clip test project and two autosaves in that Chrome's
-`localStorage` for `127.0.0.1:9990`. Harmless, and clearing it is one click in
-the version panel — or say the word and it can be cleared.
-
-## The e2e suite's memory cost, measured and cut
-
-The owner reported `chrome-headless-shell` eating too much memory during e2e
-runs. It was measured rather than guessed, by sampling every
-`chrome-headless-shell` process once a second across full suite runs.
-
-**The finding: Playwright's default worker count was buying nothing.** The
-default is half the cores, which on a 12-core machine is one worker per spec
-file — four Chromium instances, ~1,110MB. But with four spec files the run is
-bottlenecked by the longest one, so **two workers finish in the same wall clock
-and cost a third less**. `playwright.config.ts` now pins `workers: 2`; the gate
-went from ~28s / 1,110MB to ~26s / ~770MB.
-
-`npm run e2e:lowmem` (`--workers=1`) is there for a machine under real memory
-pressure: ~425MB, but 43s instead of 27s, because one worker is the first
-setting that actually serialises the critical path.
-
-Three things checked and ruled out, so nobody re-derives them:
-
-- **There is no leak.** On one worker, memory sawtooths between ~310MB and
-  ~430MB for the whole run with no upward trend; the renderer is torn down and
-  rebuilt per test. An earlier reading suggesting per-instance growth was an
-  arithmetic error — peaks across workers are staggered, so four instances do
-  not sum to four times one.
-- **`--disable-gpu` saves nothing** (426MB vs 428MB): `chrome-headless-shell`
-  still starts a gpu-process for SwiftShader.
-- **`--trace off` saves ~10%** and costs every failure trace. Not taken.
-
-Of one instance's ~425MB peak, only the renderer (~148MB) is this app's; the
-rest is Chromium's fixed floor (network + storage utilities ~122MB, gpu ~81MB,
-browser ~82MB). The numbers and the method are in `docs/TESTING.md`.
-
-Leftover `chrome-headless-shell` processes were seen on this machine with no run
-in progress (9 of them, ~1.2GB). A run that ends normally leaves zero behind, so
-those are the residue of a killed run — kill by name, no code change owed.
+- **A/V sync assumes the audio track has no offset of its own.** True for the
+  shape that produced this defect, unverified in general, and the audio pipeline
+  cannot even see it (`decodeAudioData` never goes through demux;
+  `decodeAudioTrack` concatenates decoded PCM in callback order, ignoring `cts`).
+  No fixture of that shape exists to fix against — building one is the first step
+  if this is ever taken on.
+- **The edit list (`elst`) is still not read.** `min(cts)` gives the same answer
+  for the reorder-delay case; a file that expresses a trim as an edit is treated
+  as if the trimmed material were still there.
 
 ## In flight
 
-Nothing. Everything above is committed and pushed — `main @ 1ce3921`, in sync
-with `origin/main`, working tree clean. E6 landed as `4cdf618`, the e2e worker
-change as `1ce3921`.
+**Uncommitted work in the tree.** `npm run verify` is GREEN over it (stamped
+above). Changed:
+
+- `src/engine/demux.ts` — `rebaseToPresentationStart`, `presentationSpan`,
+  wiring, `startOffsetSec` on both demux results
+- `src/engine/time.ts` — `secToTimescale`
+- `src/engine/types.ts` — `AssetMeta.startOffsetSec`
+- `src/engine/audio.ts` — uses `timescaleToUs` instead of inline time math
+- `src/store/projectStore.ts` — `mediaVersion` / `noteMediaAttached`
+- `src/ui/Preview.tsx`, `src/ui/MediaBin.tsx`
+- `e2e/source-offset.spec.ts` (new), `e2e/playback-session.spec.ts`,
+  `e2e/editor.spec.ts`, unit tests for demux and time
+- `docs/adr/0008-…` (new), `docs/adr/README.md`, `docs/TESTING.md`, `CLAUDE.md`
+- `docs/research/` — a background research pass the owner asked for (see below)
 
 ## Next single step
 
-**Ask the owner which unit of work comes next.** Four candidates were put to
-them and none has been picked; they are listed below. Do not pick one
-unilaterally.
+**Ask the owner to commit this work, then commit it.** Announcing before any git
+operation is the one hard stop in this project.
 
 ## Blocked / needs the owner
 
-1. **Which unit of work is next.** Four candidates were put to the owner and
-   none was picked: (A, recommended) fix the two-frame source-offset defect
-   described above; (B) E7 — subtitles, transitions, audio volume/fades,
-   transform; (C) timeline zoom + ruler ticks + thumbnails + waveform;
-   (D) the naming/consistency cleanup in item 2 below.
-2. **A naming decision, not a defect.** Three toolbar controls contain the word
+1. **Committing.** Nothing here is committed.
+2. **Which unit of work is next.** Of the four candidates offered after E6, A is
+   now done. The rest, unranked by the owner: **B** — E7 (subtitles,
+   transitions, audio volume/fades, transform); **C** — timeline zoom + ruler
+   ticks + thumbnails + waveform; **D** — the naming cleanup in item 3. The owner
+   has said they would rather be handed a recommendation than a menu.
+3. **A naming decision, not a defect.** Three toolbar controls contain the word
    "잘라내기": `clip.cut` (clipboard) and the two trim-to-playhead commands
    ("앞부분/뒷부분 잘라내기"). Their icons (`✁` and `✂`) are indistinguishable at
    toolbar size. The novice persona rated this major: someone trying to "cut 30
    seconds out" will click the wrong one. Renaming E5's commands is a product
    call, so it was left alone rather than changed quietly.
+4. **Two new directions the owner set, neither started as code.** They want this
+   deployed on **AWS for real users**, and they want the design informed by what
+   real users complain about in Premiere / Final Cut / DaVinci / CapCut /
+   browser editors, including hard adoption and review numbers. The research is
+   in `docs/research/editor-pain-points.md`; nothing has been decided from it.
+   The deployment question that gates the rest: is this static hosting
+   (S3 + CloudFront, possible today) or does it need a backend for projects and
+   media?
 
 ## Decisions a future session would otherwise get wrong
 
+- **A source's time starts at its own first picture, not at the container's
+  clock.** `DemuxSample.cts` is rebased and is no longer a faithful record of the
+  container. Anything that ever needs true container time (remux, passthrough
+  export, reading an edit list) must take it from `startOffsetSec`. ADR-0008.
 - **The clipboard is not document state.** It lives on the `Editor` beside the
   playhead and the selection. Undo must not empty it; a version restore must not
   repopulate it; it is never serialised. That is _why_ copy/cut are app actions
@@ -173,8 +159,9 @@ unilaterally.
   short. This is a push on an explicit command, which is not the magnetic mode
   ADR-0006 rejected.
 - **Asset ids are never reused, ever.** `restoreProject` already said so;
-  `importAsset`'s inverse now agrees. If some future command rewinds `nextId`
-  past an asset id, blocker #1 above comes straight back.
+  `importAsset`'s inverse agrees. If some future command rewinds `nextId` past an
+  asset id, a clipboard entry can point at a replaced asset — that was an E6
+  blocker.
 - **`space`, `enter`, the arrows, `home` and `end` cannot be bound by the user.**
   A focused button or slider takes them first, so an action bound to one would
   work on the page and be silently dead whenever a control has focus. They are
@@ -183,11 +170,22 @@ unilaterally.
 - **The keymap lives in `localStorage` under `framewright.keymap.v1` and
   outlives a reload.** Any e2e spec that rebinds anything must clear that key
   first, or the previous test decides what this one's keys do.
+- **Clearing framewright's `localStorage` from the console does not stick.** The
+  app flushes the in-memory document on `pagehide`, so a removal followed by a
+  reload writes it straight back. Neuter the write first:
+  `Object.defineProperty(Storage.prototype, 'setItem', { value() {}, writable: true, configurable: true })`,
+  then remove the keys. (`localStorage.setItem = fn` does **not** shadow the
+  method — it stores a key called "setItem".)
 
 ## Recently closed, with the reasoning
 
 Kept short on purpose: only what a future session would otherwise get wrong.
 
+- **A test that cannot self-skip is worth more than a faithful one.**
+  `e2e/source-offset.spec.ts` runs the **real fixture** through `demuxVideo` and
+  asserts timeline frame _n_ is media frame _n_ for every _n_. It needs no
+  decoder, so unlike the import/export specs it runs on bundled Chromium too —
+  a spec that skipped on the machine running the gate would have guarded nothing.
 - **Gaps are legal and visible, never auto-closed.** Moving or head-trimming
   leaves a hole. It is drawn hatched, the preview paints black in it (because
   that is what export writes there), and `timeline.closeGaps` removes it _on
@@ -214,4 +212,5 @@ Kept short on purpose: only what a future session would otherwise get wrong.
   Raising it back to Playwright's default costs ~340MB and returns no time,
   because the suite's critical path is its longest spec file. Re-measure before
   changing it — the right number moves the moment a fifth spec file appears or
-  one file's runtime overtakes `palette-keymap.spec.ts`.
+  one file's runtime overtakes `palette-keymap.spec.ts`. The measurements and
+  the method are in `docs/TESTING.md`.

@@ -22,6 +22,10 @@ export interface AssetMeta {
   height?: number;
   durationSec?: number;
   codec?: string;
+  /** Presentation offset removed from the source when it was imported (ADR-0008).
+   *  Absent means the asset was imported BEFORE that correction existed, so its
+   *  frame numbers were chosen against a mapping that was off by this much. */
+  startOffsetSec?: number;
 }
 
 export interface Asset {

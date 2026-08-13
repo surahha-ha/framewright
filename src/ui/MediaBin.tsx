@@ -3,7 +3,11 @@
 import { useRef, useState } from 'react';
 import { editor, useStore } from '../store/projectStore';
 import { demuxAudio, demuxVideo } from '../engine/demux';
-import { framesForDuration, nearestStandardFps } from '../engine/time';
+import {
+  framesForDuration,
+  nearestStandardFps,
+  secToFrame,
+} from '../engine/time';
 import { VideoDecodeService } from '../engine/decoder';
 import { getDecodeService, setDecodeService } from '../engine/registry';
 import { decodeAudio, decodeAudioTrack, setAudioBuffer } from '../engine/audio';
@@ -17,6 +21,7 @@ export function MediaBin() {
   const missingMedia = project.assets.filter((a) => !getDecodeService(a.id));
   const sync = useStore((s) => s.sync);
   const setStatus = useStore((s) => s.setStatus);
+  const noteMediaAttached = useStore((s) => s.noteMediaAttached);
 
   /**
    * Decode this file's audio and bind it to an asset. Tries the quick path,
@@ -82,7 +87,21 @@ export function MediaBin() {
         setDecodeService(missing.id, svc);
         await attachAudio(missing.id, file, audioBytes);
         sync();
-        setStatus(`${file.name} 을(를) 다시 연결했어요.`);
+        // Nothing in the document changed, so this is the only signal the
+        // preview gets that it can stop drawing black.
+        noteMediaAttached();
+        // A project saved before ADR-0008 chose its cut points against a mapping
+        // that was off by this source's offset. Re-linking silently moves the
+        // picture under those cuts, so say it rather than let them find it.
+        const shifted =
+          demux.startOffsetSec > 0 && missing.meta.startOffsetSec === undefined;
+        const frames = secToFrame(demux.startOffsetSec, project.timeline.fps);
+        setStatus(
+          `${file.name} 을(를) 다시 연결했어요.` +
+            (shifted
+              ? ` ⚠ 이 영상은 시작 지점이 어긋나 있어 바로잡았어요 — 예전에 잘라 둔 자리가 ${frames}프레임만큼 달라 보일 수 있어요.`
+              : ''),
+        );
         return;
       }
 
@@ -105,6 +124,9 @@ export function MediaBin() {
             height: demux.track.height,
             durationSec: demux.track.durationSec,
             codec: demux.track.codec,
+            // Recorded so a later re-link can tell "imported with the offset
+            // corrected" from "imported before that existed" (ADR-0008).
+            startOffsetSec: demux.startOffsetSec,
           },
         },
         durationFrames,
@@ -115,6 +137,7 @@ export function MediaBin() {
       const audio = await attachAudio(assetId, file, audioBytes);
 
       sync();
+      noteMediaAttached();
       const audioNote = audio.buffer
         ? ` · 오디오 ${audio.buffer.numberOfChannels}ch`
         : ' · 오디오 없음';
@@ -174,8 +197,8 @@ export function MediaBin() {
       />
       {missingMedia.length > 0 && (
         <div className="relink" role="status">
-          이전 작업을 열었어요. 아래 영상을 다시 선택하면 그대로 이어서 편집할 수
-          있어요.
+          이전 작업을 열었어요. 아래 영상을 다시 선택하면 그대로 이어서 편집할
+          수 있어요.
           <ul>
             {missingMedia.map((a) => (
               <li key={a.id}>{a.name}</li>
