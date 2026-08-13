@@ -30,8 +30,46 @@ rejects them). `npm run check:guardrails` enforces the first part.
 - `npm run test:watch` — watch mode
 - `npm run typecheck` — types only
 - `npm run e2e` — Playwright against bundled Chromium
+- `npm run e2e:lowmem` — the same run on one worker, for a machine under memory
+  pressure (see below)
 - `npm run e2e:chrome` — Playwright against your installed Google Chrome
 - `npm run e2e:ui` — interactive Playwright runner
+
+## How much memory an e2e run costs
+
+Every Playwright worker runs its own `chrome-headless-shell`, and one instance
+peaks around **425MB** — renderer ~148MB, the network and storage utilities
+~122MB together, gpu-process ~81MB, browser process ~82MB. Only the renderer is
+ours; the rest is Chromium's fixed floor, so the total is set almost entirely by
+**how many browsers run at once**.
+
+Measured on this suite (peak resident across all `chrome-headless-shell`
+processes, sampled at 1s; wall clock from two runs each):
+
+| workers        | peak     | processes | wall clock |
+| -------------- | -------- | --------- | ---------- |
+| 4 (PW default) | ~1,110MB | 16        | 26–28s     |
+| **2 (ours)**   | ~770MB   | 10        | 27s        |
+| 1 (`:lowmem`)  | ~425MB   | 5         | 43s        |
+
+Playwright's default is half the cores, which on a 12-core machine means one
+worker per spec file. That buys nothing: with four spec files the run is
+bottlenecked by the longest one, so **two workers are exactly as fast as four**
+and cost a third less memory. Going to one worker is the first setting that
+actually serialises the critical path, which is why it costs 16s.
+
+Two things that look like levers and are not, both measured:
+
+- **`--disable-gpu` saves nothing** (426MB vs 428MB). `chrome-headless-shell`
+  still starts a gpu-process for SwiftShader.
+- **`--trace off` saves ~10%** (384MB vs 428MB) and costs every failure trace.
+  Not worth it; `retain-on-failure` stays.
+
+There is no leak to chase here. On a single worker, memory sawtooths between
+~310MB and ~430MB for the whole run and does not trend upward — the renderer is
+torn down and rebuilt at each test. A run that ends normally leaves zero
+processes behind; leftover `chrome-headless-shell` processes mean a previous run
+was killed rather than finished, and they are safe to kill by name.
 
 ## Dev server address
 

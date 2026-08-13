@@ -10,7 +10,7 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-08-12 08:04 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-08-13 03:15 UTC — `npm run verify` **GREEN**
 
 - unit 167 passed · e2e 41 passed
 
@@ -95,28 +95,69 @@ Note: the pass left a three-clip test project and two autosaves in that Chrome's
 `localStorage` for `127.0.0.1:9990`. Harmless, and clearing it is one click in
 the version panel — or say the word and it can be cleared.
 
+## The e2e suite's memory cost, measured and cut
+
+The owner reported `chrome-headless-shell` eating too much memory during e2e
+runs. It was measured rather than guessed, by sampling every
+`chrome-headless-shell` process once a second across full suite runs.
+
+**The finding: Playwright's default worker count was buying nothing.** The
+default is half the cores, which on a 12-core machine is one worker per spec
+file — four Chromium instances, ~1,110MB. But with four spec files the run is
+bottlenecked by the longest one, so **two workers finish in the same wall clock
+and cost a third less**. `playwright.config.ts` now pins `workers: 2`; the gate
+went from ~28s / 1,110MB to ~26s / ~770MB.
+
+`npm run e2e:lowmem` (`--workers=1`) is there for a machine under real memory
+pressure: ~425MB, but 43s instead of 27s, because one worker is the first
+setting that actually serialises the critical path.
+
+Three things checked and ruled out, so nobody re-derives them:
+
+- **There is no leak.** On one worker, memory sawtooths between ~310MB and
+  ~430MB for the whole run with no upward trend; the renderer is torn down and
+  rebuilt per test. An earlier reading suggesting per-instance growth was an
+  arithmetic error — peaks across workers are staggered, so four instances do
+  not sum to four times one.
+- **`--disable-gpu` saves nothing** (426MB vs 428MB): `chrome-headless-shell`
+  still starts a gpu-process for SwiftShader.
+- **`--trace off` saves ~10%** and costs every failure trace. Not taken.
+
+Of one instance's ~425MB peak, only the renderer (~148MB) is this app's; the
+rest is Chromium's fixed floor (network + storage utilities ~122MB, gpu ~81MB,
+browser ~82MB). The numbers and the method are in `docs/TESTING.md`.
+
+Leftover `chrome-headless-shell` processes were seen on this machine with no run
+in progress (9 of them, ~1.2GB). A run that ends normally leaves zero behind, so
+those are the residue of a killed run — kill by name, no code change owed.
+
 ## In flight
 
-Nothing. The working tree has E6 plus doc updates, **uncommitted** — see below.
+Nothing. E6 is committed **and pushed** — `main @ 4cdf618`, in sync with
+`origin/main`. The working tree carries only the e2e memory change above
+(`playwright.config.ts`, `package.json`, `docs/TESTING.md`, this file),
+uncommitted.
 
 ## Next single step
 
-**Ask the owner whether to commit E6, then commit it.** Nothing has been
-committed for this epic. After that, E7: text/subtitles, transitions, audio
-volume/fades, transform.
+**Ask the owner whether to commit the e2e memory change, then commit it.** After
+that, the open question below is which unit of work comes next — it has been put
+to the owner and not answered.
 
 ## Blocked / needs the owner
 
 1. **Committing.** Announce before any git operation and wait — hard stop.
-2. **A naming decision, not a defect.** Three toolbar controls contain the word
+2. **Which unit of work is next.** Four candidates were put to the owner and
+   none was picked: (A, recommended) fix the two-frame source-offset defect
+   described above; (B) E7 — subtitles, transitions, audio volume/fades,
+   transform; (C) timeline zoom + ruler ticks + thumbnails + waveform;
+   (D) the naming/consistency cleanup in item 3.
+3. **A naming decision, not a defect.** Three toolbar controls contain the word
    "잘라내기": `clip.cut` (clipboard) and the two trim-to-playhead commands
    ("앞부분/뒷부분 잘라내기"). Their icons (`✁` and `✂`) are indistinguishable at
    toolbar size. The novice persona rated this major: someone trying to "cut 30
    seconds out" will click the wrong one. Renaming E5's commands is a product
    call, so it was left alone rather than changed quietly.
-3. **Whether the two-frame source-offset defect (above) is the next unit of
-   work.** It is a correctness bug in what the user sees and exports, but it is
-   outside E6 and outside E7's plan, so the owner picks when it gets done.
 
 ## Decisions a future session would otherwise get wrong
 
@@ -171,3 +212,8 @@ Kept short on purpose: only what a future session would otherwise get wrong.
 - **A slider must not contain interactive children.** ARIA makes them
   presentational, which deleted every clip's name and state from the
   accessibility tree. Hence the `.ruler` / `.track` split.
+- **`workers: 2` in `playwright.config.ts` is a measured number, not a guess.**
+  Raising it back to Playwright's default costs ~340MB and returns no time,
+  because the suite's critical path is its longest spec file. Re-measure before
+  changing it — the right number moves the moment a fifth spec file appears or
+  one file's runtime overtakes `palette-keymap.spec.ts`.

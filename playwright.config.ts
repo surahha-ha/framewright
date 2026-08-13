@@ -14,6 +14,19 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
+  // Each worker runs its own Chromium, and one instance peaks around 425MB
+  // (renderer ~148 · network+storage utilities ~122 · gpu ~81 · browser ~82).
+  // Playwright's default is half the cores, which here means one worker per
+  // spec file — four instances, ~1.1GB, for no time gain, because the run is
+  // bottlenecked by the longest single file. Two workers cost nothing and save
+  // a third of that. Measured on this suite (peak resident, wall clock):
+  //
+  //   workers=4   ~1110MB   26-28s      workers=1   ~425MB   43s
+  //   workers=2    ~770MB   27s
+  //
+  // `npm run e2e:lowmem` (--workers=1) trades 16s for another 45%. See
+  // docs/TESTING.md.
+  workers: 2,
   reporter: [['list']],
   use: {
     baseURL: DEV_URL,
@@ -21,7 +34,10 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+    {
+      name: 'chrome',
+      use: { ...devices['Desktop Chrome'], channel: 'chrome' },
+    },
   ],
   webServer: {
     command: 'npm run dev',
