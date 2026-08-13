@@ -10,7 +10,7 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-08-13 03:15 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-08-13 04:00 UTC — `npm run verify` **GREEN**
 
 - unit 167 passed · e2e 41 passed
 
@@ -133,26 +133,24 @@ those are the residue of a killed run — kill by name, no code change owed.
 
 ## In flight
 
-Nothing. E6 is committed **and pushed** — `main @ 4cdf618`, in sync with
-`origin/main`. The working tree carries only the e2e memory change above
-(`playwright.config.ts`, `package.json`, `docs/TESTING.md`, this file),
-uncommitted.
+Nothing. Everything above is committed and pushed — `main @ 1ce3921`, in sync
+with `origin/main`, working tree clean. E6 landed as `4cdf618`, the e2e worker
+change as `1ce3921`.
 
 ## Next single step
 
-**Ask the owner whether to commit the e2e memory change, then commit it.** After
-that, the open question below is which unit of work comes next — it has been put
-to the owner and not answered.
+**Ask the owner which unit of work comes next.** Four candidates were put to
+them and none has been picked; they are listed below. Do not pick one
+unilaterally.
 
 ## Blocked / needs the owner
 
-1. **Committing.** Announce before any git operation and wait — hard stop.
-2. **Which unit of work is next.** Four candidates were put to the owner and
+1. **Which unit of work is next.** Four candidates were put to the owner and
    none was picked: (A, recommended) fix the two-frame source-offset defect
    described above; (B) E7 — subtitles, transitions, audio volume/fades,
    transform; (C) timeline zoom + ruler ticks + thumbnails + waveform;
-   (D) the naming/consistency cleanup in item 3.
-3. **A naming decision, not a defect.** Three toolbar controls contain the word
+   (D) the naming/consistency cleanup in item 2 below.
+2. **A naming decision, not a defect.** Three toolbar controls contain the word
    "잘라내기": `clip.cut` (clipboard) and the two trim-to-playhead commands
    ("앞부분/뒷부분 잘라내기"). Their icons (`✁` and `✂`) are indistinguishable at
    toolbar size. The novice persona rated this major: someone trying to "cut 30
