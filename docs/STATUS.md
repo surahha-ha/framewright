@@ -10,7 +10,7 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-08-13 05:42 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-08-13 05:55 UTC — `npm run verify` **GREEN**
 
 - unit 181 passed · e2e 44 passed
 
@@ -20,8 +20,8 @@ repo does not.
 
 **The two-frame source-offset defect is fixed.** It was the "A" option of four
 that the owner was offered after E6; they declined to pick and said to take the
-recommendation, so A was taken. E6 and the e2e worker change are already
-committed (`4cdf618`, `1ce3921`, `d723949`); **this work is not committed yet.**
+recommendation, so A was taken. It landed as `64cc580`, on top of E6
+(`4cdf618`) and the e2e worker change (`1ce3921`, `d723949`).
 
 The defect, restated for someone who never saw it: `e2e/fixtures/sample-h264.mp4`
 has B-frames and no edit list, so its first sample's `cts` is **1024** at
@@ -96,41 +96,31 @@ purpose and now live in "Known tech debt" in `CLAUDE.md`:
 
 ## In flight
 
-**Uncommitted work in the tree.** `npm run verify` is GREEN over it (stamped
-above). Changed:
-
-- `src/engine/demux.ts` — `rebaseToPresentationStart`, `presentationSpan`,
-  wiring, `startOffsetSec` on both demux results
-- `src/engine/time.ts` — `secToTimescale`
-- `src/engine/types.ts` — `AssetMeta.startOffsetSec`
-- `src/engine/audio.ts` — uses `timescaleToUs` instead of inline time math
-- `src/store/projectStore.ts` — `mediaVersion` / `noteMediaAttached`
-- `src/ui/Preview.tsx`, `src/ui/MediaBin.tsx`
-- `e2e/source-offset.spec.ts` (new), `e2e/playback-session.spec.ts`,
-  `e2e/editor.spec.ts`, unit tests for demux and time
-- `docs/adr/0008-…` (new), `docs/adr/README.md`, `docs/TESTING.md`, `CLAUDE.md`
-- `docs/research/` — a background research pass the owner asked for (see below)
+Nothing. `64cc580` is pushed and the tree is clean.
 
 ## Next single step
 
-**Ask the owner to commit this work, then commit it.** Announcing before any git
-operation is the one hard stop in this project.
+**Ask the owner which of B / C / D comes next, with a recommendation** — see
+item 1 below. Nothing is half-done; any of them can start from a clean tree.
 
 ## Blocked / needs the owner
 
-1. **Committing.** Nothing here is committed.
-2. **Which unit of work is next.** Of the four candidates offered after E6, A is
+1. **Which unit of work is next.** Of the four candidates offered after E6, A is
    now done. The rest, unranked by the owner: **B** — E7 (subtitles,
    transitions, audio volume/fades, transform); **C** — timeline zoom + ruler
-   ticks + thumbnails + waveform; **D** — the naming cleanup in item 3. The owner
+   ticks + thumbnails + waveform; **D** — the naming cleanup in item 2. The owner
    has said they would rather be handed a recommendation than a menu.
-3. **A naming decision, not a defect.** Three toolbar controls contain the word
+   `docs/research/editor-pain-points.md` §6 argues for a fifth candidate ahead
+   of all of them: **keep the media, so re-linking after a reload stops being a
+   thing** (ADR-0004 says OPFS; there is no OPFS call in the code). Read that
+   section before recommending.
+2. **A naming decision, not a defect.** Three toolbar controls contain the word
    "잘라내기": `clip.cut` (clipboard) and the two trim-to-playhead commands
    ("앞부분/뒷부분 잘라내기"). Their icons (`✁` and `✂`) are indistinguishable at
    toolbar size. The novice persona rated this major: someone trying to "cut 30
    seconds out" will click the wrong one. Renaming E5's commands is a product
    call, so it was left alone rather than changed quietly.
-4. **Two new directions the owner set, neither started as code.** They want this
+3. **Two new directions the owner set, neither started as code.** They want this
    deployed on **AWS for real users**, and they want the design informed by what
    real users complain about in Premiere / Final Cut / DaVinci / CapCut /
    browser editors, including hard adoption and review numbers. The research is
