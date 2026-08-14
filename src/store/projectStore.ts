@@ -28,6 +28,11 @@ export const editor: Editor = createEditor(loaded?.project ?? createProject());
 const hadRealWork =
   !!loaded && (loaded.project.assets.length > 0 || loaded.versions.length > 0);
 
+/** An asset that recorded where its file was kept is one we are about to
+ *  reopen (ADR-0009). Decided before the first render, so nothing on screen
+ *  claims the media is back while it is still being read. */
+const mediaPending = !!loaded?.project.assets.some((a) => a.opfsKey);
+
 let versions: Version[] = loaded?.versions ?? [];
 let generation = loaded?.generation ?? 0;
 let versionCounter = versions.length;
@@ -64,6 +69,11 @@ interface State {
    *  is identical — so without this nothing tells the preview that the picture
    *  it is holding black can now actually be drawn. */
   mediaVersion: number;
+  /** Media kept from a previous session is being reopened. Every panel that
+   *  says something about missing media has to know: the preview used to tell
+   *  the user to go and find the file while the restore was already doing it. */
+  mediaRestoring: boolean;
+  setMediaRestoring: (b: boolean) => void;
   versions: Version[];
   savedAt: number | null;
   /** Persistence is unavailable or blocked — the UI must not promise saving. */
@@ -199,12 +209,18 @@ export const useStore = create<State>((set, get) => {
     isPlaying: false,
     isExporting: false,
     hasClipboard: false,
-    status: hadRealWork
-      ? '이전 작업을 그대로 불러왔어요.'
-      : '영상을 불러오세요.',
+    // The status bar is "the last thing that happened, in words". Saying the
+    // work is back while its media is still being read is a claim about
+    // something that has not happened yet.
+    status: mediaPending
+      ? '이전 작업을 열었어요. 저장해 둔 영상을 여는 중이에요…'
+      : hadRealWork
+        ? '이전 작업을 그대로 불러왔어요.'
+        : '영상을 불러오세요.',
     seekVersion: 0,
     stopSignal: 0,
     mediaVersion: 0,
+    mediaRestoring: mediaPending,
     versions,
     savedAt: null,
     saveDisabledReason: isStorageAvailable()
@@ -382,6 +398,7 @@ export const useStore = create<State>((set, get) => {
     setExporting: (isExporting) => set({ isExporting }),
     setStatus: (status) => set({ status }),
     noteMediaAttached: () => set((s) => ({ mediaVersion: s.mediaVersion + 1 })),
+    setMediaRestoring: (mediaRestoring) => set({ mediaRestoring }),
   };
 });
 

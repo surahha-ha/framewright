@@ -645,7 +645,78 @@ export const pasteCommand: Command = {
   },
 };
 
+export interface AttachMediaArgs {
+  assetId: string;
+  /** Where the file now lives in the media store (`mediaStore.ts`). */
+  opfsKey?: string;
+  /** The presentation offset the demuxer removed on the way in (ADR-0008). */
+  startOffsetSec?: number;
+}
+
+/** What `asset.attachMedia` would actually change — empty means "nothing to do". */
+function attachChanges(
+  ctx: EditorCtx,
+  args: AttachMediaArgs | undefined,
+): { opfsKey?: string; meta?: { startOffsetSec?: number } } | null {
+  if (!args?.assetId) return null;
+  const asset = ctx.project.assets.find((a) => a.id === args.assetId);
+  if (!asset) return null;
+  const changes: { opfsKey?: string; meta?: { startOffsetSec?: number } } = {};
+  if (args.opfsKey !== undefined && args.opfsKey !== asset.opfsKey) {
+    changes.opfsKey = args.opfsKey;
+  }
+  if (
+    args.startOffsetSec !== undefined &&
+    args.startOffsetSec !== asset.meta.startOffsetSec
+  ) {
+    changes.meta = { startOffsetSec: args.startOffsetSec };
+  }
+  return Object.keys(changes).length ? changes : null;
+}
+
+/**
+ * Remember where this asset's file was stored, and what the demuxer corrected.
+ *
+ * Re-linking after a reload used to change nothing in the document, so the
+ * media was found again and then forgotten again on the next reload — and the
+ * "이 영상은 시작 지점이 어긋나 있어" warning repeated forever because nothing
+ * ever wrote the offset down. This is the write.
+ *
+ * It refuses when nothing would change, so re-attaching the same file does not
+ * push an empty undo step.
+ */
+const attachMediaCommand: Command<AttachMediaArgs> = {
+  id: 'asset.attachMedia',
+  label: '영상 연결 기억하기',
+  requiresArgs: true,
+  hidden: true,
+  canRun: (ctx, args) => attachChanges(ctx, args) !== null,
+  run(ctx, args) {
+    const changes = attachChanges(ctx, args);
+    if (!changes) throw new Error('asset.attachMedia: nothing to change');
+    const asset = ctx.project.assets.find((a) => a.id === args.assetId)!;
+    return {
+      forward: [{ kind: 'updateAsset', assetId: asset.id, changes }],
+      inverse: [
+        {
+          kind: 'updateAsset',
+          assetId: asset.id,
+          changes: {
+            // `undefined` here means "remove it again" — see ops.ts. An asset
+            // that never had an offset must not come back from undo with one.
+            ...('opfsKey' in changes ? { opfsKey: asset.opfsKey } : {}),
+            ...('meta' in changes
+              ? { meta: { startOffsetSec: asset.meta.startOffsetSec } }
+              : {}),
+          },
+        },
+      ],
+    };
+  },
+};
+
 export const BUILTIN_COMMANDS: Command<any>[] = [
+  attachMediaCommand,
   splitCommand,
   trimStartToPlayheadCommand,
   trimEndToPlayheadCommand,

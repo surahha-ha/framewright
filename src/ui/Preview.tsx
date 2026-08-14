@@ -41,6 +41,9 @@ export function Preview() {
   const setStatus = useStore((s) => s.setStatus);
   const stopSignal = useStore((s) => s.stopSignal);
   const mediaVersion = useStore((s) => s.mediaVersion);
+  // Media kept from a previous session is still being read. Without this the
+  // stage tells the user to go and find the file the app is already opening.
+  const restoring = useStore((s) => s.mediaRestoring);
   const fps = project.timeline.fps;
   const total = timelineDuration(project);
   // The document remembers clips whose media is not loaded (e.g. after reload).
@@ -296,7 +299,12 @@ export function Preview() {
       <div className="panel-title">프리뷰</div>
       <div className="stage">
         <canvas ref={canvasRef} />
-        {total > 0 && missingMedia && (
+        {total > 0 && missingMedia && restoring && (
+          <p className="stage-note">
+            저장해 둔 영상을 여는 중이에요. 잠시만 기다려 주세요.
+          </p>
+        )}
+        {total > 0 && missingMedia && !restoring && (
           <p className="stage-note" role="status">
             영상 파일이 아직 연결되지 않아 화면이 비어 있어요.
             <br />
@@ -309,8 +317,23 @@ export function Preview() {
       </div>
       <div className="transport">
         <button
-          onClick={() => (isPlaying ? stopPlayback() : startPlayback())}
+          onClick={() => {
+            // Playing with no media advances the playhead over a black canvas
+            // and looks exactly like a freeze. Say what it is waiting for
+            // instead — `aria-disabled`, so the control stays discoverable and
+            // the reason is reachable by keyboard.
+            if (missingMedia) {
+              setStatus(
+                restoring
+                  ? '저장해 둔 영상을 여는 중이에요. 잠시 뒤에 재생할 수 있어요.'
+                  : '영상 파일이 아직 연결되지 않았어요. 왼쪽에서 같은 영상을 다시 선택해 주세요.',
+              );
+              return;
+            }
+            isPlaying ? stopPlayback() : startPlayback();
+          }}
           disabled={total === 0}
+          aria-disabled={missingMedia || undefined}
           aria-label={isPlaying ? '일시정지' : '재생'}
         >
           {isPlaying ? '⏸' : '▶'}

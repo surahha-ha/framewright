@@ -218,6 +218,24 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 - The `Editor` instance is a module singleton in `store/projectStore.ts`. Fine for
   one document; move to React context if we ever open several projects at once.
+  `mediaRepo` and the media work queue in `ui/media.ts` are the same shape and
+  would need the same treatment.
+- **`opfsKey` is written by two different paths.** A first import folds it into
+  the asset inside `Editor.importAsset` — a hand-written method that builds its
+  own patch instead of being a registry `Command` (this predates ADR-0009) — and
+  a re-link writes it through the `asset.attachMedia` command. Both are
+  invertible, but "record where the file went" exists twice, and a refactor of
+  `importAsset` could quietly drop one.
+- `registry.setDecodeService` silently overwrites an existing service for the
+  same asset without releasing the old one. Nothing leaks a WebCodecs handle
+  (the service holds samples and a config, not a live decoder), but two full
+  sample sets briefly coexist if it ever happens.
+- The media panel's asset rows run identity and state together in one string
+  ("⚠ movie.mp4 다시 선택 필요"), with no structural separation for a screen
+  reader. Pre-existing; the restore state extended it.
+- Media is stored per browser profile, not per project or per account. Nothing
+  shares it between devices — that is the `srcUrl` half of ADR-0004, still
+  unbuilt.
 - Playback restarts a decoder at every cut (a new `PlaybackSession` per clip).
   Warm-decoder reuse + proxy media + a frame cache are the planned fix.
 - Audio uses `decodeAudioData` on the whole file (simple, but holds the decoded
@@ -250,10 +268,9 @@ file that moved. Then run `check:refs` and `typecheck`.
   treated as if the trimmed material were still there.
 - **A project saved before ADR-0008 shifts when its media is re-linked.** The
   status line says so (the asset has no recorded `startOffsetSec`), but there is
-  no migration and no way to re-cut automatically. The warning also repeats on
-  every later re-link, because the re-link path does not write the offset into
-  the asset — doing so is a document edit, and a re-link should not push an undo
-  entry.
+  no migration and no way to re-cut automatically. The warning no longer repeats
+  — ADR-0009's `asset.attachMedia` writes the offset into the asset — but the
+  cuts themselves are still where the old mapping put them.
 - The keymap has no presets (Premiere / Final Cut style) and no import/export —
   it is per-browser `localStorage` only, so a new machine starts from defaults.
 - The palette filters by plain substring on the label. No fuzzy match, no

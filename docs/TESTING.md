@@ -198,6 +198,21 @@ conclusion.
 
 - **The dev server is usually already up.** `npm run dev` failing with
   `Port 9990 is already in use` is the normal case, not a problem.
+- **The connected browser may not be on this machine at all.** The extension
+  connects per Claude account, so a Chrome on another computer signed into the
+  same account shows up in `list_connected_browsers` — with `isLocal: true`, and
+  looking entirely normal. Driving it produces a failure that mimics a broken
+  dev server: `http://127.0.0.1:9990` is *that* machine's loopback, so it lands
+  on an error page, screenshots fail with `Frame with ID 0 is showing error
+  page`, and this machine's `netstat` shows no connection attempt at all — while
+  `curl` here returns 200 the whole time. **The tell:** close every Chrome on
+  this machine and call `list_connected_browsers` again. If a browser is still
+  listed (and `connectedAt` has not changed), it is not yours. The fix is
+  `switch_browser`, which prompts every connected Chrome and lets the owner
+  click Connect in the right one — `select_browser` cannot help, because the
+  entry looks correct.
+  A second symptom of the same cause: `window.outerWidth`/`outerHeight` read
+  `0 × 0` on a tab in that browser.
 - **Pick a browser by deviceId, never by display name.** More than one Chrome
   can be connected and the names are unreliable — selecting the one listed as
   "Browser 1" reported back "Connected to browser 'Browser 2'". The ids are
@@ -218,6 +233,12 @@ corner and on the transport readout. **The playhead number must equal the
 burnt-in number.** That comparison, and nothing in the gate, is what found the
 two-frame offset defect (ADR-0008). The element `ref` goes stale after a reload —
 re-`find` it.
+
+**A LAN IP is not a workaround.** `http://<lan-ip>:9990` is not a secure
+context, so `VideoDecoder` and `navigator.storage.getDirectory` are both
+`undefined` there — WebCodecs and OPFS need `127.0.0.1` or HTTPS. Confirm the
+page is usable at all with
+`isSecureContext` / `typeof VideoDecoder` before drawing any conclusion from it.
 
 **Trap: clearing framewright's `localStorage` does not stick.** The app flushes
 the in-memory document on `pagehide`, so removing `framewright:project` and then

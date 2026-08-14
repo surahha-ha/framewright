@@ -113,14 +113,36 @@ test.describe('import → split → undo', () => {
   });
 });
 
-test.describe('re-linking media after a reload', () => {
+test.describe('media survives a reload', () => {
+  /** Reads whether the preview canvas has any non-black pixel. */
+  const painted = (page: import('@playwright/test').Page) =>
+    page.evaluate(() => {
+      const canvas = document.querySelector(
+        '.stage canvas',
+      ) as HTMLCanvasElement | null;
+      if (!canvas || !canvas.width) return false;
+      const ctx = canvas.getContext('2d');
+      const data = ctx?.getImageData(0, 0, canvas.width, canvas.height).data;
+      if (!data) return false;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] || data[i + 1] || data[i + 2]) return true;
+      }
+      return false;
+    });
+
+  /** Throw away everything the media store kept, without touching the document. */
+  const forgetStoredMedia = (page: import('@playwright/test').Page) =>
+    page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      await root.removeEntry('media', { recursive: true });
+    });
+
   /**
-   * Found by visual QA, not by the gate: the picture stayed black after
-   * re-linking until the playhead happened to move. Re-linking changes NOTHING
-   * in the document — same project object, same playhead — so the preview's
-   * scrub effect never re-ran. Hence `mediaVersion` in the store.
+   * The point of the media store (ADR-0009). Before it, reopening the editor
+   * showed the whole timeline over a black picture and asked for every file
+   * back — on the second visit, every time.
    */
-  test('the picture comes back without touching the playhead', async ({
+  test('reopening the editor brings the picture back with no file picker', async ({
     page,
   }) => {
     await page.goto('/');
@@ -134,7 +156,112 @@ test.describe('re-linking media after a reload', () => {
       timeout: 15_000,
     });
 
-    // A reload restores the document but not the media: files live in memory.
+    await page.reload();
+
+    // While the restore is still running, nothing may tell the user to go and
+    // find the file — the app is already doing it. (A persona review caught
+    // the stage saying exactly that, in the largest text on screen.)
+    await expect(
+      page.locator('.stage-note', { hasText: '다시 선택하면' }),
+    ).toHaveCount(0);
+
+    // The document comes back with its clip AND its media: nothing asks to be
+    // re-selected, and the stage is not a black hole.
+    await expect(page.locator('.timeline .clip')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    await expect(page.locator('.statusbar')).toContainText('영상도 준비됐어요', {
+      timeout: 15_000,
+    });
+    await expect(page.locator('.relink')).toHaveCount(0);
+    await expect(page.locator('.asset-list .missing')).toHaveCount(0);
+    await expect
+      .poll(() => painted(page), {
+        timeout: 15_000,
+        message: 'preview stayed black after a reload',
+      })
+      .toBe(true);
+    // Editing is available immediately — the whole point is not having to do
+    // anything first.
+    await page.locator('.track').click({ position: { x: 200, y: 20 } });
+    await expect(page.getByRole('button', { name: /나누기/ })).toBeEnabled();
+  });
+
+  /**
+   * The media store can lose a file — a browser with no OPFS, a private window,
+   * an eviction under storage pressure. Re-linking is still the recovery, and
+   * it must leave the picture visible without touching the playhead: that bug
+   * (found by visual QA, not by the gate) is why `mediaVersion` exists.
+   */
+  test('a file the store lost can be re-linked, and the picture comes back', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    test.skip(
+      !(await supportsH264(page)),
+      'this browser has no H.264 (use `npm run e2e:chrome`)',
+    );
+
+    await page.setInputFiles('input[type="file"]', FIXTURE);
+    await expect(page.locator('.timeline .clip')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+
+    await forgetStoredMedia(page);
+    await page.reload();
+    await expect(page.locator('.stage-note')).toContainText('연결되지 않아');
+
+    // Found by looking at it: the panel printed the filename twice, 20px apart
+    // — once in the "pick it again" box and once in the asset list right below
+    // — which reads as two separate problems rather than one.
+    expect(
+      (await page.locator('.bin').innerText()).split('sample-h264.mp4').length -
+        1,
+    ).toBe(1);
+
+    // Playing with no media used to advance the playhead over a black canvas
+    // and look exactly like a freeze. It must refuse, and say why.
+    const play = page.getByRole('button', { name: '재생' });
+    await expect(play).toHaveAttribute('aria-disabled', 'true');
+    // `force` because Playwright refuses to click an aria-disabled control —
+    // a real user's mouse does not, which is the whole reason it must answer.
+    await play.click({ force: true });
+    await expect(page.locator('.statusbar')).toContainText('다시 선택해 주세요');
+    expect(await page.locator('.transport .dim').innerText()).toContain('0 /');
+
+    await page.setInputFiles('input[type="file"]', FIXTURE);
+    await expect(page.locator('.statusbar')).toContainText('다시 연결했어요', {
+      timeout: 15_000,
+    });
+    // ...and once the media is back, it is a real play button again.
+    await expect(play).not.toHaveAttribute('aria-disabled', 'true');
+
+    // The playhead has not moved. The stage must still be showing the frame.
+    await expect
+      .poll(() => painted(page), {
+        timeout: 15_000,
+        message: 'preview stayed black',
+      })
+      .toBe(true);
+    expect(await page.locator('.transport .dim').innerText()).toContain('0 /');
+  });
+
+  /** Re-linking now writes down where the file went, so the SECOND reload is
+   *  quiet. It used to ask again, and again, forever. */
+  test('a re-link is remembered, so the next reload does not ask', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    test.skip(
+      !(await supportsH264(page)),
+      'this browser has no H.264 (use `npm run e2e:chrome`)',
+    );
+
+    await page.setInputFiles('input[type="file"]', FIXTURE);
+    await expect(page.locator('.timeline .clip')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    await forgetStoredMedia(page);
     await page.reload();
     await expect(page.locator('.stage-note')).toContainText('연결되지 않아');
 
@@ -143,25 +270,11 @@ test.describe('re-linking media after a reload', () => {
       timeout: 15_000,
     });
 
-    // The playhead has not moved. The stage must still be showing the frame.
-    const painted = async () =>
-      page.evaluate(() => {
-        const canvas = document.querySelector(
-          '.stage canvas',
-        ) as HTMLCanvasElement | null;
-        if (!canvas || !canvas.width) return false;
-        const ctx = canvas.getContext('2d');
-        const data = ctx?.getImageData(0, 0, canvas.width, canvas.height).data;
-        if (!data) return false;
-        for (let i = 0; i < data.length; i += 4) {
-          if (data[i] || data[i + 1] || data[i + 2]) return true;
-        }
-        return false;
-      });
-    await expect
-      .poll(painted, { timeout: 15_000, message: 'preview stayed black' })
-      .toBe(true);
-    expect(await page.locator('.transport .dim').innerText()).toContain('0 /');
+    await page.reload();
+    await expect(page.locator('.statusbar')).toContainText('영상도 준비됐어요', {
+      timeout: 15_000,
+    });
+    await expect(page.locator('.relink')).toHaveCount(0);
   });
 });
 

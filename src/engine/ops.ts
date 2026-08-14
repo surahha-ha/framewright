@@ -16,6 +16,13 @@ export type Op =
     }
   | { kind: 'addAsset'; asset: Asset }
   | { kind: 'removeAsset'; assetId: string }
+  /** Where the asset's file is stored, and what was corrected on the way in.
+   *  Never touches the cut — see `asset.attachMedia`. */
+  | {
+      kind: 'updateAsset';
+      assetId: string;
+      changes: Partial<Omit<Asset, 'id'>>;
+    }
   | { kind: 'setTimeline'; config: TimelineConfig }
   | { kind: 'setNextId'; value: number }
   /** Whole-document replace — used by "restore a version", which must itself be
@@ -38,6 +45,22 @@ function mapTrack(
       t.id === trackId ? { ...t, clips: fn(t.clips) } : t,
     ),
   };
+}
+
+/**
+ * Setting a field to `undefined` MEANS removing it.
+ *
+ * Absence carries meaning here — an asset with no `meta.startOffsetSec` is one
+ * imported before that correction existed (ADR-0008) — and `JSON.stringify`
+ * drops undefined anyway, so a merged-in `undefined` would survive in memory
+ * and vanish on reload. Same rule in both places, or undo produces a document
+ * that differs from the one you get by reopening it.
+ */
+function dropUndefined<T extends object>(value: T): T {
+  const out = { ...value } as Record<string, unknown>;
+  for (const key of Object.keys(out))
+    if (out[key] === undefined) delete out[key];
+  return out as T;
 }
 
 export function applyOp(project: Project, op: Op): Project {
@@ -64,6 +87,19 @@ export function applyOp(project: Project, op: Op): Project {
       return {
         ...project,
         assets: project.assets.filter((a) => a.id !== op.assetId),
+      };
+    case 'updateAsset':
+      return {
+        ...project,
+        assets: project.assets.map((a) =>
+          a.id === op.assetId
+            ? dropUndefined({
+                ...a,
+                ...op.changes,
+                meta: dropUndefined({ ...a.meta, ...op.changes.meta }),
+              })
+            : a,
+        ),
       };
     case 'setTimeline':
       return { ...project, timeline: op.config };
