@@ -107,7 +107,9 @@ export function ExportButton() {
               : 'MP4로 내보내기'
           }
         >
-          ⬇ 내보내기
+          {/* aria-hidden like every other toolbar glyph: the accessible name is
+              the word, never the arrow. */}
+          <span aria-hidden="true">⬇</span> 내보내기
         </button>
       )}
     </span>

@@ -52,7 +52,10 @@ export const APP_ACTIONS: AppAction[] = [
   {
     id: 'clip.cut',
     label: '잘라내기',
-    icon: '✁',
+    // ✂, not ✁. 잘라내기 + Ctrl+X + scissors is what every OS teaches, so this
+    // is the one control that gets to keep the word AND the glyph; `clip.split`
+    // gave the scissors back and took ◫. See src/engine/vocabulary.test.ts.
+    icon: '✂',
     defaultKey: 'mod+x',
     anchorAfter: 'clip.deleteRipple',
     canRun: () => !!editor.selectedClipId,

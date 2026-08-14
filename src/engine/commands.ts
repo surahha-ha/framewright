@@ -92,7 +92,10 @@ export interface MoveArgs {
 export const splitCommand: Command = {
   id: 'clip.split',
   label: '나누기',
-  icon: '✂',
+  // NOT scissors. ✂ is what every OS puts on Ctrl+X, and the clipboard cut sits
+  // three buttons away wearing it; at toolbar size the two were the same shape.
+  // ◫ says what this does — one block becomes two — and joins ◧/◨ as a family.
+  icon: '◫',
   defaultKey: 'c',
   done: '재생 위치에서 두 개로 나눴어요.',
   // N.B. `canRun` also needs playhead > startFrame — saying "move it onto the
@@ -188,10 +191,14 @@ export const deleteRippleCommand: Command = {
 /**
  * Drag the head of a clip. The in-point and the timeline position move together,
  * so the rest of the clip stays put — that is what "trim" means to an editor.
+ *
+ * The label says 조절, not 줄이기: a drag runs both ways, and pulling the handle
+ * outwards puts trimmed media back. `requiresArgs` keeps it out of the toolbar,
+ * the palette and the shortcut list, so this string is only ever read here.
  */
 export const trimStartCommand: Command<TrimArgs> = {
   id: 'clip.trimStart',
-  label: '앞부분 자르기',
+  label: '앞부분 조절 (끌기)',
   hidden: true,
   requiresArgs: true,
   canRun(ctx, args) {
@@ -234,7 +241,7 @@ export const trimStartCommand: Command<TrimArgs> = {
 /** Drag the tail of a clip: only the out-point moves. */
 export const trimEndCommand: Command<TrimArgs> = {
   id: 'clip.trimEnd',
-  label: '뒷부분 자르기',
+  label: '뒷부분 조절 (끌기)',
   hidden: true,
   requiresArgs: true,
   canRun(ctx, args) {
@@ -372,13 +379,21 @@ export const closeGapsCommand: Command = {
  * (W). These exist because dragging is not the only way anyone edits: they are
  * modifier-free, no window manager or browser claims them, and they are the only
  * way to land an edit EXACTLY on the playhead with a keyboard.
+ *
+ * They say 줄이기, the same verb as the one-frame nudges below — same edit, one
+ * step versus all the way to the playhead. They used to say 잘라내기, which is
+ * what Ctrl+X says in every Korean app, and that word is the clipboard's.
+ *
+ * The label carries 재생 위치까지 because that is the whole of what makes these
+ * two different from the nudges, and it is the one fact that decides the result.
+ * Without it the button reads as "make the front smaller" by an unsaid amount.
  */
 export const trimStartToPlayheadCommand: Command = {
   id: 'clip.trimStartToPlayhead',
-  label: '앞부분 잘라내기',
+  label: '재생 위치까지 앞부분 줄이기',
   icon: '◧',
   defaultKey: 'q',
-  done: '앞부분을 잘라냈어요 · 앞에 빈 곳이 생기면 "빈 곳 없애기"로 붙일 수 있어요.',
+  done: '재생 위치까지 앞부분을 줄였어요 · 앞에 빈 곳이 생기면 "빈 곳 없애기"로 붙일 수 있어요.',
   disabledReason: () => '재생 위치를 클립 안(맨 앞이 아닌 곳)으로 옮겨 주세요.',
   canRun(ctx) {
     const hit = resolveAt(ctx.project, ctx.playhead);
@@ -397,10 +412,10 @@ export const trimStartToPlayheadCommand: Command = {
 
 export const trimEndToPlayheadCommand: Command = {
   id: 'clip.trimEndToPlayhead',
-  label: '뒷부분 잘라내기',
+  label: '재생 위치까지 뒷부분 줄이기',
   icon: '◨',
   defaultKey: 'w',
-  done: '재생 위치부터 뒷부분을 잘라냈어요.',
+  done: '재생 위치부터 뒷부분을 줄였어요 · 뒤에 빈 곳이 생기면 "빈 곳 없애기"로 붙일 수 있어요.',
   disabledReason: () => '재생 위치를 클립 안(맨 앞이 아닌 곳)으로 옮겨 주세요.',
   canRun(ctx) {
     const hit = resolveAt(ctx.project, ctx.playhead);
@@ -419,26 +434,54 @@ export const trimEndToPlayheadCommand: Command = {
 /**
  * One sentence for one edit, whatever caused it — a drag, a nudge key, or the
  * palette. Reads the CURRENT document, so callers pass the state after the edit.
+ *
+ * `lengthBefore` is what lets it say 줄였어요 / 늘렸어요 instead of hedging with
+ * 조절했어요. A drag runs both ways, so the neutral word is honest there until
+ * the caller says which way it went; a shrink-only nudge should never hedge,
+ * because its own button says 줄이기.
+ *
+ * The gap note only ever mentions the side the edit could have opened — a trim
+ * of the head cannot create a hole behind the clip, and calling a hole that was
+ * already there "생겼어요" is a lie the user cannot check.
  */
 export function describeEdit(
   mode: DragMode,
   project: Project,
   clipId: string,
+  lengthBefore?: number,
 ): string {
   const found = locateClip(project, clipId);
   if (!found) return '';
   const { track, index, clip } = found;
   const fps = project.timeline.fps;
+  const length = clipLength(clip);
   const prev = track.clips[index - 1];
+  const next = track.clips[index + 1];
   const prevEnd = prev ? prev.startFrame + clipLength(prev) : 0;
-  const gap = clip.startFrame > prevEnd ? ' · 앞에 빈 곳이 생겼어요' : '';
+  const before = mode !== 'trimEnd' && clip.startFrame > prevEnd;
+  const after =
+    mode !== 'trimStart' &&
+    !!next &&
+    next.startFrame > clip.startFrame + length;
+  const gap =
+    before && after
+      ? ' · 앞뒤에 빈 곳이 생겼어요'
+      : before
+        ? ' · 앞에 빈 곳이 생겼어요'
+        : after
+          ? ' · 뒤에 빈 곳이 생겼어요'
+          : '';
   if (mode === 'move') {
     return `클립을 ${formatTimecode(clip.startFrame, fps)} 위치로 옮겼어요.${gap}`;
   }
-  if (mode === 'trimStart') {
-    return `앞부분을 잘라냈어요 · 남은 길이 ${formatTimecode(clipLength(clip), fps)}${gap}`;
-  }
-  return `뒷부분을 잘라냈어요 · 남은 길이 ${formatTimecode(clipLength(clip), fps)}`;
+  const verb =
+    lengthBefore === undefined || lengthBefore === length
+      ? '조절했어요'
+      : length < lengthBefore
+        ? '줄였어요'
+        : '늘렸어요';
+  const where = mode === 'trimStart' ? '앞부분' : '뒷부분';
+  return `${where}을 ${verb} · 남은 길이 ${formatTimecode(length, fps)}${gap}`;
 }
 
 /**
@@ -484,7 +527,7 @@ function nudgeCommand(
       if (!found) {
         return mode === 'move'
           ? '옮길 클립을 먼저 골라 주세요.'
-          : '자를 클립을 먼저 골라 주세요.';
+          : '길이를 바꿀 클립을 먼저 골라 주세요.';
       }
       const bounds = dragBounds(ctx.project, found.clip.id, mode);
       if (!bounds) return '지금은 쓸 수 없어요.';
@@ -492,10 +535,17 @@ function nudgeCommand(
         LIMIT_TEXT[limitHit(nudgeTarget(found.clip, mode, step), bounds)];
       return reason || '더 이상 움직일 수 없어요.';
     },
-    done(_before, after) {
-      return after.selectedClipId
-        ? describeEdit(mode, after.project, after.selectedClipId)
-        : '';
+    done(before, after) {
+      if (!after.selectedClipId) return '';
+      // A nudge knows which way it went, so the sentence says 줄였어요 /
+      // 늘렸어요 rather than the drag's neutral 조절했어요.
+      const was = locateClip(before.project, after.selectedClipId);
+      return describeEdit(
+        mode,
+        after.project,
+        after.selectedClipId,
+        was ? clipLength(was.clip) : undefined,
+      );
     },
     run(ctx) {
       const found = locateClip(ctx.project, ctx.selectedClipId);

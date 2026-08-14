@@ -202,9 +202,9 @@ conclusion.
   connects per Claude account, so a Chrome on another computer signed into the
   same account shows up in `list_connected_browsers` — with `isLocal: true`, and
   looking entirely normal. Driving it produces a failure that mimics a broken
-  dev server: `http://127.0.0.1:9990` is *that* machine's loopback, so it lands
+  dev server: `http://127.0.0.1:9990` is _that_ machine's loopback, so it lands
   on an error page, screenshots fail with `Frame with ID 0 is showing error
-  page`, and this machine's `netstat` shows no connection attempt at all — while
+page`, and this machine's `netstat` shows no connection attempt at all — while
   `curl` here returns 200 the whole time. **The tell:** close every Chrome on
   this machine and call `list_connected_browsers` again. If a browser is still
   listed (and `connectedAt` has not changed), it is not yours. The fix is
@@ -274,6 +274,7 @@ same commit. Anything not on this list is free to change.
 | clip `aria-label`       | identity + position + length. **Never state.**                 |
 | clip `aria-pressed`     | selected or not. The ONLY place selection lives.               |
 | `.track-hint`           | the key hints under the track, rendered FROM the keymap        |
+| `.toolbar button`       | `"<글리프> <라벨>"`; glyphs unique, no label inside another    |
 | `.overlay`              | the modal backdrop; clicking it closes the dialog              |
 | dialog "명령 찾기"      | the palette: a `combobox` over a `listbox` of `option`s        |
 | palette `option`        | one entry; `aria-disabled` carries "cannot run now"            |
@@ -304,6 +305,19 @@ So, when writing an e2e assertion:
   the label is wrong, not the test;
 - `toBeDisabled()` matches `aria-disabled="true"` as well as the native
   attribute, so the toolbar's `aria-disabled` buttons still assert normally.
+
+### Rule: `getByRole(name)` matches a SUBSTRING — pass `exact` for short names
+
+`getByRole('button', { name: '재생' })` passed for months, then resolved to three
+elements and failed two unrelated specs the moment two commands were renamed to
+`재생 위치까지 … 줄이기`. Playwright matches an accessible name by substring, so
+any short name is one rename away from becoming ambiguous, and the failure looks
+like a broken feature rather than a broken selector.
+
+If the whole accessible name is what you mean — a transport button, an icon
+button — say `{ name: '재생', exact: true }`. Reserve the loose form for names
+you deliberately want to match by fragment, and prefer a regex there so the
+intent is visible.
 
 ### Rule: the undo stack starts at 1, not 0
 

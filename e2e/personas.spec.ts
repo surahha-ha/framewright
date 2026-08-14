@@ -25,8 +25,10 @@ async function importFixture(page: Page) {
 }
 
 const clipLabel = async (page: Page, index = 0) =>
-  (await page.locator('.timeline .clip').nth(index).getAttribute('aria-label')) ??
-  '';
+  (await page
+    .locator('.timeline .clip')
+    .nth(index)
+    .getAttribute('aria-label')) ?? '';
 
 const clipFrames = async (page: Page, index = 0) =>
   Number((await clipLabel(page, index)).match(/(\d+)프레임/)?.[1] ?? '0');
@@ -58,10 +60,76 @@ test.describe('tester-novice — never edited video before', () => {
       const name = (await buttons.nth(i).getAttribute('aria-label')) ?? '';
       const text = (await buttons.nth(i).innerText()).trim();
       // Something readable must identify the button — an icon alone is a dead end.
-      expect((name + text).replace(/[^\p{L}\p{N}]/gu, '').length).toBeGreaterThan(
-        0,
-      );
+      expect(
+        (name + text).replace(/[^\p{L}\p{N}]/gu, '').length,
+      ).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * Two names collide when one is the other, or when one contains the other.
+   * Compared BY POSITION, never by value: `l !== label` would let two buttons
+   * carrying the identical string cancel each other out and pass.
+   */
+  function collisions(labels: string[]): string[] {
+    const out: string[] = [];
+    labels.forEach((label, i) => {
+      labels.forEach((other, j) => {
+        if (i !== j && other.includes(label))
+          out.push(`"${label}" ⊂ "${other}"`);
+      });
+    });
+    return out;
+  }
+
+  test('no two toolbar buttons share a shape or a word', async ({ page }) => {
+    // The toolbar is scanned, not read: two buttons that look the same or whose
+    // names contain one another are a coin flip. `✂` (split) sat three buttons
+    // from `✁` (clipboard cut), and "잘라내기" was the whole of one label and
+    // the tail of two others — someone wanting to drop the first 30 seconds had
+    // no way to pick. See src/engine/vocabulary.test.ts for the engine half.
+    await page.goto('/');
+    const texts = await page
+      .locator('.toolbar button')
+      .evaluateAll((els) => els.map((el) => (el.textContent ?? '').trim()));
+    expect(texts.length).toBeGreaterThan(5);
+
+    const icons: string[] = [];
+    const labels: string[] = [];
+    for (const text of texts) {
+      const [, icon, label] = text.match(/^(\S+)\s+([\s\S]+)$/) ?? [];
+      // A button with no glyph is allowed; one with no name is caught above.
+      if (icon && label) {
+        icons.push(icon);
+        labels.push(label.trim());
+      }
+    }
+    expect(new Set(icons).size, `repeated icon in ${icons.join(' ')}`).toBe(
+      icons.length,
+    );
+    expect(collisions(labels)).toEqual([]);
+  });
+
+  test('the shortcut list names every action distinctly, too', async ({
+    page,
+  }) => {
+    // The toolbar is only the visible third. The keyboard-only commands — the
+    // six nudges — and every app action (undo, copy, cut) meet for the first
+    // time in this dialog and in the palette, and that is where the two closest
+    // names in the app sit side by side: "재생 위치까지 앞부분 줄이기" and
+    // "앞부분 한 프레임 줄이기". The engine spec cannot see this list at all;
+    // it is built from `entries()`, which spans commands AND app actions.
+    await page.goto('/');
+    await page.getByRole('button', { name: '단축키', exact: true }).click();
+    const sheet = page.getByRole('dialog', { name: '단축키' });
+    const labels = (
+      await sheet
+        .locator('.keylist .key-label')
+        .evaluateAll((els) => els.map((el) => (el.textContent ?? '').trim()))
+    ).map((text) => text.replace(/^\S+\s+/, '').trim());
+    expect(labels.length).toBeGreaterThan(10);
+    expect(labels.filter((l) => l.length === 0)).toEqual([]);
+    expect(collisions(labels)).toEqual([]);
   });
 
   test('a mis-drag is always recoverable in one step', async ({ page }) => {
@@ -140,8 +208,10 @@ test.describe('tester-a11y — keyboard only, screen reader', () => {
     const clip = page.locator('.timeline .clip').first();
     await clip.focus();
     await page.keyboard.press('Alt+ArrowRight');
-    // The status line must describe the edit that just happened.
-    await expect(page.locator('.statusbar')).toContainText(/옮겼|잘랐/);
+    // The status line must describe the edit that just happened. Alt+→ can only
+    // ever move, so it can only ever say 옮겼어요 — the alternative that used to
+    // be here ("잘랐") was a string the app never emitted.
+    await expect(page.locator('.statusbar')).toContainText('옮겼어요');
   });
 
   test('selection is visible to assistive tech, not only by colour', async ({

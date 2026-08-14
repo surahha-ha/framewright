@@ -163,7 +163,7 @@ export function MediaBin() {
           setStatus(
             `${file.name} 을(를) 다시 연결했어요.` +
               (shifted
-                ? ` ⚠ 이 영상은 시작 지점이 어긋나 있어 바로잡았어요 — 예전에 잘라 둔 자리가 ${frames}프레임만큼 달라 보일 수 있습니다.`
+                ? ` ⚠ 이 영상은 시작 지점이 어긋나 있어 바로잡았어요 — 예전에 편집해 둔 자리가 ${frames}프레임만큼 달라 보일 수 있습니다.`
                 : '') +
               (opfsKey ? '' : NOT_KEPT),
           );

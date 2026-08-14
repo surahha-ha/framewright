@@ -5,10 +5,43 @@ prefer the option that is simpler, more familiar, and more accessible.
 
 ## Familiar (transfer knowledge, don't reinvent)
 
-- Reuse conventions people already know: `Space` play/pause, `C` cut, `V` select,
-  `J/K/L` shuttle, drag to move, edges to trim, a horizontal timeline with a playhead.
+- Reuse conventions people already know: `Space` play/pause, `C` split (Premiere's
+  razor), `V` select, `J/K/L` shuttle, drag to move, edges to trim, a horizontal
+  timeline with a playhead.
 - Standard icons and layout (source/preview/properties/timeline) so no relearning.
 - Familiar words ("cut", "trim", "export"), not internal jargon.
+
+### One word, one meaning — and one shape
+
+Five controls once said 자르기 / 잘라내기 for three different edits, and `✂`
+(split) sat three buttons from `✁` (clipboard cut). A toolbar is scanned, not
+read: someone wanting to drop the first 30 seconds was picking by coin flip.
+
+| edit                                   | word                                          | glyph   |
+| -------------------------------------- | --------------------------------------------- | ------- |
+| put a clip on the clipboard (`Ctrl+X`) | **잘라내기**                                  | `✂`     |
+| make one clip into two (`C`)           | **나누기**                                    | `◫`     |
+| trim to the playhead (`Q` / `W`)       | **재생 위치까지 앞부분 / 뒷부분 줄이기**      | `◧` `◨` |
+| trim by one frame (`Alt`+arrows)       | **앞부분 / 뒷부분 한 프레임 줄이기 · 늘리기** | —       |
+| trim by dragging an edge               | **앞부분 / 뒷부분 조절** (never rendered)     | —       |
+
+`잘라내기` + `Ctrl+X` + scissors is what every OS teaches, so the clipboard keeps
+all three; trimming borrows the nudges' 줄이기 / 늘리기 because they are the same
+edit at different sizes. A drag says 조절, not 줄이기, because pulling a handle
+outwards puts trimmed media **back** — and `Q`/`W` carry 재생 위치까지 in the
+label itself, because that is the one fact that decides what the button does and
+a tooltip is not where it can live.
+
+The same applies to what an edit **says it did**: the sentence hedges (조절했어요)
+only when the caller genuinely cannot know the direction, and a gap is only ever
+announced on the side the edit could have opened. Announcing a hole that was
+already there is a claim the user cannot check.
+
+The rule generalises: **no name may be, or contain, another name**, and no two
+buttons may wear the same glyph. Asserted in three places, because no one of
+them sees the whole surface — `src/engine/vocabulary.test.ts` (the command
+registry), and the toolbar and shortcut-list scans in `e2e/personas.spec.ts`
+(which add the app actions and the keyboard-only commands).
 
 ## Direct manipulation (the timeline is the document)
 

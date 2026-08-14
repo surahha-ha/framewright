@@ -18,7 +18,12 @@ test.describe('editor shell', () => {
     await expect(page.getByRole('button', { name: /지우기/ })).toBeDisabled();
     await expect(page.getByRole('button', { name: /되돌리기/ })).toBeDisabled();
     await expect(page.getByRole('button', { name: /내보내기/ })).toBeDisabled();
-    await expect(page.getByRole('button', { name: '재생' })).toBeDisabled();
+    // `exact`: Playwright matches an accessible name by SUBSTRING, and two trim
+    // buttons are now named "재생 위치까지 …". The transport button is the one
+    // whose whole name is 재생.
+    await expect(
+      page.getByRole('button', { name: '재생', exact: true }),
+    ).toBeDisabled();
   });
 
   test('keyboard shortcuts on an empty timeline do not crash', async ({
@@ -170,9 +175,12 @@ test.describe('media survives a reload', () => {
     await expect(page.locator('.timeline .clip')).toHaveCount(1, {
       timeout: 15_000,
     });
-    await expect(page.locator('.statusbar')).toContainText('영상도 준비됐어요', {
-      timeout: 15_000,
-    });
+    await expect(page.locator('.statusbar')).toContainText(
+      '영상도 준비됐어요',
+      {
+        timeout: 15_000,
+      },
+    );
     await expect(page.locator('.relink')).toHaveCount(0);
     await expect(page.locator('.asset-list .missing')).toHaveCount(0);
     await expect
@@ -221,12 +229,14 @@ test.describe('media survives a reload', () => {
 
     // Playing with no media used to advance the playhead over a black canvas
     // and look exactly like a freeze. It must refuse, and say why.
-    const play = page.getByRole('button', { name: '재생' });
+    const play = page.getByRole('button', { name: '재생', exact: true });
     await expect(play).toHaveAttribute('aria-disabled', 'true');
     // `force` because Playwright refuses to click an aria-disabled control —
     // a real user's mouse does not, which is the whole reason it must answer.
     await play.click({ force: true });
-    await expect(page.locator('.statusbar')).toContainText('다시 선택해 주세요');
+    await expect(page.locator('.statusbar')).toContainText(
+      '다시 선택해 주세요',
+    );
     expect(await page.locator('.transport .dim').innerText()).toContain('0 /');
 
     await page.setInputFiles('input[type="file"]', FIXTURE);
@@ -271,9 +281,12 @@ test.describe('media survives a reload', () => {
     });
 
     await page.reload();
-    await expect(page.locator('.statusbar')).toContainText('영상도 준비됐어요', {
-      timeout: 15_000,
-    });
+    await expect(page.locator('.statusbar')).toContainText(
+      '영상도 준비됐어요',
+      {
+        timeout: 15_000,
+      },
+    );
     await expect(page.locator('.relink')).toHaveCount(0);
   });
 });

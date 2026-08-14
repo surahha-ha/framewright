@@ -10,150 +10,175 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-08-14 01:54 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-08-14 06:02 UTC — `npm run verify` **GREEN**
 
-- unit 201 passed · e2e 47 passed
+- unit 210 passed · e2e 49 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
 
-**The media is kept now.** Reopening the editor restores the project *and* its
-video, with no file picker and no re-linking. That was the fifth of five
-candidates offered after E6 and it was taken because it gates the first
-impression of every later feature. It is not committed yet — see "Blocked".
+**Media persistence is committed** — `main @ 4b60b13`, and the tree was clean and
+in sync with `origin/main` at the start of this unit. `docs/adr/0009-keep-the-media.md`
+is the argument for it; nothing about it is outstanding.
 
-Before this, the second visit to framewright looked like a failure: the whole
-timeline over a black picture, every asset marked ⚠, and a list of files to go
-and find on disk. `ADR-0004` had decided OPFS for exactly this in the MVP, and
-`Asset.opfsKey` had been declared for it — but nothing had ever written it, and
-there was no OPFS call anywhere in the code.
+**This unit is D — the naming cleanup.** It is in the working tree, not
+committed (see "Blocked", item 1).
 
-**Read `docs/adr/0009-keep-the-media.md` before touching any of this.** The
-short version:
+Five controls said 자르기 / 잘라내기 and meant three different edits, and `✂`
+(split) sat three buttons from `✁` (clipboard cut) — the same shape at toolbar
+size. Someone wanting to drop the first 30 seconds was picking by coin flip.
+The words are now partitioned, and `docs/UX.md` ("One word, one meaning — and
+one shape") is the normative record:
 
-- `src/engine/mediaStore.ts` — a `MediaRepository` interface (OPFS
-  implementation) beside `storage.ts`'s document repository. Nothing in it
-  throws; no OPFS, a private window and a full disk all degrade to "not stored".
-- **Keys are content addresses** — `media_` + SHA-256 of the bytes. Deterministic
-  (rule 4), dedupes a re-import, and knowable *before* the import command runs,
-  so the document records it in the same undo entry that creates the asset.
-- `asset.attachMedia` — a hidden, args-only command recording `opfsKey` and
-  `startOffsetSec`. Recording where the file went is a document edit, so it goes
-  through the command spine (rule 2). It refuses when nothing would change.
-- `ops.ts` gained `updateAsset`. **Setting a field to `undefined` means removing
-  it** — absence is meaningful (`meta.startOffsetSec` missing = imported before
-  ADR-0008), and `JSON.stringify` drops undefined anyway, so undo has to produce
-  the same document a reload would.
-- **One queue for all media work** (`queueMediaWork` in `mediaStore.ts`).
-  Restore, sweep and import each race the other two. Everything that touches the
-  media store or the decode registry goes through it.
-- The GC sweep runs **only at startup**. Undo history is not part of the saved
-  state, so mid-session it can still reach an asset the document has dropped;
-  sweeping then deletes a file out from under a redo.
+| edit                                  | label now                                 | glyph   |
+| ------------------------------------- | ----------------------------------------- | ------- |
+| clipboard cut (`Ctrl+X`), `clip.cut`  | 잘라내기                                  | `✂`     |
+| split (`C`), `clip.split`             | 나누기                                    | `◫`     |
+| trim to playhead (`Q`/`W`)            | 재생 위치까지 앞부분 / 뒷부분 줄이기      | `◧` `◨` |
+| one-frame nudges (`Alt`+arrows)       | 앞부분 / 뒷부분 한 프레임 줄이기 · 늘리기 | —       |
+| drag an edge (`clip.trimStart`/`End`) | 앞부분 / 뒷부분 조절 (끌기)               | —       |
 
-Two long-standing tech-debt items died with it: the re-link that changed nothing
-in the document (so the next reload asked again), and the ADR-0008 offset warning
-that repeated on every re-link forever.
+### The decision that was taken, and how it differs from the one on file
+
+The proposal recorded in the previous handoff was: `clip.cut` → **오려두기**, the
+`Q`/`W` pair → **앞부분/뒷부분 버리기**. **That is not what shipped**, and the
+reasoning is the part worth keeping:
+
+1. **잘라내기 is the standard Korean word for `Ctrl+X`** — Windows, Office,
+   한글 all use it. Renaming the clipboard would have made framewright the odd
+   one out at the one place a user's muscle memory is strongest. The collision
+   was caused by the _trim_ commands borrowing the word, so the trims moved
+   instead.
+2. **줄이기 rather than 버리기**, because the six one-frame nudges already said
+   `앞부분 한 프레임 줄이기 / 늘리기`. `Q`/`W` are the same edit at a different
+   size, so they now read as one family. 버리기 would have invented a third word
+   for an edit that already had one.
+3. A drag says **조절**, not 줄이기, because pulling a handle outwards puts
+   trimmed media **back**. That label never renders (the drag commands are
+   `requiresArgs`, so the toolbar, palette and shortcut list all skip them).
+4. `Q`/`W` carry **재생 위치까지** in the label itself. Without it the button
+   reads as "make the front smaller" by an unsaid amount, and a tooltip is not
+   where the deciding fact can live.
+
+**This is a product call and the owner can overturn any of it** — see "Blocked",
+item 2. Nothing else depends on the wording.
+
+### What else changed, and why
+
+- **`describeEdit` no longer hedges when it does not have to.** It takes an
+  optional `lengthBefore`; a nudge and a drag both pass it, so the sentence says
+  줄였어요 / 늘렸어요 instead of 조절했어요 whenever the direction is known.
+- **A trim of the tail now reports the hole it opens.** `Q` announced a gap and
+  `W` said nothing, though both can leave one. The gap note also only ever names
+  the side the edit could have opened — calling a hole that was already there
+  "생겼어요" is a claim the user cannot check.
+- `ExportButton`'s `⬇` is wrapped in `aria-hidden` like every other toolbar
+  glyph.
+- The ADR-0008 re-link warning says 편집해 둔 자리, not 잘라 둔 자리.
+
+### The guards, and why there are three
+
+No single layer sees the whole surface, so the vocabulary rule is asserted in
+three places and **none of them is sufficient alone**:
+
+- `src/engine/vocabulary.test.ts` — the command registry: no label carries
+  자르/잘라, no name is or contains another, glyphs are unique, and the scissors
+  belong to the clipboard. Also covers `describeEdit`'s wording, which had **no
+  test at all** before this unit.
+- `e2e/personas.spec.ts` "no two toolbar buttons share a shape or a word" —
+  adds the app actions (`clip.cut`, `clip.copy`, undo/redo), which cannot be
+  imported in Node.
+- `e2e/personas.spec.ts` "the shortcut list names every action distinctly, too"
+  — adds the keyboard-only commands, which never reach the toolbar.
+
+Both e2e checks compare **by position, not by value**: filtering with
+`l !== label` would let two buttons carrying the identical string cancel each
+other out and pass.
 
 ### What the persona round changed
 
-The gate was green before the review and the review still found two blockers.
-Both are fixed, and each shipped with a new assertion:
+Gate was green before the review; all four reviewers (novice, a11y, QA,
+guardrail) returned **zero blockers**. Five findings were fixed anyway, each
+with an assertion:
 
-1. **The preview told the user to go and find the file while the restore was
-   already opening it** — the largest text on screen, at the exact moment the
-   feature was succeeding. `MediaBin` knew it was restoring; `Preview` could not
-   see that state. Fixed by moving it into the store (`mediaRestoring`), decided
-   synchronously before the first render.
-2. **The startup sweep could delete a file that had just been imported** (a
-   TOCTOU: the sweep snapshots the live key set, then awaits). Nothing fails that
-   session, and the *next* reload reports it as a browser eviction that never
-   happened. Fixed by the queue above.
+1. `Q`/`W` did not say "to the playhead" anywhere a user would look (novice,
+   major) → it is in the label now.
+2. `W` never announced the gap it can open (a11y, major) → fixed in
+   `describeEdit`, with a test for the side it must _not_ claim.
+3. The e2e label check could not catch two buttons with the **identical** label
+   (QA, major) → compared by position now.
+4. The unit spec's own comment implied a coverage it did not have (QA, major) →
+   the comment now says which half it guards and where the other half lives.
+5. The hint line listed the nudges as bare nouns ("앞부분", "뒷부분") while
+   their buttons had verbs (novice, minor) → "앞부분 늘리기·줄이기".
 
-Three more, also fixed: the status bar claimed "이전 작업을 그대로 불러왔어요"
-before the media had been read; three `role="status"` regions narrated the same
-moment and two of them disagreed (now `.statusbar` is the only announcer); and
-the play button, with no media, silently advanced the playhead over a black
-canvas — indistinguishable from a freeze.
+### One trap this unit walked into, now written down
+
+`getByRole('button', { name: '재생' })` had passed for months and suddenly
+resolved to **three** elements, failing two unrelated specs, because Playwright
+matches an accessible name by **substring** and two commands are now named
+`재생 위치까지 … 줄이기`. It looks like a broken feature and is a broken
+selector. `docs/TESTING.md` has the rule now; the two call sites pass
+`exact: true`.
+
+### Visual QA ran, and passed
+
+In the owner's Chrome at 1568px: the toolbar is one row, nothing clips, `◫` and
+`✂` are plainly different shapes, and the palette, the shortcut list and the
+timeline hint all read in full. The 1280px case is covered by
+`e2e/narrow-layout.spec.ts`, which is green.
+
+**Two connected browsers, and only one of them can see the app.** "Browser 2"
+returns `ERR_CONNECTION_REFUSED` on `http://127.0.0.1:9990` while the dev server
+answers 200 on this machine — it is a Chrome on a different device, even though
+`list_connected_browsers` reports `isLocal: true` for both. "Browser 1" is the
+one that works. Check this first; it has cost two sessions an hour each.
 
 ## Next single step
 
-**Commit this unit** (see "Blocked", item 1), then start **D — the naming
-cleanup**, which is item 2 below.
+**Commit this unit** (item 1 below), then start **C — timeline zoom + ruler
+ticks + thumbnails + waveform**.
 
 ## Blocked / needs the owner
 
-1. **Nothing is committed.** The whole media-persistence unit is in the working
-   tree with the gate green (`npm run verify`, and `npx playwright test
-   --project=chrome` also 46/46 — the H.264 specs do not self-skip there).
-   Committing needs the owner's go-ahead, which is the one hard stop in
-   `CLAUDE.md`. Files: `src/engine/mediaStore.ts{,.test.ts}`,
-   `src/engine/attachMedia.test.ts`, `src/ui/media.ts` (new);
-   `src/engine/ops.ts`, `src/engine/commands.ts`, `src/ui/MediaBin.tsx`,
-   `src/ui/Preview.tsx`, `src/store/projectStore.ts`, `e2e/editor.spec.ts`,
-   `CLAUDE.md`, `docs/TESTING.md` (modified);
-   `docs/adr/0009-keep-the-media.md` (new).
+1. **Nothing in this unit is committed.** Announcing before any git operation is
+   the one hard stop in `CLAUDE.md`. Files: `src/engine/vocabulary.test.ts`
+   (new); `src/engine/commands.ts`, `src/ui/actions.ts`, `src/ui/Timeline.tsx`,
+   `src/ui/MediaBin.tsx`, `src/ui/ExportButton.tsx`, `e2e/personas.spec.ts`,
+   `e2e/editor.spec.ts`, `docs/UX.md`, `docs/TESTING.md`, `CLAUDE.md`,
+   `docs/STATUS.md` (modified).
 
-2. **A naming decision, not a defect.** Five controls use "자르기"/"잘라내기"
-   and they mean three different things:
+2. **The naming scheme is the owner's to overturn.** It differs from the
+   proposal recorded before this session; the four reasons are above. If any of
+   it is wrong, the change is cheap — labels and icons only, no behaviour, and
+   the three guards will hold whatever words replace them.
 
-   | id | label today |
-   | --- | --- |
-   | `clip.cut` | 잘라내기 (clipboard cut) |
-   | `clip.trimStart` / `clip.trimEnd` | 앞부분 / 뒷부분 **자르기** (drag) |
-   | `clip.trimStartToPlayhead` / `clip.trimEndToPlayhead` | 앞부분 / 뒷부분 **잘라내기** (Q / W) |
-
-   The novice persona rated this major: someone trying to "cut 30 seconds out"
-   will click the wrong one, and `✂` (split) vs `✁` (cut) are indistinguishable
-   at toolbar size. The proposal put to the owner, not yet answered: take the
-   word "잘라내기" away from all of them — `clip.cut` → **오려두기** (pairs with
-   복사/붙여넣기), the trim-to-playhead pair → **앞부분/뒷부분 버리기**, and give
-   split a distinct icon. Renaming shipped commands is a product call.
-
-3. **Visual QA ran, and passed.** Done in the owner's Chrome ("e2e Browser") on
-   the real fixture: import → the file is written to OPFS under the content-hash
-   key the document records, with `startOffsetSec` 0.0667 → reload → the picture
-   is back with no file picker, `.relink` gone, status "영상도 준비됐어요".
-   Frame accuracy was checked by eye against the fixture's burnt-in frame number
-   at both ends: playhead 89 / burnt-in 89, and 45 / 45 — so ADR-0008's offset
-   survives the OPFS round trip. Deleting the stored file and reloading produces
-   the re-link path and the play refusal, both correct.
-   One finding, fixed with an assertion: the media panel printed the same
-   filename twice, 20px apart (once in the "pick it again" box, once in the
-   asset list below), which reads as two separate problems. The box no longer
-   lists names.
-   **The 1280px layout was checked too**, but through Playwright rather than the
-   extension: the extension's `resize_window` reported success and did nothing
-   (the window was maximised — `innerWidth` stayed 1828), so the check was moved
-   to a fixed viewport, screenshotted to disk and read. Nothing clips and the
-   page never scrolls sideways in any of the four states; the toolbar wraps to
-   two rows, which is fine. That is now `e2e/narrow-layout.spec.ts`, so it
-   cannot regress unseen.
-
-   **One thing it could not settle: persistent storage.**
-   `navigator.storage.persist()` returns **false** and the `persistent-storage`
-   permission sits at `prompt` — Chrome denied it silently, without asking.
-   Quota is 10GB, so it is not a space problem; Chrome grants persistence on
-   engagement heuristics (bookmarked, installed, notification permission, high
-   engagement score) and a freshly-visited dev origin qualifies for none of
-   them. **So the media store is evictable in practice, and "the browser lost
-   your file" is a real path, not a hypothetical one** — it is covered by the
-   re-link tests, but nothing in the UI ever warns the user it can happen.
-   To decide it properly: bookmark `127.0.0.1:9990` in the test Chrome and
-   re-run `await navigator.storage.persist()`; and re-measure on the deployed
-   HTTPS origin, where the heuristics actually apply. Both are cheap; neither
-   has been done.
+3. **Whether to tell the user their media can be evicted. Still unanswered.**
+   Measured on 2026-08-14 in the owner's Chrome: `navigator.storage.persist()`
+   returns **false** and the `persistent-storage` permission sits at `prompt` —
+   Chrome refused silently. Quota is 10GB, so it is not a space problem; Chrome
+   grants persistence on engagement heuristics (bookmarked, installed, high
+   engagement) and a freshly-visited dev origin qualifies for none. **So "the
+   browser lost your file" is a real path, not a hypothetical one**, and nothing
+   in the UI says it can happen. The recommendation, unchanged: **a quiet hint
+   only when the browser actually refused**, appended to the import status line
+   — not a banner, and nothing at all when persistence was granted.
+   Two cheap measurements would settle it and neither has been done: bookmark
+   `127.0.0.1:9990` in the test Chrome and re-run `await navigator.storage.persist()`,
+   and re-measure on the deployed HTTPS origin where the heuristics actually
+   apply.
 
 4. **Two directions the owner set, neither started as code.** Deployment on
-   **AWS for real users**, and design informed by what real users complain about
-   in Premiere / Final Cut / DaVinci / CapCut / browser editors
-   (`docs/research/editor-pain-points.md`). The gating question is unchanged: is
-   this static hosting (S3 + CloudFront, possible today) or does it need a
-   backend for projects and media? Media persistence deliberately did not depend
-   on the answer — it is per-browser-profile only, which is the local half of
-   ADR-0004; the `srcUrl` half is where that question lands.
+   **AWS for real users**, and design informed by `docs/research/editor-pain-points.md`.
+   The gating question is unchanged: static hosting (S3 + CloudFront, possible
+   today) or a real backend for projects and media? Media persistence
+   deliberately did not depend on the answer — it is per-browser-profile only,
+   the local half of ADR-0004; the `srcUrl` half is where that question lands.
+   A consequence worth stating: **a project does not follow the user to another
+   machine.** The document is in `localStorage` and the video is in that
+   profile's OPFS, so a second PC opens neither.
 
-5. **The remaining backlog the owner asked for, in the order agreed:** D (naming,
-   item 2), then C — timeline zoom + ruler ticks + thumbnails + waveform, then
-   B — E7 (subtitles, transitions, audio volume/fades, transform).
+5. **The remaining backlog, in the order agreed:** C — timeline zoom + ruler
+   ticks + thumbnails + waveform, then B — E7 (subtitles, transitions, audio
+   volume/fades, transform).

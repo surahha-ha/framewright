@@ -231,13 +231,20 @@ export function Timeline() {
     );
     if (!command) return; // landed where it started — not an edit, not an undo step
     if (!run(command.id, command.args)) return; // refused: say nothing rather than lie
-    announce(d.mode, d.clipId);
+    announce(d.mode, d.clipId, d.originEnd - d.originStart);
   }
 
   /** One sentence per edit, in one wording, whatever triggered it — the nudge
-   *  commands announce themselves through the same `describeEdit`. */
-  function announce(mode: DragMode, clipId: string) {
-    const text = describeEdit(mode, useStore.getState().project, clipId);
+   *  commands announce themselves through the same `describeEdit`. The length
+   *  the gesture started from is what lets it say 줄였어요 rather than 조절했어요:
+   *  a drag handle runs both ways, so only the caller knows which way it went. */
+  function announce(mode: DragMode, clipId: string, lengthBefore: number) {
+    const text = describeEdit(
+      mode,
+      useStore.getState().project,
+      clipId,
+      lengthBefore,
+    );
     if (text) setStatus(text);
   }
 
@@ -368,8 +375,8 @@ export function Timeline() {
       drag.mode === 'move'
         ? `옮기는 중 → ${formatTimecode(drag.frame, fps)}`
         : drag.mode === 'trimStart'
-          ? `앞을 자르는 중 · 남은 길이 ${formatTimecode(drag.originEnd - drag.frame, fps)}`
-          : `뒤를 자르는 중 · 남은 길이 ${formatTimecode(drag.frame - drag.originStart, fps)}`;
+          ? `앞부분 조절 중 · 남은 길이 ${formatTimecode(drag.originEnd - drag.frame, fps)}`
+          : `뒷부분 조절 중 · 남은 길이 ${formatTimecode(drag.frame - drag.originStart, fps)}`;
     const previewStart =
       drag.mode === 'trimEnd' ? drag.originStart : drag.frame;
     const opensGap = previewStart > drag.originStart && drag.mode !== 'trimEnd';
@@ -469,13 +476,14 @@ export function Timeline() {
       {/* Read from the live keymap, so a rebinding shows up here instead of
           leaving the hint quietly lying about which keys work. */}
       <p className="track-hint">
-        클립을 끌어 옮기고, 양 끝을 끌면 앞뒤를 잘라낼 수 있어요. 클립을 고른 뒤{' '}
-        <kbd>{key('clip.moveLeft')}</kbd>/<kbd>{key('clip.moveRight')}</kbd>{' '}
-        옮기기, <kbd>{key('clip.headExtend')}</kbd>/
-        <kbd>{key('clip.headShrink')}</kbd> 앞부분,{' '}
-        <kbd>{key('clip.tailShrink')}</kbd>/<kbd>{key('clip.tailExtend')}</kbd>{' '}
-        뒷부분, <kbd>{key('clip.deleteRipple')}</kbd> 지우기. 재생 위치까지 한
-        번에 잘라내려면 <kbd>{key('clip.trimStartToPlayhead')}</kbd>(앞),{' '}
+        클립을 끌어 옮기고, 양 끝을 끌면 앞뒤 길이를 조절할 수 있어요. 클립을
+        고른 뒤 <kbd>{key('clip.moveLeft')}</kbd>/
+        <kbd>{key('clip.moveRight')}</kbd> 옮기기,{' '}
+        <kbd>{key('clip.headExtend')}</kbd>/<kbd>{key('clip.headShrink')}</kbd>{' '}
+        앞부분 늘리기·줄이기, <kbd>{key('clip.tailShrink')}</kbd>/
+        <kbd>{key('clip.tailExtend')}</kbd> 뒷부분 줄이기·늘리기,{' '}
+        <kbd>{key('clip.deleteRipple')}</kbd> 지우기. 재생 위치까지 한 번에
+        줄이려면 <kbd>{key('clip.trimStartToPlayhead')}</kbd>(앞),{' '}
         <kbd>{key('clip.trimEndToPlayhead')}</kbd>(뒤)를 눌러요.
       </p>
     </section>

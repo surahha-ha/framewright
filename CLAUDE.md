@@ -281,11 +281,6 @@ file that moved. Then run `check:refs` and `typecheck`.
 - `clip.copy` / `clip.cut` are app actions, so unlike every editor command they
   are not testable in Node; their coverage is the e2e spec, which self-skips on
   bundled Chromium (no H.264).
-- **Three controls say "잘라내기" and two of them mean different things.**
-  `clip.cut` (clipboard) sits next to `clip.trimStartToPlayhead` /
-  `trimEndToPlayhead` ("앞부분/뒷부분 잘라내기"), and `✂` (split) vs `✁` (cut)
-  are indistinguishable at toolbar size. Renaming is a naming decision for the
-  owner, not a defect to fix quietly — see `docs/STATUS.md`.
 - The nudge labels say "프레임", which is jargon for a first-time user, and the
   nudges have no toolbar button to anchor the idea to.
 - The shortcuts panel is a flat ~21-row list with no grouping, and its "없애기"
