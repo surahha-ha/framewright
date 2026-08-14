@@ -24,14 +24,13 @@ Two units landed here, in this order:
   argument; nothing about it is outstanding.
 - **D, the naming cleanup** — `dd4d451`, committed with the owner's go-ahead.
   Described below.
-- **The eviction hint** — in the working tree, **not committed**, and it is the
-  only thing uncommitted (see "Blocked", item 1). It is small and separate on
-  purpose: the owner approved it as its own step before C.
+- **The eviction hint** — `07a3380`. Small and separate on purpose: the owner
+  approved it as its own step before C.
 
-**Neither commit is pushed.** `origin/main` is still at `4b60b13`, so a clone
-elsewhere does not have any of this yet.
+**All three are pushed.** `origin/main` is at `07a3380` and the working tree is
+clean, so another machine gets everything with a plain clone.
 
-### The eviction hint (uncommitted)
+### The eviction hint (`07a3380`)
 
 OPFS keeps the imported file, but `navigator.storage.persist()` returns **false**
 on this origin and Chrome never asks — persistence is granted on engagement
@@ -194,19 +193,55 @@ one that works. Check this first; it has cost two sessions an hour each.
 
 ## Next single step
 
-**Commit the eviction hint and push both commits** (item 1 below), then start
-**C — timeline zoom + ruler ticks + thumbnails + waveform**.
+Start **C — timeline zoom + ruler ticks + thumbnails + waveform**. Nothing is
+owed from the previous units; the tree is clean and pushed.
+
+**Read this before writing any of it.** C is not four independent features. The
+first one changes the timeline's coordinate system and the other three are drawn
+in whatever that becomes, so the order is forced: **zoom + ruler ticks first, as
+one unit; thumbnails and waveform after.**
+
+Today the timeline has no scale of its own. Everything is a percentage of the
+container: `pct(frames) = frames / denom * 100` (`src/ui/Timeline.tsx:335-336`),
+where `denom` is the whole document's length — clips, gaps, the playhead and the
+ruler thumb all use it. Zoom means replacing that with pixels-per-frame plus a
+horizontal scroll, and these are the places that assume the old model:
+
+- `src/ui/Timeline.tsx:352-361` — `clipStyle` pins a clip that ran past the right
+  edge to `calc(100% - …)`. With a scrollable timeline "past the right edge" is a
+  scroll position, not a clamp.
+- `src/ui/Timeline.tsx:54-56, 187` — a drag FREEZES `denom` for the gesture and
+  derives `framesPerPx` from the bar's width. This is the existing tech-debt item
+  ("trimming a clip longer than the current timeline runs past the right edge
+  until release"); zoom is the stated proper fix, so the freeze should become
+  unnecessary rather than be preserved.
+- `SNAP_PX` / `MIN_CLIP_PX` (`Timeline.tsx:44-47`) are pixel constants that were
+  chosen to feel right at "whole document = container width". They keep their
+  meaning under zoom, which is the point of expressing them in pixels — verify,
+  do not assume.
+- `.ruler` is a `role="slider"` over the whole document (`docs/UX.md`, and the
+  ARIA note in `styles.css:323-325`). Under zoom, what does `aria-valuemax` mean
+  — the document, or the visible window? Decide it deliberately; the last time
+  this element's semantics moved it deleted every clip's name from the
+  accessibility tree.
+
+The arithmetic itself belongs in `src/engine/` and must be test-first, like
+`drag.ts` — a pure `frame ↔ x` module (scale, scroll offset, visible range,
+where the ticks fall at a given zoom) with the React file holding only the
+gesture and the DOM. That is what makes ticks, thumbnails and waveform cheap
+afterwards: all three are "given a visible frame range and a pixels-per-frame,
+what do I draw".
+
+An ADR is owed for the coordinate change (it reverses "one scale, always the
+whole document", which ADR-0006 assumed).
 
 ## Blocked / needs the owner
 
-1. **The eviction hint is uncommitted, and nothing is pushed.** Announcing
-   before any git operation is the one hard stop in `CLAUDE.md`.
-   Uncommitted files: `src/engine/mediaStore.ts`,
-   `src/engine/mediaStore.test.ts`, `src/ui/media.ts`, `src/ui/MediaBin.tsx`,
-   `e2e/editor.spec.ts`, `docs/adr/0009-keep-the-media.md`, `docs/STATUS.md`.
-   `origin/main` is at `4b60b13`, two commits behind local `main`.
-   Also untracked and deliberately NOT staged: `bash.exe.stackdump`, a crash
-   artefact from a shell that died mid-session. It is safe to delete.
+1. **Nothing is blocked on git.** Everything through `07a3380` is committed and
+   pushed. The only thing in the tree is `bash.exe.stackdump`, untracked and
+   deliberately never staged — a crash artefact from a shell that died
+   mid-session, safe to delete.
+   The one hard stop still stands: announce before any git operation and wait.
 
 2. **The naming scheme is the owner's to overturn.** It differs from the
    proposal recorded before this session; the four reasons are above. If any of
