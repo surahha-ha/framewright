@@ -236,6 +236,15 @@ file that moved. Then run `check:refs` and `typecheck`.
 - Media is stored per browser profile, not per project or per account. Nothing
   shares it between devices — that is the `srcUrl` half of ADR-0004, still
   unbuilt.
+- **The eviction hint carries no `⚠`**, unlike the incomplete-read warning in
+  the same status-line builder. It matches its real sibling (`NOT_KEPT`, the
+  other media-storage sentence, which has no icon either) and the owner asked
+  for a quiet line — but it is the most consequential sentence on that line and
+  the least visually distinguished. Revisit if anyone reports missing it.
+- **The persistence answer is asked once per page load and never re-asked.** If
+  the origin earns persistence mid-session (the tab gets bookmarked, engagement
+  crosses a threshold), a later import in that same session would still warn.
+  One extra true-ish sentence, and a reload fixes it; not worth polling for.
 - Playback restarts a decoder at every cut (a new `PlaybackSession` per clip).
   Warm-decoder reuse + proxy media + a frame cache are the planned fix.
 - Audio uses `decodeAudioData` on the whole file (simple, but holds the decoded

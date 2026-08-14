@@ -84,6 +84,100 @@ export async function sweepMedia(
   return removed;
 }
 
+/** What the browser answered when asked to stop evicting this origin.
+ *  `unknown` covers "no such API" and "it threw" — both mean no promise either
+ *  way, which is not the same as a refusal. */
+export type PersistenceOutcome = 'granted' | 'refused' | 'unknown';
+
+let persistenceRequest: Promise<PersistenceOutcome> | null = null;
+let persistence: PersistenceOutcome | null = null;
+
+/**
+ * Ask the browser to stop evicting us, once, and remember what it said.
+ *
+ * Without this the media store is best-effort: Chrome clears best-effort
+ * origins under storage pressure, and the user's answer to "why is my project
+ * asking for the file again?" would be "the browser felt like it".
+ *
+ * **The in-flight promise is what gets cached, not the settled value.** Caching
+ * the value only guards a caller that arrives after the first has finished; two
+ * that arrive together would both ask the browser and race to write the answer,
+ * so a refusal could be overwritten by a later `unknown`. The media queue does
+ * serialise the one call site today, but that safety lives in the caller, and a
+ * "try again" button would quietly take it away.
+ */
+export function requestPersistentStorage(): Promise<PersistenceOutcome> {
+  if (persistenceRequest) return persistenceRequest;
+  persistenceRequest = (async (): Promise<PersistenceOutcome> => {
+    try {
+      const storage = (globalThis as { navigator?: Navigator }).navigator
+        ?.storage;
+      if (!storage?.persist || !storage.persisted) return 'unknown';
+      if (await storage.persisted()) return 'granted';
+      return (await storage.persist()) ? 'granted' : 'refused';
+    } catch {
+      return 'unknown';
+    }
+  })().then((outcome) => {
+    persistence = outcome;
+    return outcome;
+  });
+  return persistenceRequest;
+}
+
+/** What the browser answered, or `unknown` before anything has asked. */
+export function persistenceOutcome(): PersistenceOutcome {
+  return persistence ?? 'unknown';
+}
+
+/**
+ * The one extra sentence an import adds when the browser refused to protect the
+ * file it just kept.
+ *
+ * Measured on 2026-08-14: `navigator.storage.persist()` returns false on a
+ * freshly-visited origin and Chrome never asks the user — persistence is
+ * granted on engagement heuristics (bookmarked, installed, high engagement).
+ * So eviction is a real path, not a hypothetical one, and the editor said
+ * nothing about it.
+ *
+ * Empty in every other case, deliberately: a file that was not kept already has
+ * its own sentence, and a browser that never answered gives the user nothing to
+ * act on. This is a hint, not a banner — the whole point is that it appears
+ * only when it is true.
+ */
+export function evictionNote(
+  stored: boolean,
+  outcome: PersistenceOutcome,
+): string {
+  if (!stored || outcome !== 'refused') return '';
+  return ' · 저장 공간이 부족해지면 이 브라우저가 영상을 지울 수 있어요. 원본 파일은 지우지 말고 그대로 두세요.';
+}
+
+let evictionWarned = false;
+
+/**
+ * The same sentence, but **at most once per page load**.
+ *
+ * A refusal is not the rare case — it is the DEFAULT for a first-time visitor,
+ * because the heuristics that grant persistence (bookmarked, installed, high
+ * engagement) take days to earn. Appending it to every import would put a
+ * warning on the end of every success message a beginner ever sees, five times
+ * over while they assemble one edit from five clips, and the thing they would
+ * learn is to stop reading the status line.
+ *
+ * Page-lifetime state rather than a React ref: StrictMode mounts twice in
+ * development, and a ref would let the second mount say it again.
+ */
+export function takeEvictionNote(
+  stored: boolean,
+  outcome: PersistenceOutcome,
+): string {
+  const note = evictionNote(stored, outcome);
+  if (!note || evictionWarned) return '';
+  evictionWarned = true;
+  return note;
+}
+
 let queue: Promise<unknown> = Promise.resolve();
 
 /**

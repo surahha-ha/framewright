@@ -9,7 +9,12 @@ import {
   secToFrame,
 } from '../engine/time';
 import { getDecodeService } from '../engine/registry';
-import { liveMediaKeys, queueMediaWork } from '../engine/mediaStore';
+import {
+  liveMediaKeys,
+  persistenceOutcome,
+  queueMediaWork,
+  takeEvictionNote,
+} from '../engine/mediaStore';
 import {
   bindMedia,
   mediaRepo,
@@ -130,6 +135,12 @@ export function MediaBin() {
         // Keep the file — before anything detaches those bytes, and before the
         // document changes, so a full disk costs nothing but the message.
         const opfsKey = await persistMedia(audioBytes);
+        // Kept, but the browser would not promise to keep it. Read at the point
+        // of use, not here: `takeEvictionNote` spends a once-per-page-load
+        // chance, and an import that throws between here and the status line
+        // would spend it on a message nobody saw.
+        const evictable = () =>
+          takeEvictionNote(!!opfsKey, persistenceOutcome());
 
         // If the file could not be kept (no OPFS, private window, no space), a
         // reload comes back without it. Picking the same file again re-links it
@@ -165,7 +176,7 @@ export function MediaBin() {
               (shifted
                 ? ` ⚠ 이 영상은 시작 지점이 어긋나 있어 바로잡았어요 — 예전에 편집해 둔 자리가 ${frames}프레임만큼 달라 보일 수 있습니다.`
                 : '') +
-              (opfsKey ? '' : NOT_KEPT),
+              (opfsKey ? evictable() : NOT_KEPT),
           );
           return;
         }
@@ -210,7 +221,7 @@ export function MediaBin() {
         const warn = demux.complete
           ? ''
           : ' ⚠ 파일을 끝까지 읽지 못했어요 — 길이가 실제보다 짧을 수 있습니다.';
-        const kept = opfsKey ? '' : ` ·${NOT_KEPT}`;
+        const kept = opfsKey ? evictable() : ` ·${NOT_KEPT}`;
         setStatus(
           `${file.name} · ${demux.track.width}×${demux.track.height} · ` +
             `${demux.nominalFps.toFixed(2)}fps ${demux.isVFR ? '(가변 프레임 → 정규화 대상)' : ''} · ${durationFrames} frames` +

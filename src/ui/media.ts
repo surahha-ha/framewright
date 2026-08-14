@@ -17,6 +17,7 @@ import {
   createOpfsMediaRepository,
   mediaKeyFor,
   queueMediaWork,
+  requestPersistentStorage,
   sweepMedia,
   type MediaRepository,
 } from '../engine/mediaStore';
@@ -128,30 +129,6 @@ export async function attachFileToAsset(
   bytes: ArrayBuffer,
 ): Promise<AttachedMedia> {
   return bindMedia(assetId, await openSource(file), file, bytes);
-}
-
-let askedToPersist = false;
-
-/**
- * Ask the browser to stop evicting us.
- *
- * Without this the whole media store is best-effort: Chrome clears
- * best-effort origins under storage pressure, and the user's answer to "why is
- * my project asking for the file again?" would be "the browser felt like it".
- * Asked once, at the first real import — the browser decides, and a refusal is
- * not an error (the store still works, it is just evictable).
- */
-async function requestPersistentStorage(): Promise<void> {
-  if (askedToPersist) return;
-  askedToPersist = true;
-  try {
-    const storage = navigator.storage;
-    if (!storage?.persist || !storage.persisted) return;
-    if (await storage.persisted()) return;
-    await storage.persist();
-  } catch {
-    /* not available; best-effort storage it is */
-  }
 }
 
 /**

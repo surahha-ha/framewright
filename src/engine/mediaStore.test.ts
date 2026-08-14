@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  evictionNote,
   liveMediaKeys,
   mediaKeyFor,
   queueMediaWork,
   sweepMedia,
+  takeEvictionNote,
   type MediaRepository,
 } from './mediaStore';
 import type { Project } from './types';
@@ -191,5 +193,137 @@ describe('sweepMedia — reclaiming space', () => {
   it('is a no-op when everything is still in use', async () => {
     const repo = fakeRepo(['media_a', 'media_b']);
     expect(await sweepMedia(repo, new Set(['media_a', 'media_b']))).toEqual([]);
+  });
+});
+
+describe('telling the user their media can be evicted', () => {
+  // Measured 2026-08-14: `navigator.storage.persist()` returns false on the dev
+  // origin and Chrome never asks. So "the browser lost your file" is a real
+  // path, and the editor said nothing about it until now.
+
+  it('says so when the file was kept but the browser refused to protect it', () => {
+    const note = evictionNote(true, 'refused');
+    expect(note).not.toBe('');
+    // It has to name the thing the user can actually do about it.
+    expect(note).toContain('원본');
+  });
+
+  it('stays quiet when the browser agreed to keep it', () => {
+    expect(evictionNote(true, 'granted')).toBe('');
+  });
+
+  it('stays quiet when the browser never answered', () => {
+    // No `navigator.storage.persist` at all. A warning nobody can act on, about
+    // a promise nobody made, is noise.
+    expect(evictionNote(true, 'unknown')).toBe('');
+  });
+
+  it('stays quiet when the file was not kept in the first place', () => {
+    // That case already has its own sentence ("다시 선택해야 해요"). Two
+    // warnings about one file read as two separate problems.
+    expect(evictionNote(false, 'refused')).toBe('');
+  });
+
+  it('says it once per page load, not once per file', () => {
+    // A refusal is the DEFAULT for a first-time visitor, so "append it to every
+    // import" would put a warning on the end of every success message a
+    // beginner ever sees — five clips, five identical warnings, and what they
+    // learn is to stop reading the status line.
+    //
+    // One `it` on purpose: the flag is page-lifetime state, so the sequence IS
+    // the assertion.
+    expect(takeEvictionNote(false, 'refused')).toBe(''); // not stored: spends nothing
+    expect(takeEvictionNote(true, 'granted')).toBe(''); // no refusal: spends nothing
+    expect(takeEvictionNote(true, 'refused')).toBe(
+      evictionNote(true, 'refused'),
+    );
+    expect(takeEvictionNote(true, 'refused')).toBe('');
+  });
+
+  it('starts with a separator, because it is glued onto another sentence', () => {
+    // Its only callers concatenate it straight onto the import's own line. Drop
+    // the leading ' · ' and two sentences run together with nothing between
+    // them — which neither a "contains 원본" check nor the e2e substring would
+    // notice.
+    expect(evictionNote(true, 'refused').startsWith(' · ')).toBe(true);
+  });
+});
+
+describe('asking the browser to stop evicting us', () => {
+  /** A fresh module: the answer is page-lifetime state, so each case needs its
+   *  own page. `vi.resetModules` beats a reset export that only tests would use. */
+  async function freshStore(storage: unknown) {
+    vi.resetModules();
+    vi.stubGlobal('navigator', { storage });
+    return import('./mediaStore');
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reports what the browser said', async () => {
+    const store = await freshStore({
+      persisted: async () => false,
+      persist: async () => false,
+    });
+    expect(await store.requestPersistentStorage()).toBe('refused');
+    expect(store.persistenceOutcome()).toBe('refused');
+  });
+
+  it('does not ask again when the origin is already persistent', async () => {
+    let asked = 0;
+    const store = await freshStore({
+      persisted: async () => true,
+      persist: async () => {
+        asked++;
+        return true;
+      },
+    });
+    expect(await store.requestPersistentStorage()).toBe('granted');
+    expect(asked).toBe(0);
+  });
+
+  it('says unknown — not refused — when there is no such API', async () => {
+    // No promise either way is not the same as a refusal, and the difference is
+    // whether the user gets told their file may vanish.
+    const store = await freshStore({});
+    expect(await store.requestPersistentStorage()).toBe('unknown');
+  });
+
+  it('says unknown when the browser throws', async () => {
+    const store = await freshStore({
+      persisted: async () => {
+        throw new Error('nope');
+      },
+      persist: async () => true,
+    });
+    expect(await store.requestPersistentStorage()).toBe('unknown');
+  });
+
+  it('asks once even when two callers arrive at the same moment', async () => {
+    // The in-flight promise is what is cached. Caching the settled value would
+    // let both callers through, ask the browser twice, and race to write the
+    // answer — a refusal could be overwritten by whatever landed last.
+    let asked = 0;
+    const store = await freshStore({
+      persisted: async () => false,
+      persist: async () => {
+        asked++;
+        return false;
+      },
+    });
+    const both = await Promise.all([
+      store.requestPersistentStorage(),
+      store.requestPersistentStorage(),
+    ]);
+    expect(both).toEqual(['refused', 'refused']);
+    expect(asked).toBe(1);
+  });
+
+  it('answers unknown until something has actually asked', async () => {
+    const store = await freshStore({
+      persisted: async () => false,
+      persist: async () => false,
+    });
+    expect(store.persistenceOutcome()).toBe('unknown');
   });
 });

@@ -196,6 +196,75 @@ test.describe('media survives a reload', () => {
   });
 
   /**
+   * Answer `navigator.storage.persist()` for the page, before it loads.
+   *
+   * Real Chrome decides this on engagement heuristics (bookmarked, installed,
+   * high engagement score), so neither answer can be provoked from a test — and
+   * on a freshly-visited dev origin the real answer is a silent **no**, which is
+   * exactly the case the message exists for.
+   */
+  const answerPersistWith = (
+    page: import('@playwright/test').Page,
+    granted: boolean,
+  ) =>
+    page.addInitScript((ok) => {
+      const patch = (name: 'persist' | 'persisted', value: () => unknown) =>
+        Object.defineProperty(StorageManager.prototype, name, {
+          value,
+          configurable: true,
+          writable: true,
+        });
+      patch('persisted', async () => false);
+      patch('persist', async () => ok);
+    }, granted);
+
+  /** The note has to name the thing the user can do about it. */
+  const EVICTION_HINT = '원본 파일은';
+
+  test('says the browser may drop the file — only when it actually refused', async ({
+    page,
+  }) => {
+    await answerPersistWith(page, false);
+    await page.goto('/');
+    test.skip(
+      !(await supportsH264(page)),
+      'this browser has no H.264 (use `npm run e2e:chrome`)',
+    );
+
+    await page.setInputFiles('input[type="file"]', FIXTURE);
+    await expect(page.locator('.timeline .clip')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    // One line, on the end of the import's own sentence — not a banner, and not
+    // a second region competing to narrate the same moment.
+    await expect(page.locator('.statusbar')).toContainText(EVICTION_HINT, {
+      timeout: 15_000,
+    });
+  });
+
+  test('says nothing about eviction when the browser agreed to keep it', async ({
+    page,
+  }) => {
+    await answerPersistWith(page, true);
+    await page.goto('/');
+    test.skip(
+      !(await supportsH264(page)),
+      'this browser has no H.264 (use `npm run e2e:chrome`)',
+    );
+
+    await page.setInputFiles('input[type="file"]', FIXTURE);
+    await expect(page.locator('.timeline .clip')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    // The import still reports itself in full…
+    await expect(page.locator('.statusbar')).toContainText('sample-h264.mp4', {
+      timeout: 15_000,
+    });
+    // …and a warning that is not true is not shown.
+    await expect(page.locator('.statusbar')).not.toContainText(EVICTION_HINT);
+  });
+
+  /**
    * The media store can lose a file — a browser with no OPFS, a private window,
    * an eviction under storage pressure. Re-linking is still the recovery, and
    * it must leave the picture visible without touching the playhead: that bug

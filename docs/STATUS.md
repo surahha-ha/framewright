@@ -10,20 +10,58 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-08-14 06:02 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-08-14 06:26 UTC — `npm run verify` **GREEN**
 
-- unit 210 passed · e2e 49 passed
+- unit 222 passed · e2e 51 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
 
-**Media persistence is committed** — `main @ 4b60b13`, and the tree was clean and
-in sync with `origin/main` at the start of this unit. `docs/adr/0009-keep-the-media.md`
-is the argument for it; nothing about it is outstanding.
+Two units landed here, in this order:
 
-**This unit is D — the naming cleanup.** It is in the working tree, not
-committed (see "Blocked", item 1).
+- **Media persistence** — `4b60b13`. `docs/adr/0009-keep-the-media.md` is the
+  argument; nothing about it is outstanding.
+- **D, the naming cleanup** — `dd4d451`, committed with the owner's go-ahead.
+  Described below.
+- **The eviction hint** — in the working tree, **not committed**, and it is the
+  only thing uncommitted (see "Blocked", item 1). It is small and separate on
+  purpose: the owner approved it as its own step before C.
+
+**Neither commit is pushed.** `origin/main` is still at `4b60b13`, so a clone
+elsewhere does not have any of this yet.
+
+### The eviction hint (uncommitted)
+
+OPFS keeps the imported file, but `navigator.storage.persist()` returns **false**
+on this origin and Chrome never asks — persistence is granted on engagement
+heuristics (bookmarked, installed, high engagement) that a freshly-visited dev
+origin has not earned. So "the browser lost your file" is the ordinary case, not
+a hypothetical one, and the UI never said so.
+
+It says so now, in one sentence on the end of the import's own status line:
+
+> · 저장 공간이 부족해지면 이 브라우저가 영상을 지울 수 있어요. 원본 파일은
+> 지우지 말고 그대로 두세요.
+
+- **Only when the browser actually refused.** Granted, no API, and "could not be
+  stored at all" are all silent — the last already has its own sentence, and two
+  warnings about one file read as two problems.
+- **At most once per page load** (`takeEvictionNote`). A refusal is the DEFAULT
+  for a first-time visitor, so appending it to every import would put a warning
+  on the end of every success message a beginner ever sees. Page-lifetime state,
+  not a React ref: StrictMode mounts twice and a ref would say it again.
+- **The in-flight promise is cached, not the settled value**
+  (`requestPersistentStorage`). Caching the value only guards a caller arriving
+  after the first finished; two arriving together would both ask the browser and
+  race to write the answer, so a refusal could be overwritten by a later
+  `unknown`. The media queue serialises the one call site today, but that safety
+  lives in the caller.
+- It lives in `src/engine/mediaStore.ts`, not `src/ui/media.ts`, **so it can be
+  unit-tested**: `ui/` has no Vitest specs at all (it pulls in WebCodecs), and
+  `navigator.storage` mocks in Node in three lines.
+
+### D — the naming cleanup (`dd4d451`)
 
 Five controls said 자르기 / 잘라내기 and meant three different edits, and `✂`
 (split) sat three buttons from `✁` (clipboard cut) — the same shape at toolbar
@@ -122,6 +160,25 @@ matches an accessible name by **substring** and two commands are now named
 selector. `docs/TESTING.md` has the rule now; the two call sites pass
 `exact: true`.
 
+### What the persona round changed in the eviction hint
+
+Three reviewers, zero blockers, two findings fixed:
+
+1. **It fired on every import** (novice, major). Since a refusal is the default
+   for a new visitor, a beginner assembling one edit from five clips would have
+   read the same warning five times and learned to stop reading the status line.
+   Now once per page load, pinned by a test whose sequence IS the assertion.
+2. **`requestPersistentStorage` cached the settled value, not the in-flight
+   promise** (QA, major, latent). Unreachable today — the media queue serialises
+   the only call site — but the safety lived in the caller, and a "try again"
+   button would have taken it away silently. Moving the function into the engine
+   made it unit-testable, which is how the concurrent case is now pinned at all.
+
+Not fixed, deliberately: the sentence carries no `⚠`, unlike the incomplete-read
+warning three lines above it in the same status builder. It matches its actual
+sibling — `NOT_KEPT`, the other media-storage sentence, which has no icon
+either — and the owner asked for a quiet line. Recorded as debt, not dropped.
+
 ### Visual QA ran, and passed
 
 In the owner's Chrome at 1568px: the toolbar is one row, nothing clips, `◫` and
@@ -137,37 +194,34 @@ one that works. Check this first; it has cost two sessions an hour each.
 
 ## Next single step
 
-**Commit this unit** (item 1 below), then start **C — timeline zoom + ruler
-ticks + thumbnails + waveform**.
+**Commit the eviction hint and push both commits** (item 1 below), then start
+**C — timeline zoom + ruler ticks + thumbnails + waveform**.
 
 ## Blocked / needs the owner
 
-1. **Nothing in this unit is committed.** Announcing before any git operation is
-   the one hard stop in `CLAUDE.md`. Files: `src/engine/vocabulary.test.ts`
-   (new); `src/engine/commands.ts`, `src/ui/actions.ts`, `src/ui/Timeline.tsx`,
-   `src/ui/MediaBin.tsx`, `src/ui/ExportButton.tsx`, `e2e/personas.spec.ts`,
-   `e2e/editor.spec.ts`, `docs/UX.md`, `docs/TESTING.md`, `CLAUDE.md`,
-   `docs/STATUS.md` (modified).
+1. **The eviction hint is uncommitted, and nothing is pushed.** Announcing
+   before any git operation is the one hard stop in `CLAUDE.md`.
+   Uncommitted files: `src/engine/mediaStore.ts`,
+   `src/engine/mediaStore.test.ts`, `src/ui/media.ts`, `src/ui/MediaBin.tsx`,
+   `e2e/editor.spec.ts`, `docs/adr/0009-keep-the-media.md`, `docs/STATUS.md`.
+   `origin/main` is at `4b60b13`, two commits behind local `main`.
+   Also untracked and deliberately NOT staged: `bash.exe.stackdump`, a crash
+   artefact from a shell that died mid-session. It is safe to delete.
 
 2. **The naming scheme is the owner's to overturn.** It differs from the
    proposal recorded before this session; the four reasons are above. If any of
    it is wrong, the change is cheap — labels and icons only, no behaviour, and
    the three guards will hold whatever words replace them.
 
-3. **Whether to tell the user their media can be evicted. Still unanswered.**
-   Measured on 2026-08-14 in the owner's Chrome: `navigator.storage.persist()`
-   returns **false** and the `persistent-storage` permission sits at `prompt` —
-   Chrome refused silently. Quota is 10GB, so it is not a space problem; Chrome
-   grants persistence on engagement heuristics (bookmarked, installed, high
-   engagement) and a freshly-visited dev origin qualifies for none. **So "the
-   browser lost your file" is a real path, not a hypothetical one**, and nothing
-   in the UI says it can happen. The recommendation, unchanged: **a quiet hint
-   only when the browser actually refused**, appended to the import status line
-   — not a banner, and nothing at all when persistence was granted.
-   Two cheap measurements would settle it and neither has been done: bookmark
-   `127.0.0.1:9990` in the test Chrome and re-run `await navigator.storage.persist()`,
-   and re-measure on the deployed HTTPS origin where the heuristics actually
-   apply.
+3. **Whether to warn about eviction — ANSWERED, and built** (see "Where we
+   are"). The owner chose the quiet hint: one line on the import status line,
+   only when the browser actually refused. Nothing here is still open.
+   What was **not** done, and was not required: the two measurements that would
+   pin down when Chrome grants persistence — bookmark `127.0.0.1:9990` in the
+   test Chrome and re-run `await navigator.storage.persist()`, and re-measure on
+   the deployed HTTPS origin, where the engagement heuristics actually apply.
+   Neither changes the code; both would tell us how often real users see the
+   hint. Worth doing when there IS a deployed origin (item 4).
 
 4. **Two directions the owner set, neither started as code.** Deployment on
    **AWS for real users**, and design informed by `docs/research/editor-pain-points.md`.

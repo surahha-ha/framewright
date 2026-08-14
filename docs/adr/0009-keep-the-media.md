@@ -90,7 +90,13 @@ the same document you get by reopening.
   then would delete the file out from under a redo. At startup there is no
   history to contradict.
 - `navigator.storage.persist()` is requested once, at the first import. A
-  refusal is not an error; the store is simply evictable.
+  refusal is not an error; the store is simply evictable — and **the refusal is
+  now told to the user**, once per page load, as one sentence on the end of the
+  import's own status line (`takeEvictionNote`). Measured on 2026-08-14: Chrome
+  refuses silently on a fresh origin, so this is the ordinary case for a
+  first-time visitor, not an edge one. Nothing is said when persistence was
+  granted, when the API is absent, or when the file was not stored at all —
+  that last case already has its own sentence.
 - The import path holds the whole file in memory twice for a moment (the audio
   copy, and the blob OPFS is writing). Acceptable for MVP-sized footage; a
   streamed write is the fix when it stops being.
