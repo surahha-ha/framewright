@@ -191,6 +191,51 @@ visual pass is simply skipped — say so rather than guessing.
 Save the screenshots and send them. The owner's own pass should start from
 evidence, not from a blank page.
 
+### Operational facts the setup above does not tell you
+
+Learned running the pass. Each of these otherwise produces a confident wrong
+conclusion.
+
+- **The dev server is usually already up.** `npm run dev` failing with
+  `Port 9990 is already in use` is the normal case, not a problem.
+- **Pick a browser by deviceId, never by display name.** More than one Chrome
+  can be connected and the names are unreliable — selecting the one listed as
+  "Browser 1" reported back "Connected to browser 'Browser 2'". The ids are
+  per-machine, so re-read them from `list_connected_browsers` every time.
+- **The extension cannot see pre-existing tabs**, only the tab group it creates
+  for the session. If the browser is identified as "the one with X open", that
+  cannot be verified — say so.
+- **The cold Vite start is blank white for a second or two.** That is
+  compilation, not the duplicate-import blank page. Screenshot again before
+  concluding anything.
+- `e2e/fixtures/sample-h264.mp4` uploads through the hidden `<input type="file">`;
+  find it with `find`, it is not in the accessibility tree.
+
+**How to check frame accuracy by eye.** That fixture burns its own frame number
+into the top-left of the picture. Find the playhead slider (`find` → "재생 위치"),
+click it, drive it with `Home` / `End` / `ArrowRight`, and zoom on the picture's
+corner and on the transport readout. **The playhead number must equal the
+burnt-in number.** That comparison, and nothing in the gate, is what found the
+two-frame offset defect (ADR-0008). The element `ref` goes stale after a reload —
+re-`find` it.
+
+**Trap: clearing framewright's `localStorage` does not stick.** The app flushes
+the in-memory document on `pagehide`, so removing `framewright:project` and then
+reloading or closing the tab writes it straight back. Nor does
+`localStorage.setItem = fn` shadow the method — Storage's named-property setter
+turns it into a **stored key called `setItem`**. What works:
+
+```js
+Object.defineProperty(Storage.prototype, 'setItem', {
+  value() {},
+  writable: true,
+  configurable: true,
+});
+Object.keys(localStorage).forEach((k) => localStorage.removeItem(k));
+```
+
+then close the tab, so the closing flush is a no-op.
+
 ## The e2e DOM contract
 
 Playwright tests reach into the DOM, so the DOM is an API. These selectors and

@@ -21,6 +21,21 @@ The editor itself is being built **for general users, not clinics** — the whol
 point is that anyone can pick it up. That is why there is no "expert editor"
 persona (`docs/TESTERS.md` explains the reasoning).
 
+### It is meant to ship, on AWS, to real users
+
+Stated by the owner: this is not a local experiment. **Nothing has been decided
+about how** — as of `main @ 280f849` there is no infra, no backend, no auth and
+no hosting config, and the app is entirely browser-side.
+
+It is written here rather than in `docs/STATUS.md` because it outlives any one
+unit of work. It changes what "done" means: things that are harmless locally
+become product decisions the moment strangers upload their own files. Raise the
+consequence **when the change is made**, not later in a hosting task. The
+questions already open: static hosting (S3 + CloudFront, possible today) versus
+needing a real backend for projects and media; where media actually lives across
+a reload; Safari/iOS WebCodecs coverage; and COOP/COEP headers — a hosting
+setting, not a code one — if `ffmpeg.wasm` ever needs `SharedArrayBuffer`.
+
 ## Standing rules from the owner — do not break these
 
 1. **Announce before touching git and wait for a reply.** Committing or pushing
@@ -31,8 +46,16 @@ persona (`docs/TESTERS.md` explains the reasoning).
    file. A duplicate import once broke the whole page and made five unrelated e2e
    failures look like selector problems. `npm run check:refs` exists because of
    that day.
-3. **Run the loop; don't ask between steps.** See "Working mode" in `CLAUDE.md`.
-   The owner does the final visual pass. They are not your test runner.
+3. **Run the loop; don't ask between steps — but do share thinking.** See
+   "Working mode" in `CLAUDE.md`. The owner does the final visual pass; they are
+   not your test runner. Read alone that sounds like "execute silently", and the
+   owner has said it is too little: _"구현을 진행하면서, 좋은 아이디어가 있거나
+   반문이 생기면 인터뷰 진행 언제든지 해줘"_. So raise ideas and objections
+   **while building**, in the same message as the work — a concrete proposal or a
+   real question, not an approval gate and not a survey of options. Prefer prose
+   over a multiple-choice modal: offered a four-way menu twice, the owner
+   declined both times and answered "이어서 진행", meaning **take the
+   recommendation and keep moving**. The hard stop is still git.
 4. **Usability and consistency are the goal**, not feature count. When a choice is
    unclear, pick what a first-time user would find obvious (`docs/UX.md`).
 
@@ -79,6 +102,23 @@ settings screen.
 
 `CLAUDE.md`'s "Known tech debt" is the live list — every persona finding that was
 not fixed is recorded there, deliberately, rather than dropped.
+
+## Picking this up on a different machine
+
+Everything needed is in git, deliberately — including `.claude/` (the hooks in
+`settings.json`, the persona agents, the slash commands), so a clone gets the
+same guardrails. What does **not** come with the clone, because it lives in the
+assistant's per-machine storage rather than the repo:
+
+- assistant memory for this project — which is why the three facts it held that
+  the repo did not (the AWS goal above, standing rule 3's second half, and
+  `docs/TESTING.md`'s "Operational facts") were moved into these files
+- MCP servers and the Claude in Chrome extension — reconnect them, then check
+  `list_connected_browsers`; without one, the visual pass is skipped, not faked
+
+So the sequence on a new machine is: clone → `npm ci` → read `docs/STATUS.md`,
+this file, `CLAUDE.md` → `npm run verify`. Nothing else is carried in anyone's
+head. The Claude account does not matter; the machine is what changes.
 
 ## How to verify
 
