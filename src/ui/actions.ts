@@ -11,6 +11,7 @@
 
 import { editor, useStore } from '../store/projectStore';
 import { timelineDuration } from '../engine/timeline';
+import { fitScale, zoomedScale, type Zoom } from '../engine/timelineView';
 import type { Command } from '../engine/commands';
 
 /** Play/pause lives in Preview; the action asks for it via a DOM event. */
@@ -35,6 +36,27 @@ export interface AppAction {
 }
 
 const store = () => useStore.getState();
+
+/**
+ * What the timeline is showing right now, in the engine's terms. The scroll
+ * offset is deliberately absent: zoom anchors on the playhead (the frame the
+ * user is looking at), so where the strip happens to be scrolled to does not
+ * enter the arithmetic — and it lives in the DOM, where an action cannot see it.
+ */
+function timelineZoom(): Zoom {
+  const total = timelineDuration(editor.project);
+  const widthPx = store().timelineWidthPx;
+  const scale = store().timelineScale;
+  return { total, widthPx, scale: scale ?? fitScale(total, widthPx) };
+}
+
+/** Asked by `canRun` and answered by the same function that performs it, so a
+ *  button can never offer a zoom that would land on the scale it already has. */
+function canZoom(direction: 'in' | 'out'): boolean {
+  const zoom = timelineZoom();
+  if (zoom.total <= 0 || zoom.widthPx <= 0) return false;
+  return zoomedScale(zoom, direction) !== zoom.scale;
+}
 
 export const APP_ACTIONS: AppAction[] = [
   {
@@ -114,6 +136,67 @@ export const APP_ACTIONS: AppAction[] = [
     canRun: () => timelineDuration(editor.project) > 0,
     disabledReason: () => '먼저 영상을 불러오세요.',
     perform: () => store().seekTo(editor.playhead + 1),
+  },
+  // The three view actions. They change nothing about the document, which is
+  // why they are actions and not commands — and why "크게 보기" says 보기: a
+  // first-time user must not read 작게 as "make the clip shorter".
+  {
+    id: 'view.zoomIn',
+    label: '크게 보기',
+    icon: '⊕',
+    defaultKey: '=',
+    canRun: () => canZoom('in'),
+    disabledReason: () =>
+      timelineDuration(editor.project) > 0
+        ? '한 프레임까지 크게 봤어요. 더 크게는 안 돼요.'
+        : '먼저 영상을 불러오세요.',
+    perform: () => {
+      store().setTimelineScale(zoomedScale(timelineZoom(), 'in'));
+      // Said out loud, because zoom has no other feedback for someone who
+      // cannot see the strip redraw.
+      store().setStatus(
+        '타임라인을 크게 봤어요 · 재생 위치를 가운데에 뒀어요.',
+      );
+    },
+  },
+  {
+    id: 'view.zoomOut',
+    label: '작게 보기',
+    icon: '⊖',
+    defaultKey: '-',
+    canRun: () => canZoom('out'),
+    disabledReason: () =>
+      timelineDuration(editor.project) > 0
+        ? '전체가 다 보이고 있어요. 더 작게는 안 돼요.'
+        : '먼저 영상을 불러오세요.',
+    perform: () => {
+      const zoom = timelineZoom();
+      const next = zoomedScale(zoom, 'out');
+      // Landing on the fitted scale means FITTED, not "a number that happens to
+      // equal it today". Storing the number looks identical on screen and then
+      // stops following the document: the next edit that lengthens the timeline
+      // would push its own tail off the strip, while this button had just said
+      // 전체가 다 보이고 있어요.
+      const fit = fitScale(zoom.total, zoom.widthPx);
+      store().setTimelineScale(next <= fit ? null : next);
+      store().setStatus(
+        '타임라인을 작게 봤어요 · 재생 위치를 가운데에 뒀어요.',
+      );
+    },
+  },
+  {
+    id: 'view.zoomFit',
+    label: '전체 보기',
+    icon: '⤢',
+    defaultKey: '\\',
+    canRun: () => store().timelineScale !== null,
+    disabledReason: () => '전체가 다 보이고 있어요.',
+    // Back to "no scale of its own": the strip follows the document's length
+    // again, so a later edit that lengthens it keeps everything on screen.
+    perform: () => {
+      store().setTimelineScale(null);
+      store().setStatus('타임라인 전체가 보이게 맞췄어요.');
+    },
   },
   {
     id: 'app.palette',

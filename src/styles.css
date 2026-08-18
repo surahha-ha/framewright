@@ -320,26 +320,101 @@ body {
   font-size: 11px;
   color: var(--muted);
 }
-/* The playhead is its own control. It must NOT contain the clips: a slider's
+/* The one scroll container. Both the ruler and the track live inside it and are
+   drawn at the same width, so there is a single scroll position and they cannot
+   drift apart. `scrollbar-gutter` reserves the bar's row at every zoom — without
+   it the track jumps a few pixels the moment zooming makes the strip overflow. */
+.strip {
+  margin: 4px 12px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  background: #0b1219;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+/* The frame ⇄ pixel mapping assumes the scrolled content starts exactly where
+   its box starts, so the ruler and the track carry NO left/right border: an
+   absolutely positioned child is laid out from the PADDING box, and a 1px
+   border would put every clip one pixel to the right of the frame it claims to
+   be on while a click read one pixel to the left. The border belongs to the
+   scroll container, which is not a coordinate system.
+
+   The playhead is its own control. It must NOT contain the clips: a slider's
    descendants are presentational, which hid every clip from screen readers. */
 .ruler {
   position: relative;
-  height: 14px;
-  margin: 4px 12px 0;
-  border-radius: 7px;
-  background: #0b1219;
-  border: 1px solid var(--line);
+  height: 20px;
+  border-bottom: 1px solid var(--line);
   cursor: pointer;
+  /* Keeps the last tick's label from widening the scrolled content. */
+  overflow: hidden;
 }
 .ruler-thumb {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
+  top: 0;
+  bottom: 0;
   width: 2px;
   background: var(--teal);
   border-radius: 1px;
 }
+/* Inset, because the ruler is as wide as the whole document: an outline drawn
+   around it would be off screen at any real zoom, while this one runs along the
+   visible top and bottom edges wherever the strip happens to be scrolled to. */
 .ruler:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+}
+/* Ruler marks. Only the labelled ones carry a timecode; the rest are hairlines
+   that say "this is how far a second is" without adding anything to read. */
+.tick {
+  position: absolute;
+  bottom: 0;
+  height: 4px;
+  border-left: 1px solid #2c3d4a;
+}
+.tick.major {
+  height: 8px;
+  border-left-color: #476579;
+}
+.tick-label {
+  position: absolute;
+  bottom: 7px;
+  left: 3px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* Looking, not editing — so these sit by the timeline, not in the edit toolbar. */
+.zoom-controls {
+  display: inline-flex;
+  gap: 3px;
+}
+.zoom-btn {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 5px;
+  padding: 1px 7px;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* What is on screen right now, in words. Quiet, because it is a fact to be
+   looked up rather than an event to be noticed. */
+.zoom-span {
+  font-size: 11px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.zoom-btn:hover:not([aria-disabled='true']) {
+  border-color: var(--teal);
+}
+.zoom-btn:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
 }
@@ -361,10 +436,6 @@ body {
 .track {
   position: relative;
   height: 56px;
-  margin: 6px 12px;
-  background: #0b1219;
-  border: 1px solid var(--line);
-  border-radius: 8px;
   cursor: pointer;
   overflow: hidden;
 }
@@ -446,6 +517,7 @@ body {
   color: var(--teal);
   font-variant-numeric: tabular-nums;
   min-height: 1em;
+  margin-left: auto; /* stays at the far end, whatever sits before it */
 }
 button[aria-disabled='true'] {
   opacity: 0.45;

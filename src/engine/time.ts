@@ -93,6 +93,26 @@ export function secToSample(sec: number, sampleRate: number): number {
   return Math.round(sec * sampleRate);
 }
 
+/**
+ * Format a frame count as m:ss (h:mm:ss past an hour) — how far along, not
+ * which frame.
+ *
+ * The ruler needs this and `formatTimecode` cannot give it. mm:ss:ff is read as
+ * hours:minutes:seconds by anyone who has not been told otherwise, and a ruler
+ * is a whole row of them at once: a three-second clip labelled up to `00:02:25`
+ * reads as two and a half MINUTES. The two formats answer different questions —
+ * this one "where am I in the video", `formatTimecode` "which frame is this" —
+ * and only the second one needs frames in it.
+ */
+export function formatClock(frame: number, fps: Rational): string {
+  const total = Math.max(0, Math.round(frameToSec(frame, fps)));
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
+}
+
 /** format a frame count as mm:ss:ff for UI. */
 export function formatTimecode(frame: number, fps: Rational): string {
   const fpsN = Math.round(fpsToNumber(fps));

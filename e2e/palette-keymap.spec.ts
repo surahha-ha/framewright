@@ -321,7 +321,15 @@ test.describe('clipboard', () => {
     // A paste can shove several clips sideways; without this nothing says which
     // of the clips that moved is the new one.
     await importFixture(page);
-    await page.locator('.timeline .clip').first().click();
+    const clip = page.locator('.timeline .clip').first();
+    // Deliberately NOT the centre. Clicking the middle of a clip parks the
+    // playhead on the exact tie in `pastePlan`, where a one-pixel difference in
+    // layout decides whether the paste lands before or after — this test then
+    // fails on the position of the new clip while claiming to be about
+    // selection. Three quarters in, "after the clip I am looking at" is the
+    // only answer.
+    const box = (await clip.boundingBox())!;
+    await clip.click({ position: { x: box.width * 0.75, y: box.height / 2 } });
     await page.keyboard.press('Control+c');
     await page.keyboard.press('Control+v');
     await expect(page.locator('.timeline .clip').nth(1)).toHaveAttribute(

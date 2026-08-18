@@ -10,264 +10,179 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-08-14 06:26 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-08-18 02:17 UTC — `npm run verify` **GREEN**
 
-- unit 222 passed · e2e 51 passed
+- unit 259 passed · e2e 66 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
 
-Two units landed here, in this order:
+**C's first half is built: the timeline has a scale of its own, and it zooms.**
+`docs/adr/0010-the-timeline-has-a-scale.md` is the argument.
 
-- **Media persistence** — `4b60b13`. `docs/adr/0009-keep-the-media.md` is the
-  argument; nothing about it is outstanding.
-- **D, the naming cleanup** — `dd4d451`, committed with the owner's go-ahead.
-  Described below.
-- **The eviction hint** — `07a3380`. Small and separate on purpose: the owner
-  approved it as its own step before C.
+**Nothing is committed.** `main` is still at `16a4c3b` (the previous session's
+handoff commit) and this entire unit is sitting uncommitted in the working tree,
+because the owner is asked before any git operation.
 
-**All three are pushed.** `origin/main` is at `07a3380` and the working tree is
-clean, so another machine gets everything with a plain clone.
+Until now the timeline had no coordinate system: every position was a percentage
+of the container (`frames / documentLength * 100`), so one pixel was worth a
+different number of frames in every document, and in the same document after
+every edit. That is replaced by **pixels per frame plus a scroll offset**, owned
+by a new pure engine module.
 
-### The eviction hint (`07a3380`)
+### What is new
 
-OPFS keeps the imported file, but `navigator.storage.persist()` returns **false**
-on this origin and Chrome never asks — persistence is granted on engagement
-heuristics (bookmarked, installed, high engagement) that a freshly-visited dev
-origin has not earned. So "the browser lost your file" is the ordinary case, not
-a hypothetical one, and the UI never said so.
+- **`src/engine/timelineView.ts`** (new, 33 unit tests) — `frameToX`, `xToFrame`,
+  `frameAtX`, `deltaFrames`, `visibleRange`, `visibleSpan`, `centerOn`,
+  `keepVisible`, `contentWidth`, `maxScroll`, `clampScroll`, the zoom clamps
+  (`fitScale` / `clampScale` / `zoomedScale`) and the tick ladder (`tickSteps` /
+  `ticks`). Pure and Node-testable, like `drag.ts`.
+- **`src/ui/Timeline.tsx`** — one scroll container (`.strip`) holding `.ruler`
+  and `.track`, both drawn at content width. The component keeps the gesture and
+  the DOM; every frame↔pixel conversion goes through the engine.
+- **Three app actions** — `view.zoomIn` (`=`), `view.zoomOut` (`-`),
+  `view.zoomFit` (`\`), with buttons in the track head reading `⊖ 작게`
+  `⊕ 크게` `⛶ 전체`, plus a standing readout ("한 화면에 3초").
+- **Ruler ticks**, built for the visible range only, labelled in `m:ss`.
+- **`src/store/projectStore.ts`** — `timelineScale` (`null` = fitted) and
+  `timelineWidthPx`. View state: never undoable, never persisted.
+- **`e2e/timeline-zoom.spec.ts`** (15 tests) — everything Node cannot see.
 
-It says so now, in one sentence on the end of the import's own status line:
+### Five decisions a future session would otherwise get wrong
 
-> · 저장 공간이 부족해지면 이 브라우저가 영상을 지울 수 있어요. 원본 파일은
-> 지우지 말고 그대로 두세요.
+1. **`timelineScale === null` means FITTED, and that is not the same as the
+   number which happens to equal today's fit.** Fitted follows the document as
+   it grows; a number does not. So zooming out onto the floor stores `null`, and
+   emptying the timeline resets to `null`. Both were QA findings; both have e2e
+   tests.
+2. **Zoom out stops at the whole document, zoom in at 40px per frame — and the
+   floor wins over the ceiling.** A five-frame document already fills the strip
+   at 180px/frame; clamping that down would pull it off the edges it has always
+   filled.
+3. **The ruler stays a slider over the DOCUMENT at every zoom.** `aria-valuemax`
+   is `total - 1` regardless of what is visible: zoom changes what you can see,
+   never where the playhead is allowed to go. The strip scrolls to follow it.
+4. **A zoom step anchors on the focused clip, not blindly on the playhead.**
+   Centring on the playhead scrolled a focused clip off screen while it kept DOM
+   focus — an invisible focus ring (WCAG 2.4.7). The anchor is the clip the
+   keyboard is on, and the playhead only when it is not on one.
+5. **The ruler is labelled `m:ss`, NOT the app's `mm:ss:ff`.** See below.
 
-- **Only when the browser actually refused.** Granted, no API, and "could not be
-  stored at all" are all silent — the last already has its own sentence, and two
-  warnings about one file read as two problems.
-- **At most once per page load** (`takeEvictionNote`). A refusal is the DEFAULT
-  for a first-time visitor, so appending it to every import would put a warning
-  on the end of every success message a beginner ever sees. Page-lifetime state,
-  not a React ref: StrictMode mounts twice and a ref would say it again.
-- **The in-flight promise is cached, not the settled value**
-  (`requestPersistentStorage`). Caching the value only guards a caller arriving
-  after the first finished; two arriving together would both ask the browser and
-  race to write the answer, so a refusal could be overwritten by a later
-  `unknown`. The media queue serialises the one call site today, but that safety
-  lives in the caller.
-- It lives in `src/engine/mediaStore.ts`, not `src/ui/media.ts`, **so it can be
-  unit-tested**: `ui/` has no Vitest specs at all (it pulls in WebCodecs), and
-  `navigator.storage` mocks in Node in three lines.
+### The label format, and why it changed mid-unit
 
-### D — the naming cleanup (`dd4d451`)
+The first build labelled ruler ticks with `formatTimecode` (`mm:ss:ff`). Looked
+at in Chrome, a three-second clip came out reading `00:00:05 … 00:02:25` — which
+looks like two and a half **minutes**. One such value next to a frame count is
+legible; a whole row of them is not.
 
-Five controls said 자르기 / 잘라내기 and meant three different edits, and `✂`
-(split) sat three buttons from `✁` (clipboard cut) — the same shape at toolbar
-size. Someone wanting to drop the first 30 seconds was picking by coin flip.
-The words are now partitioned, and `docs/UX.md` ("One word, one meaning — and
-one shape") is the normative record:
+`src/engine/time.ts` gained **`formatClock`** (`m:ss`, and `h:mm:ss` past an
+hour). `formatTimecode` is untouched and still used everywhere else. Two
+questions, two formats: "which frame is this" keeps frames, "how far along is
+this" does not. `docs/UX.md` carries the rule; four unit tests pin the format.
 
-| edit                                  | label now                                 | glyph   |
-| ------------------------------------- | ----------------------------------------- | ------- |
-| clipboard cut (`Ctrl+X`), `clip.cut`  | 잘라내기                                  | `✂`     |
-| split (`C`), `clip.split`             | 나누기                                    | `◫`     |
-| trim to playhead (`Q`/`W`)            | 재생 위치까지 앞부분 / 뒷부분 줄이기      | `◧` `◨` |
-| one-frame nudges (`Alt`+arrows)       | 앞부분 / 뒷부분 한 프레임 줄이기 · 늘리기 | —       |
-| drag an edge (`clip.trimStart`/`End`) | 앞부분 / 뒷부분 조절 (끌기)               | —       |
+Two consequences inside `tickSteps`: a **labelled** step is never shorter than
+one second (`0:03` printed three times running is worse than no label), and the
+sub-second detail moved to the **unlabelled** marks, which subdivide as finely
+as they stay countable — one per frame once a frame is wide enough to see.
+`MIN_MINOR_TICK_PX` was raised from 9 to 14 after looking at the real ruler.
 
-### The decision that was taken, and how it differs from the one on file
+### What the persona round found
 
-The proposal recorded in the previous handoff was: `clip.cut` → **오려두기**, the
-`Q`/`W` pair → **앞부분/뒷부분 버리기**. **That is not what shipped**, and the
-reasoning is the part worth keeping:
+Four reviewers (guardrail, QA, a11y, novice) and **zero blockers**. Fixed:
 
-1. **잘라내기 is the standard Korean word for `Ctrl+X`** — Windows, Office,
-   한글 all use it. Renaming the clipboard would have made framewright the odd
-   one out at the one place a user's muscle memory is strongest. The collision
-   was caused by the _trim_ commands borrowing the word, so the trims moved
-   instead.
-2. **줄이기 rather than 버리기**, because the six one-frame nudges already said
-   `앞부분 한 프레임 줄이기 / 늘리기`. `Q`/`W` are the same edit at a different
-   size, so they now read as one family. 버리기 would have invented a third word
-   for an edit that already had one.
-3. A drag says **조절**, not 줄이기, because pulling a handle outwards puts
-   trimmed media **back**. That label never renders (the drag commands are
-   `requiresArgs`, so the toolbar, palette and shortcut list all skip them).
-4. `Q`/`W` carry **재생 위치까지** in the label itself. Without it the button
-   reads as "make the front smaller" by an unsaid amount, and a tooltip is not
-   where the deciding fact can live.
+1. A stale zoom survived an emptied timeline and was applied to the next import,
+   so a fresh video opened showing a sliver of itself (QA, major).
+2. Zooming out to the floor stored a number rather than `null`, so the view
+   silently stopped following the document (QA, major).
+3. A zoom step could scroll a focused clip off screen (a11y, major).
+4. `mm:ss:ff` on the ruler (novice, major) — above.
+5. The zoom buttons were icon-only, so the deciding word lived behind a hover
+   (novice, major). They carry `작게` / `크게` / `전체` now.
+6. `⤢` did not read as "fit to view"; it is `⛶` now (novice, major).
+7. Nothing exposed the current zoom to a screen reader — the status line says
+   what CHANGED, once (a11y, major). The `한 화면에 N초` readout says what IS.
+8. `Math.max(...spread)` over the clip list would throw on a very large project
+   (QA, minor) — a `reduce` now.
+9. A visible flash of every clip at width zero before the first measurement
+   (QA, minor) — `useLayoutEffect`.
+10. No NaN guard on the value that feeds `seekTo` (QA, minor).
+11. `ADR-0010` was cited by two files and did not exist, and `ADR-0006`'s
+    Consequences still described the stub-pin behaviour this unit removed
+    (guardrail, major). Both fixed.
 
-**This is a product call and the owner can overturn any of it** — see "Blocked",
-item 2. Nothing else depends on the wording.
+Everything not fixed is in `CLAUDE.md` "Known tech debt" — six new entries.
 
-### What else changed, and why
+### Two test traps this unit walked into, now written down
 
-- **`describeEdit` no longer hedges when it does not have to.** It takes an
-  optional `lengthBefore`; a nudge and a drag both pass it, so the sentence says
-  줄였어요 / 늘렸어요 instead of 조절했어요 whenever the direction is known.
-- **A trim of the tail now reports the hole it opens.** `Q` announced a gap and
-  `W` said nothing, though both can leave one. The gap note also only ever names
-  the side the edit could have opened — calling a hole that was already there
-  "생겼어요" is a claim the user cannot check.
-- `ExportButton`'s `⬇` is wrapped in `aria-hidden` like every other toolbar
-  glyph.
-- The ADR-0008 re-link warning says 편집해 둔 자리, not 잘라 둔 자리.
+- **A test can pass for the wrong reason, and a one-pixel layout change can
+  expose it.** `e2e/palette-keymap.spec.ts`'s "the pasted clip is the selected
+  one" clicked the exact CENTRE of a clip, which is the exact tie in
+  `pastePlan`'s nearer-edge rule; the new box model moved the click by one pixel
+  and the paste landed on the other side — failing a test about selection over a
+  question of position. It clicks at 75% now, and says why.
+- **`.focus()` followed by `.click()` moves focus to the button.** The first
+  version of the "a zoom step keeps the focused clip visible" test read
+  `document.activeElement` after clicking the zoom button — so it measured the
+  button, and passed with the fix reverted. It uses the KEY now, and was
+  confirmed red with the fix reverted before being kept.
 
-### The guards, and why there are three
+### The box model, which was wrong by a pixel before this unit
 
-No single layer sees the whole surface, so the vocabulary rule is asserted in
-three places and **none of them is sufficient alone**:
-
-- `src/engine/vocabulary.test.ts` — the command registry: no label carries
-  자르/잘라, no name is or contains another, glyphs are unique, and the scissors
-  belong to the clipboard. Also covers `describeEdit`'s wording, which had **no
-  test at all** before this unit.
-- `e2e/personas.spec.ts` "no two toolbar buttons share a shape or a word" —
-  adds the app actions (`clip.cut`, `clip.copy`, undo/redo), which cannot be
-  imported in Node.
-- `e2e/personas.spec.ts` "the shortcut list names every action distinctly, too"
-  — adds the keyboard-only commands, which never reach the toolbar.
-
-Both e2e checks compare **by position, not by value**: filtering with
-`l !== label` would let two buttons carrying the identical string cancel each
-other out and pass.
-
-### What the persona round changed
-
-Gate was green before the review; all four reviewers (novice, a11y, QA,
-guardrail) returned **zero blockers**. Five findings were fixed anyway, each
-with an assertion:
-
-1. `Q`/`W` did not say "to the playhead" anywhere a user would look (novice,
-   major) → it is in the label now.
-2. `W` never announced the gap it can open (a11y, major) → fixed in
-   `describeEdit`, with a test for the side it must _not_ claim.
-3. The e2e label check could not catch two buttons with the **identical** label
-   (QA, major) → compared by position now.
-4. The unit spec's own comment implied a coverage it did not have (QA, major) →
-   the comment now says which half it guards and where the other half lives.
-5. The hint line listed the nudges as bare nouns ("앞부분", "뒷부분") while
-   their buttons had verbs (novice, minor) → "앞부분 늘리기·줄이기".
-
-### One trap this unit walked into, now written down
-
-`getByRole('button', { name: '재생' })` had passed for months and suddenly
-resolved to **three** elements, failing two unrelated specs, because Playwright
-matches an accessible name by **substring** and two commands are now named
-`재생 위치까지 … 줄이기`. It looks like a broken feature and is a broken
-selector. `docs/TESTING.md` has the rule now; the two call sites pass
-`exact: true`.
-
-### What the persona round changed in the eviction hint
-
-Three reviewers, zero blockers, two findings fixed:
-
-1. **It fired on every import** (novice, major). Since a refusal is the default
-   for a new visitor, a beginner assembling one edit from five clips would have
-   read the same warning five times and learned to stop reading the status line.
-   Now once per page load, pinned by a test whose sequence IS the assertion.
-2. **`requestPersistentStorage` cached the settled value, not the in-flight
-   promise** (QA, major, latent). Unreachable today — the media queue serialises
-   the only call site — but the safety lived in the caller, and a "try again"
-   button would have taken it away silently. Moving the function into the engine
-   made it unit-testable, which is how the concurrent case is now pinned at all.
-
-Not fixed, deliberately: the sentence carries no `⚠`, unlike the incomplete-read
-warning three lines above it in the same status builder. It matches its actual
-sibling — `NOT_KEPT`, the other media-storage sentence, which has no icon
-either — and the owner asked for a quiet line. Recorded as debt, not dropped.
-
-### Visual QA ran, and passed
-
-In the owner's Chrome at 1568px: the toolbar is one row, nothing clips, `◫` and
-`✂` are plainly different shapes, and the palette, the shortcut list and the
-timeline hint all read in full. The 1280px case is covered by
-`e2e/narrow-layout.spec.ts`, which is green.
-
-**Two connected browsers, and only one of them can see the app.** "Browser 2"
-returns `ERR_CONNECTION_REFUSED` on `http://127.0.0.1:9990` while the dev server
-answers 200 on this machine — it is a Chrome on a different device, even though
-`list_connected_browsers` reports `isLocal: true` for both. "Browser 1" is the
-one that works. Check this first; it has cost two sessions an hour each.
+`.ruler` and `.track` carry no left/right border any more; the border moved to
+the scroll container. An absolutely positioned child is laid out from its
+parent's PADDING box, so with a 1px border every clip was drawn one pixel to the
+right of the frame it claimed to be on, while a click read one pixel to the
+left. Do not put a horizontal border back on either element.
 
 ## Next single step
 
-Start **C — timeline zoom + ruler ticks + thumbnails + waveform**. Nothing is
-owed from the previous units; the tree is clean and pushed.
+**C's second half: clip thumbnails, then the audio waveform.** Both are now
+cheap, and that is why the coordinate change came first — each of them is
+"given a visible frame range and a pixels-per-frame, what do I draw", and
+`visibleRange(view)` plus `view.scale` is exactly that.
 
-**Read this before writing any of it.** C is not four independent features. The
-first one changes the timeline's coordinate system and the other three are drawn
-in whatever that becomes, so the order is forced: **zoom + ruler ticks first, as
-one unit; thumbnails and waveform after.**
+Start with **thumbnails**, because they need no decoding path playback does not
+already have, and the ruler has already proved the drawing pattern:
 
-Today the timeline has no scale of its own. Everything is a percentage of the
-container: `pct(frames) = frames / denom * 100` (`src/ui/Timeline.tsx:335-336`),
-where `denom` is the whole document's length — clips, gaps, the playhead and the
-ruler thumb all use it. Zoom means replacing that with pixels-per-frame plus a
-horizontal scroll, and these are the places that assume the old model:
-
-- `src/ui/Timeline.tsx:352-361` — `clipStyle` pins a clip that ran past the right
-  edge to `calc(100% - …)`. With a scrollable timeline "past the right edge" is a
-  scroll position, not a clamp.
-- `src/ui/Timeline.tsx:54-56, 187` — a drag FREEZES `denom` for the gesture and
-  derives `framesPerPx` from the bar's width. This is the existing tech-debt item
-  ("trimming a clip longer than the current timeline runs past the right edge
-  until release"); zoom is the stated proper fix, so the freeze should become
-  unnecessary rather than be preserved.
-- `SNAP_PX` / `MIN_CLIP_PX` (`Timeline.tsx:44-47`) are pixel constants that were
-  chosen to feel right at "whole document = container width". They keep their
-  meaning under zoom, which is the point of expressing them in pixels — verify,
-  do not assume.
-- `.ruler` is a `role="slider"` over the whole document (`docs/UX.md`, and the
-  ARIA note in `styles.css:323-325`). Under zoom, what does `aria-valuemax` mean
-  — the document, or the visible window? Decide it deliberately; the last time
-  this element's semantics moved it deleted every clip's name from the
-  accessibility tree.
-
-The arithmetic itself belongs in `src/engine/` and must be test-first, like
-`drag.ts` — a pure `frame ↔ x` module (scale, scroll offset, visible range,
-where the ticks fall at a given zoom) with the React file holding only the
-gesture and the DOM. That is what makes ticks, thumbnails and waveform cheap
-afterwards: all three are "given a visible frame range and a pixels-per-frame,
-what do I draw".
-
-An ADR is owed for the coordinate change (it reverses "one scale, always the
-whole document", which ADR-0006 assumed).
+- Decode one frame per N pixels of clip width, with N chosen so the count is
+  bounded by the VISIBLE range and not by the clip's length. `ticks` in
+  `src/engine/timelineView.ts` is the shape to copy.
+- The decode itself cannot be unit-tested (no WebCodecs in Node), so the
+  placement arithmetic belongs in `timelineView.ts` (pure, test-first) and only
+  the decode and the draw belong in the component.
+- **Close every `VideoFrame`.** A thumbnail strip is the easiest place in this
+  codebase to leak one per scroll event.
+- Cache by (assetId, sourceFrame) so the cache survives a zoom change.
+  Re-decoding on every zoom step would make the strip unusable.
 
 ## Blocked / needs the owner
 
-1. **Nothing is blocked on git.** Everything through `07a3380` is committed and
-   pushed. The only thing in the tree is `bash.exe.stackdump`, untracked and
-   deliberately never staged — a crash artefact from a shell that died
-   mid-session, safe to delete.
-   The one hard stop still stands: announce before any git operation and wait.
+1. **NOTHING IS COMMITTED.** `main` is at `16a4c3b` and the whole of this unit
+   is in the working tree. The one hard stop stands: announce before any git
+   operation and wait. `bash.exe.stackdump` is still untracked in the repo root
+   — a crash artefact, safe to delete, deliberately never staged.
 
-2. **The naming scheme is the owner's to overturn.** It differs from the
-   proposal recorded before this session; the four reasons are above. If any of
-   it is wrong, the change is cheap — labels and icons only, no behaviour, and
-   the three guards will hold whatever words replace them.
+2. **The `m:ss` ruler label is a product call and the owner can overturn it.**
+   The alternative is consistency with the transport readout (`mm:ss:ff`
+   everywhere) at the cost of a ruler that reads as minutes. Cheap to change:
+   one function in `src/engine/time.ts`, one call site in `src/ui/Timeline.tsx`,
+   four unit tests and one e2e regex.
 
-3. **Whether to warn about eviction — ANSWERED, and built** (see "Where we
-   are"). The owner chose the quiet hint: one line on the import status line,
-   only when the browser actually refused. Nothing here is still open.
-   What was **not** done, and was not required: the two measurements that would
-   pin down when Chrome grants persistence — bookmark `127.0.0.1:9990` in the
-   test Chrome and re-run `await navigator.storage.persist()`, and re-measure on
-   the deployed HTTPS origin, where the engagement heuristics actually apply.
-   Neither changes the code; both would tell us how often real users see the
-   hint. Worth doing when there IS a deployed origin (item 4).
+3. **`MAX_SCALE = 40` px/frame is a guess that has only ever been tried on a
+   three-second fixture.** With the only test footage in the repo, fit is
+   already ~14px/frame, so zoom has barely two steps of range and hits the
+   ceiling almost immediately. On a ten-minute file the same ceiling is nine
+   doublings away. Nobody has yet zoomed a long file by hand.
 
 4. **Two directions the owner set, neither started as code.** Deployment on
-   **AWS for real users**, and design informed by `docs/research/editor-pain-points.md`.
-   The gating question is unchanged: static hosting (S3 + CloudFront, possible
-   today) or a real backend for projects and media? Media persistence
-   deliberately did not depend on the answer — it is per-browser-profile only,
-   the local half of ADR-0004; the `srcUrl` half is where that question lands.
-   A consequence worth stating: **a project does not follow the user to another
-   machine.** The document is in `localStorage` and the video is in that
-   profile's OPFS, so a second PC opens neither.
+   **AWS for real users**, and design informed by
+   `docs/research/editor-pain-points.md`. The gating question is unchanged:
+   static hosting (S3 + CloudFront, possible today) or a real backend for
+   projects and media? A consequence worth restating: **a project does not
+   follow the user to another machine** — the document is in `localStorage` and
+   the video is in that browser profile's OPFS.
 
-5. **The remaining backlog, in the order agreed:** C — timeline zoom + ruler
-   ticks + thumbnails + waveform, then B — E7 (subtitles, transitions, audio
-   volume/fades, transform).
+5. **The remaining backlog, in the order agreed:** the rest of C — thumbnails
+   and waveform — then B: E7 (subtitles, transitions, audio volume/fades,
+   transform).

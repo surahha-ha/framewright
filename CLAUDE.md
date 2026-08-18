@@ -216,6 +216,28 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **The "ask canRun, show the chord in `title`, dispatch via `perform`,
+  `aria-disabled`" button now exists three times** — `Toolbar.Button`,
+  `Timeline.ZoomButton` and the palette's rows. That is the rule-of-three
+  trigger; the three differ enough in markup that extracting one component is
+  a real design decision, not a mechanical move.
+- **A disabled control's reason is reachable only by pressing it.** It lives in
+  `title` (mouse hover) and in `setStatus` on the click of an `aria-disabled`
+  button. That is the app-wide convention, not new — but a screen-reader user
+  has to activate a control that says it cannot run in order to hear why.
+- **Zoom announces itself mid-drag before anything moves.** A drag freezes the
+  scale for the gesture, so `=` pressed with the pointer down says
+  "타임라인을 크게 봤어요" while the strip does not change until release.
+- **`ticks()` has no absolute cap on the marks it builds.** The bound is proven
+  for any real document (visible range ÷ a step from the ladder), but a
+  corrupted project with an absurd `total` would generate spans in proportion.
+- **The timeline has no independent pan.** A keyboard user scrolls it only by
+  moving the playhead or tabbing to a clip; there is no "scroll the view without
+  moving anything" control. Fine while every state has a clip and a ruler in it.
+- **There is no cue in the strip itself that content continues off-screen** —
+  only the native scrollbar. Zoom re-centres and the playhead auto-scrolls, so
+  the app's own controls never strand you; a manual scroll can.
+
 - The `Editor` instance is a module singleton in `store/projectStore.ts`. Fine for
   one document; move to React context if we ever open several projects at once.
   `mediaRepo` and the media work queue in `ui/media.ts` are the same shape and
@@ -309,9 +331,11 @@ file that moved. Then run `check:refs` and `typecheck`.
 - `AppAction` and `Command` repeat five field names (`label`, `icon`,
   `defaultKey`, `canRun`, `disabledReason`) with no shared base type. If a third
   bindable kind ever appears, that is the rule-of-three trigger to extract one.
-- Dragging freezes the timeline scale for the gesture, so trimming a clip longer
-  than the current timeline runs past the right edge until release (the readout
-  shows the real numbers). A proper fix is timeline zoom, not a live rescale.
+- Dragging still freezes the timeline scale for the gesture — but only because
+  a FITTED scale follows the window, and a resize mid-drag would move it under
+  the pointer. The overshoot half of this item is fixed (ADR-0010): a clip
+  dragged past the end now widens the scrolled content instead of being pinned
+  to the edge.
 - Trim/move drags are single-track only; there is one video track, so this is not
   yet a limitation — it becomes one the moment a second track exists.
 - The keyboard nudge step is one frame with no coarse alternative. `Q`/`W` cover

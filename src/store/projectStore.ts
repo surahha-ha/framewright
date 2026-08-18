@@ -82,6 +82,24 @@ interface State {
   overlay: 'none' | 'palette' | 'shortcuts';
   setOverlay: (overlay: 'none' | 'palette' | 'shortcuts') => void;
 
+  /**
+   * How magnified the timeline is, in pixels per frame — or `null` while it is
+   * fitted to the whole document, which is the default and what the timeline
+   * always did before it had a scale of its own.
+   *
+   * View state, not document state: never undoable, never saved. It lives here
+   * rather than inside `Timeline` because the zoom app actions have to be able
+   * to say whether they can still run (ADR-0003's rule that a control explains
+   * itself), and an action cannot reach into a component's `useState`.
+   */
+  timelineScale: number | null;
+  /** The strip's visible width, published by `Timeline` once it is measured.
+   *  Zero until then, which is what makes the zoom actions wait rather than
+   *  compute a scale from a width nothing has drawn yet. */
+  timelineWidthPx: number;
+  setTimelineScale: (scale: number | null) => void;
+  setTimelineWidth: (widthPx: number) => void;
+
   sync: () => void;
   /**
    * Direct-manipulation commands (trim/move) carry arguments; the rest take none.
@@ -393,6 +411,18 @@ export const useStore = create<State>((set, get) => {
 
     overlay: 'none',
     setOverlay: (overlay) => set({ overlay }),
+
+    timelineScale: null,
+    timelineWidthPx: 0,
+    setTimelineScale: (timelineScale) => set({ timelineScale }),
+    setTimelineWidth: (widthPx) =>
+      // A resize fires continuously while a window is dragged; re-rendering the
+      // whole timeline for a sub-pixel change is work nobody can see.
+      set((s) =>
+        Math.abs(s.timelineWidthPx - widthPx) < 1
+          ? s
+          : { timelineWidthPx: widthPx },
+      ),
 
     setPlaying: (isPlaying) => set({ isPlaying }),
     setExporting: (isExporting) => set({ isExporting }),

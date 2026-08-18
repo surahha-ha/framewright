@@ -12,8 +12,13 @@
 // trim it. The drag only PREVIEWS while the pointer is down — the command is
 // dispatched once on release, so one gesture is exactly one undo step. Holding
 // a nudge key coalesces the same way.
+//
+// Zoom (ADR-0010): the strip has a scale of its own — pixels per frame — and
+// scrolls. Every frame↔pixel conversion below goes through
+// `src/engine/timelineView.ts`; this file owns only the gesture and the DOM.
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -31,9 +36,23 @@ import {
   type DragLimit,
   type DragMode,
 } from '../engine/drag';
+import {
+  centerOn,
+  clampScale,
+  contentWidth,
+  deltaFrames,
+  fitScale,
+  frameToX,
+  keepVisible,
+  ticks,
+  visibleSpan,
+  xToFrame,
+  type View,
+} from '../engine/timelineView';
 import { describeEdit, LIMIT_TEXT } from '../engine/commands';
 import { formatChord } from '../engine/keymap';
-import { formatTimecode } from '../engine/time';
+import { formatClock, formatTimecode, frameToSec } from '../engine/time';
+import { canRun, perform, whyNot } from './actions';
 import { useResolvedKeymap } from './useShortcuts';
 import type { Clip } from '../engine/types';
 
@@ -41,19 +60,20 @@ import type { Clip } from '../engine/types';
 const EDGE_PX = 10;
 /** Below this, a press is a click (select), not a drag. Stops accidental edits. */
 const DRAG_THRESHOLD_PX = 3;
-/** Snapping radius, in pixels — so it feels the same at any timeline length. */
+/** Snapping radius, in pixels — so it feels the same at any zoom. (Expressing it
+ *  in pixels is what makes that true: 8px is 16 frames in a fitted minute and 1
+ *  frame when zoomed all the way in, which is what the hand expects.) */
 const SNAP_PX = 8;
-/** A clip narrower than this cannot be grabbed back, so we never draw one. */
-const MIN_CLIP_PX = 24;
 
 interface DragState {
   clipId: string;
   mode: DragMode;
   pointerId: number;
   startX: number;
-  /** Frames spanned by the whole bar. Frozen for the gesture: if the scale moved
-   *  while dragging, the clip would chase the pointer instead of following it. */
-  denom: number;
+  /** Pixels per frame. Frozen for the gesture: an edit from a shortcut or a
+   *  window resize mid-drag would otherwise move the scale under the pointer
+   *  and the clip would chase it instead of following it. */
+  scale: number;
   originStart: number;
   originEnd: number;
   /** Edges worth snapping to: neighbours, the playhead, 0, the end. */
@@ -69,6 +89,9 @@ interface DragState {
 }
 
 export function Timeline() {
+  /** The scroll container. Both the ruler and the track live inside it, so they
+   *  cannot drift out of sync: there is one scroll position, not two. */
+  const stripRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   /** Grabbing a trim handle must not also scrub: "trim to the playhead" only
    *  works if pressing the edge leaves the playhead where the user put it. */
@@ -80,8 +103,13 @@ export function Timeline() {
   const select = useStore((s) => s.select);
   const run = useStore((s) => s.run);
   const setStatus = useStore((s) => s.setStatus);
+  const timelineScale = useStore((s) => s.timelineScale);
+  const widthPx = useStore((s) => s.timelineWidthPx);
+  const setTimelineWidth = useStore((s) => s.setTimelineWidth);
+  const setTimelineScale = useStore((s) => s.setTimelineScale);
   const keymap = useResolvedKeymap();
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [scrollPx, setScrollPx] = useState(0);
   /** The handlers live on `window` (see below) and must see the newest drag. */
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
@@ -91,6 +119,20 @@ export function Timeline() {
   const fps = project.timeline.fps;
   const assetName = (id: string) =>
     project.assets.find((a) => a.id === id)?.name ?? '클립';
+
+  // The strip measures itself; everything else is derived from that width.
+  // `useLayoutEffect`, not `useEffect`: until the first measurement the scale
+  // is zero and every clip draws at width zero, and a post-paint effect lets
+  // that pile-up reach the screen for a frame.
+  useLayoutEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const measure = () => setTimelineWidth(el.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [setTimelineWidth]);
 
   // Holes in the strip. They are legal (trimming a head leaves one) but they must
   // be visible: an invisible gap exports as black and surprises people.
@@ -105,13 +147,112 @@ export function Timeline() {
     }
   }
 
-  // One scale for everything: x = frame / total. (Mixing /total and /(total-1)
-  // makes the playhead drift away from the clip it is actually over.)
-  function seekFromX(clientX: number, el: Element | null = barRef.current) {
+  // ---------------------------------------------------------------- geometry
+
+  /**
+   * The scale in force. `null` means fitted — the whole document across the
+   * strip, which is what the timeline always did before it could zoom.
+   *
+   * A live drag uses the scale it started with. The document cannot change
+   * under a gesture, but the WINDOW can, and a fitted scale follows the window.
+   */
+  const liveScale = clampScale(
+    timelineScale ?? fitScale(total, widthPx),
+    total,
+    widthPx,
+  );
+  const scale = drag ? drag.scale : liveScale;
+  const view: View = { total, widthPx, scale, scrollPx };
+
+  function geometry(clip: Clip): { start: number; length: number } {
+    if (drag?.active && drag.clipId === clip.id) {
+      return previewGeometry(
+        drag.mode,
+        drag.frame,
+        drag.originStart,
+        drag.originEnd,
+      );
+    }
+    return { start: clip.startFrame, length: clipLength(clip) };
+  }
+
+  const drawn = clips.map(geometry);
+  /**
+   * How wide the scrolled content is. A drag can preview a clip past the end of
+   * the document, and the content grows to hold it rather than the clip being
+   * pinned to the right edge as a stub — that pin was the whole reason the old
+   * timeline froze its scale for a gesture.
+   *
+   * The SCALE is computed from the document, not from this: letting a preview
+   * that lengthens the strip also change the scale is exactly the feedback loop
+   * that made a clip chase the pointer.
+   */
+  const contentPx = drawn.reduce(
+    // `reduce`, not `Math.max(...spread)`: a project with tens of thousands of
+    // cuts would pass that many arguments in one call and throw.
+    (widest, g) => Math.max(widest, (g.start + g.length) * scale),
+    contentWidth(view),
+  );
+
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  // An emptied timeline goes back to fitted. A scale chosen for the document
+  // that was just deleted is not a preference to carry forward: applied to the
+  // next import it opens a fresh video showing a sliver of itself, scrolled,
+  // which reads as the file having failed to load.
+  useEffect(() => {
+    if (total === 0 && timelineScale !== null) setTimelineScale(null);
+  }, [total, timelineScale, setTimelineScale]);
+
+  /**
+   * The frame a zoom step should keep in view: the playhead, unless the
+   * keyboard is on a clip somewhere else. Centring on the playhead regardless
+   * would scroll a focused clip off screen while it keeps focus — a focus ring
+   * the user cannot see is a keyboard user losing their place.
+   */
+  function anchorFrame(): number {
+    const bar = barRef.current;
+    const active = document.activeElement;
+    if (bar && active instanceof HTMLElement && bar.contains(active)) {
+      const id = active.closest('.clip')?.getAttribute('data-clip-id');
+      const clip = id ? clips.find((c) => c.id === id) : undefined;
+      if (clip) return clip.startFrame;
+    }
+    return useStore.getState().playhead;
+  }
+
+  // Two promises, so two effects. A zoom step re-CENTRES on the playhead: the
+  // magnification just changed under the user and "where was I?" has to be
+  // answered. An ordinary playhead move only scrolls when the playhead would
+  // otherwise leave the strip — following it by a pixel a frame during playback
+  // makes the whole timeline shimmer.
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el || widthPx <= 0) return;
+    el.scrollLeft = centerOn(viewRef.current, anchorFrame());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scale]);
+
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el || widthPx <= 0 || dragRef.current) return;
+    const want = keepVisible(
+      { ...viewRef.current, scrollPx: el.scrollLeft },
+      playhead,
+    );
+    if (Math.abs(want - el.scrollLeft) >= 1) el.scrollLeft = want;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playhead]);
+
+  /** One scale for everything, and one place the two units meet. `clientLeft`
+   *  is the element's own border: content x is measured from the PADDING box,
+   *  which is where the clips and the playhead are laid out from. */
+  function seekFromX(clientX: number) {
+    const el = barRef.current;
     if (!el || total === 0) return;
-    const rect = el.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    seekTo(Math.min(total - 1, Math.floor(ratio * total)));
+    const originX = el.getBoundingClientRect().left + el.clientLeft;
+    seekTo(xToFrame(view, clientX - originX));
   }
 
   function onRulerKey(e: ReactKeyboardEvent) {
@@ -161,7 +302,7 @@ export function Timeline() {
       mode,
       pointerId: e.pointerId,
       startX: e.clientX,
-      denom: total,
+      scale,
       originStart: start,
       originEnd: end,
       targets: dragTargets(project, clip.id, mode, playhead),
@@ -179,19 +320,17 @@ export function Timeline() {
     if (!d || e.pointerId !== d.pointerId) return;
     const dx = e.clientX - d.startX;
     if (!d.active && Math.abs(dx) < DRAG_THRESHOLD_PX) return;
-    const bar = barRef.current;
-    if (!bar) return;
 
     // Pixels are what the hand controls; frames are what the document stores.
-    // This is the only place the two meet.
-    const framesPerPx = d.denom / bar.getBoundingClientRect().width;
+    // Both conversions go through the engine, at the frozen scale.
+    const frozen = { total, widthPx, scale: d.scale };
     const frame = planDrag({
       mode: d.mode,
       originStart: d.originStart,
       originEnd: d.originEnd,
-      deltaFrames: Math.round(dx * framesPerPx),
+      deltaFrames: deltaFrames(frozen, dx),
       targets: d.targets,
-      snapThreshold: Math.max(1, Math.round(SNAP_PX * framesPerPx)),
+      snapThreshold: Math.max(1, deltaFrames(frozen, SNAP_PX)),
       bounds: {
         min: d.min,
         max: d.max,
@@ -330,34 +469,60 @@ export function Timeline() {
     return formatChord(keymap.byAction.get(actionId) ?? null);
   }
 
-  // ---------------------------------------------------------------- geometry
-
-  const denom = drag ? drag.denom : total;
-  const pct = (frames: number) => (denom > 0 ? (frames / denom) * 100 : 0);
-
-  function geometry(clip: Clip): { start: number; length: number } {
-    if (drag?.active && drag.clipId === clip.id) {
-      return previewGeometry(
-        drag.mode,
-        drag.frame,
-        drag.originStart,
-        drag.originEnd,
-      );
-    }
-    return { start: clip.startFrame, length: clipLength(clip) };
+  /**
+   * The three view controls. They sit next to the thing they change rather than
+   * in the edit toolbar, which is for edits.
+   *
+   * `short` is drawn, `label` is the accessible name and always contains it —
+   * icon-only buttons put the deciding word behind a hover, which is where a
+   * first-time user who cannot click a narrow clip will never look for it.
+   */
+  function ZoomButton({
+    id,
+    icon,
+    label,
+    short,
+  }: Record<'id' | 'icon' | 'label' | 'short', string>) {
+    const enabled = canRun(id);
+    const why = enabled ? '' : whyNot(id);
+    const chord = keymap.byAction.get(id) ?? null;
+    return (
+      <button
+        type="button"
+        className="zoom-btn"
+        aria-disabled={!enabled}
+        aria-label={label}
+        title={
+          enabled ? (chord ? `${label} (${formatChord(chord)})` : label) : why
+        }
+        onClick={() => {
+          // Saying why beats a click that does nothing at all.
+          if (!enabled) return setStatus(why);
+          perform(id);
+        }}
+      >
+        <span aria-hidden="true">{icon}</span> {short}
+      </button>
+    );
   }
 
-  /** Keep a clip on screen and grabbable, whatever the numbers say. A clip that
-   *  is one frame long, or dragged past the right edge, must not vanish. */
-  function clipStyle(g: { start: number; length: number }) {
-    const left = pct(g.start);
-    if (left >= 100) {
-      return {
-        left: `calc(100% - ${MIN_CLIP_PX + 2}px)`,
-        width: `${MIN_CLIP_PX}px`,
-      };
-    }
-    return { left: left + '%', width: pct(g.length) + '%' };
+  /**
+   * How much footage is on screen, in plain words.
+   *
+   * The zoom level is otherwise a fact only the eye can read: the ruler covers
+   * the whole document at every zoom (on purpose), the tick marks are hidden
+   * from assistive tech, and the status line says what CHANGED, once. This says
+   * what IS, and it stays there to be asked.
+   */
+  function spanText(): string {
+    if (total === 0 || widthPx <= 0) return '';
+    const frames = Math.min(total, Math.round(visibleSpan(view)));
+    const sec = Math.max(1, Math.round(frameToSec(frames, fps)));
+    if (sec < 60) return `한 화면에 ${sec}초`;
+    const rest = sec % 60;
+    return rest
+      ? `한 화면에 ${Math.floor(sec / 60)}분 ${rest}초`
+      : `한 화면에 ${Math.floor(sec / 60)}분`;
   }
 
   const readout = (() => {
@@ -384,6 +549,8 @@ export function Timeline() {
     return note ? `${body} — ${note}` : body;
   })();
 
+  const marks = widthPx > 0 ? ticks(view, fps) : [];
+
   return (
     <section className="timeline" aria-labelledby="timeline-title">
       <h2 className="panel-title" id="timeline-title">
@@ -391,87 +558,148 @@ export function Timeline() {
       </h2>
       <div className="track-head">
         <span className="track-label">영상</span>
+        <span className="zoom-controls" role="group" aria-label="타임라인 보기">
+          <ZoomButton
+            id="view.zoomOut"
+            icon="⊖"
+            label="작게 보기"
+            short="작게"
+          />
+          <ZoomButton id="view.zoomIn" icon="⊕" label="크게 보기" short="크게" />
+          {/* ⛶, not ⤢: a four-corner frame is the fit-to-view mark people know
+              from image viewers and maps, where a diagonal arrow reads as
+              "resize this corner". */}
+          <ZoomButton
+            id="view.zoomFit"
+            icon="⛶"
+            label="전체 보기"
+            short="전체"
+          />
+        </span>
+        <span className="zoom-span">{spanText()}</span>
         <span className="drag-readout" aria-hidden="true">
           {readout ?? ''}
         </span>
       </div>
       <div
-        className="ruler"
-        role="slider"
-        tabIndex={0}
-        aria-label="재생 위치 (좌우 화살표로 이동)"
-        aria-valuemin={0}
-        aria-valuemax={Math.max(0, total - 1)}
-        aria-valuenow={playhead}
-        aria-valuetext={formatTimecode(playhead, fps)}
-        onKeyDown={onRulerKey}
-        onMouseDown={(e) => seekFromX(e.clientX, e.currentTarget)}
+        className="strip"
+        ref={stripRef}
+        onScroll={(e) => setScrollPx(e.currentTarget.scrollLeft)}
       >
-        <span
-          className="ruler-thumb"
-          aria-hidden="true"
-          style={{ left: pct(playhead) + '%' }}
-        />
-      </div>
-      <div
-        className={'track' + (drag?.active ? ' dragging' : '')}
-        ref={barRef}
-        role="group"
-        aria-label={`클립 ${clips.length}개${gaps.length ? `, 빈 곳 ${gaps.length}개` : ''}`}
-        onMouseDown={(e) => seekFromX(e.clientX)}
-      >
-        {gaps.map((g) => (
-          <div
-            key={`gap_${g.start}`}
-            className="gap"
-            aria-hidden="true"
-            style={{ left: pct(g.start) + '%', width: pct(g.length) + '%' }}
-          />
-        ))}
-        {clips.map((c, i) => {
-          const selected = c.id === selectedClipId;
-          const isDragging = drag?.active && drag.clipId === c.id;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              className={
-                'clip' +
-                (selected ? ' selected' : '') +
-                (isDragging ? ' dragging' : '')
-              }
-              style={clipStyle(geometry(c))}
-              aria-pressed={selected}
-              // Selection lives in `aria-pressed` and NOWHERE else. Putting it in
-              // the name too made the accessible name change when only the state
-              // changed — a screen reader announces the whole clip again, and any
-              // "did this edit survive undo?" check compares a moving target.
-              aria-label={`클립 ${i + 1}, ${assetName(c.assetId)}, ${formatTimecode(
-                c.startFrame,
-                fps,
-              )}부터 길이 ${formatTimecode(clipLength(c), fps)}, ${clipLength(c)}프레임`}
-              onFocus={() => {
-                lastFocused.current = { id: c.id, index: i };
-              }}
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                select(c.id);
-                if (!suppressSeek.current) seekFromX(e.clientX);
-              }}
-              onPointerDown={(e) => beginDrag(c, e)}
-              onPointerMove={onDragMove}
-              onKeyDown={(e) => onClipKey(c, i, e)}
+        {/* The slider covers the DOCUMENT, not the visible window: zoom changes
+            what you can see, never where the playhead is allowed to go. A
+            keyboard user therefore reaches every frame at any zoom, and the
+            strip scrolls to follow them. */}
+        <div
+          className="ruler"
+          role="slider"
+          tabIndex={0}
+          aria-label="재생 위치 (좌우 화살표로 이동)"
+          aria-valuemin={0}
+          aria-valuemax={Math.max(0, total - 1)}
+          aria-valuenow={playhead}
+          aria-valuetext={formatTimecode(playhead, fps)}
+          style={{ width: contentPx + 'px' }}
+          onKeyDown={onRulerKey}
+          onMouseDown={(e) => seekFromX(e.clientX)}
+        >
+          {marks.map((t) => (
+            <span
+              key={t.frame}
+              className={'tick' + (t.major ? ' major' : '')}
+              aria-hidden="true"
+              style={{ left: frameToX(view, t.frame) + 'px' }}
             >
-              <span className="clip-handle start" aria-hidden="true" />
-              <span className="clip-mark" aria-hidden="true">
-                {selected ? '◉' : '◎'}
-              </span>
-              <span className="clip-name">{assetName(c.assetId)}</span>
-              <span className="clip-handle end" aria-hidden="true" />
-            </button>
-          );
-        })}
-        <div className="playhead" style={{ left: pct(playhead) + '%' }} />
+              {/* `formatClock`, not `formatTimecode`: a ruler is a whole row
+                  of times at once, and mm:ss:ff reads as hours:minutes:seconds
+                  to anyone who has not been told otherwise — a three-second
+                  clip was labelled up to "00:02:25". */}
+              {t.major ? (
+                <span className="tick-label">{formatClock(t.frame, fps)}</span>
+              ) : null}
+            </span>
+          ))}
+          <span
+            className="ruler-thumb"
+            aria-hidden="true"
+            style={{ left: frameToX(view, playhead) + 'px' }}
+          />
+        </div>
+        <div
+          className={'track' + (drag?.active ? ' dragging' : '')}
+          ref={barRef}
+          role="group"
+          aria-label={`클립 ${clips.length}개${gaps.length ? `, 빈 곳 ${gaps.length}개` : ''}`}
+          style={{ width: contentPx + 'px' }}
+          onMouseDown={(e) => seekFromX(e.clientX)}
+        >
+          {gaps.map((g) => (
+            <div
+              key={`gap_${g.start}`}
+              className="gap"
+              aria-hidden="true"
+              style={{
+                left: frameToX(view, g.start) + 'px',
+                width: frameToX(view, g.length) + 'px',
+              }}
+            />
+          ))}
+          {clips.map((c, i) => {
+            const selected = c.id === selectedClipId;
+            const isDragging = drag?.active && drag.clipId === c.id;
+            const g = drawn[i];
+            return (
+              <button
+                key={c.id}
+                type="button"
+                data-clip-id={c.id}
+                className={
+                  'clip' +
+                  (selected ? ' selected' : '') +
+                  (isDragging ? ' dragging' : '')
+                }
+                // A one-frame clip is thinner than a pixel when fitted; `.clip`
+                // carries a min-width so it stays grabbable whatever the numbers
+                // say, without this file having to know the number.
+                style={{
+                  left: frameToX(view, g.start) + 'px',
+                  width: frameToX(view, g.length) + 'px',
+                }}
+                aria-pressed={selected}
+                // Selection lives in `aria-pressed` and NOWHERE else. Putting it in
+                // the name too made the accessible name change when only the state
+                // changed — a screen reader announces the whole clip again, and any
+                // "did this edit survive undo?" check compares a moving target.
+                aria-label={`클립 ${i + 1}, ${assetName(c.assetId)}, ${formatTimecode(
+                  c.startFrame,
+                  fps,
+                )}부터 길이 ${formatTimecode(clipLength(c), fps)}, ${clipLength(c)}프레임`}
+                onFocus={() => {
+                  lastFocused.current = { id: c.id, index: i };
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  select(c.id);
+                  if (!suppressSeek.current) seekFromX(e.clientX);
+                }}
+                onPointerDown={(e) => beginDrag(c, e)}
+                onPointerMove={onDragMove}
+                onKeyDown={(e) => onClipKey(c, i, e)}
+              >
+                <span className="clip-handle start" aria-hidden="true" />
+                <span className="clip-mark" aria-hidden="true">
+                  {selected ? '◉' : '◎'}
+                </span>
+                <span className="clip-name">{assetName(c.assetId)}</span>
+                <span className="clip-handle end" aria-hidden="true" />
+              </button>
+            );
+          })}
+          <div
+            className="playhead"
+            style={{ left: frameToX(view, playhead) + 'px' }}
+          />
+        </div>
       </div>
       {/* Read from the live keymap, so a rebinding shows up here instead of
           leaving the hint quietly lying about which keys work. */}
@@ -484,7 +712,9 @@ export function Timeline() {
         <kbd>{key('clip.tailExtend')}</kbd> 뒷부분 줄이기·늘리기,{' '}
         <kbd>{key('clip.deleteRipple')}</kbd> 지우기. 재생 위치까지 한 번에
         줄이려면 <kbd>{key('clip.trimStartToPlayhead')}</kbd>(앞),{' '}
-        <kbd>{key('clip.trimEndToPlayhead')}</kbd>(뒤)를 눌러요.
+        <kbd>{key('clip.trimEndToPlayhead')}</kbd>(뒤)를 눌러요. 좁아서 고르기
+        어려우면 <kbd>{key('view.zoomIn')}</kbd> 로 크게 보고,{' '}
+        <kbd>{key('view.zoomFit')}</kbd> 로 전체를 다시 봐요.
       </p>
     </section>
   );

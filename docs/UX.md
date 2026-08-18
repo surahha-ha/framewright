@@ -43,6 +43,25 @@ them sees the whole surface — `src/engine/vocabulary.test.ts` (the command
 registry), and the toolbar and shortcut-list scans in `e2e/personas.spec.ts`
 (which add the app actions and the keyboard-only commands).
 
+### One question, one time format
+
+Two formats, because there are two questions, and each is wrong for the other's:
+
+| question                   | format             | where                                                     |
+| -------------------------- | ------------------ | --------------------------------------------------------- |
+| **which frame is this?**   | `mm:ss:ff`         | the transport readout, clip names, an edit's own sentence |
+| **how far along is this?** | `m:ss` (`h:mm:ss`) | the timeline ruler                                        |
+
+`mm:ss:ff` is read as hours:minutes:seconds by anyone who has not been told the
+last field is frames. One of them, next to a frame count, is legible. A **row**
+of them is not: the ruler of a three-second clip once read `00:00:05 … 00:02:25`,
+which looks like two and a half minutes of footage.
+
+So the ruler answers the other question and drops frames entirely — and, because
+`0:03` printed three times running is worse than no label at all, a labelled tick
+is never closer than one second. The sub-second detail lives in the unlabelled
+marks, which go as fine as one per frame once a frame is wide enough to see.
+
 ## Direct manipulation (the timeline is the document)
 
 - Drag a clip's body to move it; drag either edge to trim it. Edges show a grab

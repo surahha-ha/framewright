@@ -11,6 +11,7 @@ import {
   nearestStandardFps,
   timescaleToSec,
   secToTimescale,
+  formatClock,
 } from './time';
 
 describe('time-model', () => {
@@ -82,5 +83,34 @@ describe('time-model', () => {
   it('falls back to 30 for a nonsense rate', () => {
     expect(nearestStandardFps(0)).toEqual(FPS_30);
     expect(nearestStandardFps(NaN)).toEqual(FPS_30);
+  });
+
+  describe('how far along, for a ruler', () => {
+    it('writes m:ss, so nobody reads it as hours', () => {
+      // `formatTimecode` is mm:ss:ff and a ruler is a row of them at once: a
+      // three-second clip used to be labelled up to "00:02:25", which reads as
+      // two and a half minutes.
+      expect(formatClock(0, FPS_30)).toBe('0:00');
+      expect(formatClock(90, FPS_30)).toBe('0:03');
+      expect(formatClock(30 * 65, FPS_30)).toBe('1:05');
+      expect(formatClock(30 * 600, FPS_30)).toBe('10:00');
+    });
+
+    it('grows an hours field only when there is one', () => {
+      expect(formatClock(30 * 3599, FPS_30)).toBe('59:59');
+      expect(formatClock(30 * 3600, FPS_30)).toBe('1:00:00');
+      expect(formatClock(30 * 3661, FPS_30)).toBe('1:01:01');
+    });
+
+    it('counts a 29.97 second as a second, not as 30 frames of wall clock', () => {
+      // One second of 29.97 footage is 30 frames; labelling frame 30 as 0:01
+      // is what keeps the ruler agreeing with the file's own duration.
+      expect(formatClock(30, FPS_2997)).toBe('0:01');
+      expect(formatClock(30 * 60, FPS_2997)).toBe('1:00');
+    });
+
+    it('never prints a negative time', () => {
+      expect(formatClock(-5, FPS_30)).toBe('0:00');
+    });
   });
 });
