@@ -21,9 +21,8 @@ repo does not.
 **C's first half is built: the timeline has a scale of its own, and it zooms.**
 `docs/adr/0010-the-timeline-has-a-scale.md` is the argument.
 
-**Nothing is committed.** `main` is still at `16a4c3b` (the previous session's
-handoff commit) and this entire unit is sitting uncommitted in the working tree,
-because the owner is asked before any git operation.
+**Committed and pushed** as `7e94229`, with the owner's go-ahead. `origin/main`
+has it, so another machine gets the whole unit with a plain clone.
 
 Until now the timeline had no coordinate system: every position was a percentage
 of the container (`frames / documentLength * 100`), so one pixel was worth a
@@ -158,10 +157,11 @@ already have, and the ruler has already proved the drawing pattern:
 
 ## Blocked / needs the owner
 
-1. **NOTHING IS COMMITTED.** `main` is at `16a4c3b` and the whole of this unit
-   is in the working tree. The one hard stop stands: announce before any git
-   operation and wait. `bash.exe.stackdump` is still untracked in the repo root
-   — a crash artefact, safe to delete, deliberately never staged.
+1. **Nothing is blocked on git.** Everything through `7e94229` is committed and
+   pushed, and the tree is clean apart from `bash.exe.stackdump` — a crash
+   artefact, untracked in the repo root, safe to delete and deliberately never
+   staged. The one hard stop still stands: announce before any git operation
+   and wait.
 
 2. **The `m:ss` ruler label is a product call and the owner can overturn it.**
    The alternative is consistency with the transport readout (`mm:ss:ff`
