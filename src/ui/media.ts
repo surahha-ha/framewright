@@ -12,7 +12,12 @@
 import { demuxAudio, demuxVideo, type DemuxResult } from '../engine/demux';
 import { VideoDecodeService } from '../engine/decoder';
 import { getDecodeService, setDecodeService } from '../engine/registry';
-import { decodeAudio, decodeAudioTrack, setAudioBuffer } from '../engine/audio';
+import {
+  decodeAudio,
+  decodeAudioTrack,
+  markNoAudioTrack,
+  setAudioBuffer,
+} from '../engine/audio';
 import {
   createOpfsMediaRepository,
   mediaKeyFor,
@@ -22,6 +27,7 @@ import {
   type MediaRepository,
 } from '../engine/mediaStore';
 import { releaseThumbnails } from './thumbnails';
+import { releasePeaks } from './waveform';
 import type { Asset } from '../engine/types';
 
 export const mediaRepo: MediaRepository = createOpfsMediaRepository();
@@ -68,6 +74,9 @@ async function attachAudio(
     }
   }
   if (audio.buffer) setAudioBuffer(assetId, audio.buffer);
+  // The answer is now known either way, and "known to have none" is a different
+  // thing from "not worked out yet" to everything downstream of here.
+  else markNoAudioTrack(assetId);
 
   const report = audio.buffer
     ? `오디오 OK · ${audio.via} · ${audio.buffer.numberOfChannels}ch ${audio.buffer.sampleRate}Hz`
@@ -121,7 +130,18 @@ export async function bindMedia(
   // The document keeps the same asset id across a re-link, so nothing else
   // would ever invalidate those pictures.
   releaseThumbnails(assetId);
+  // The waveform's peaks go too, and here rather than by identity: the peaks are
+  // invalidated by the AudioBuffer they were reduced from, and the NEW buffer
+  // does not exist until `attachAudio` below finishes. Without this, the seconds
+  // in between would draw the old file's sound under the new file's pictures.
+  releasePeaks(assetId);
   const audio = await attachAudio(assetId, file, bytes);
+  // A file WITH audio announces itself: the peaks land and the cache notifies.
+  // A file WITHOUT one has nothing to arrive, so the strips would keep drawing
+  // "not worked out yet" until some unrelated change re-rendered them. This is
+  // that announcement; there is nothing cached to lose, and with no buffer bound
+  // it lifts the refusal set above rather than adding one.
+  if (audio.channels === null) releasePeaks(assetId);
   return {
     demux: source.demux,
     audioReport: audio.report,

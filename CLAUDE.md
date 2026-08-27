@@ -216,6 +216,45 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **A quiet source still reads as a thickened line, not a shape.** The wave is
+  drawn through `waveAmplitude` (a square root) so that ordinary audio is
+  visible at all in an 18px band — the repo's own fixture peaks at 0.19, which
+  drawn literally filled two rows of that band. Curved, it fills six. That is
+  legible but modest, and the next levers, if anyone complains, are a true dB
+  curve or a taller band; both cost either honesty about level or picture.
+- **`buildPyramid` is one uninterrupted synchronous pass over every sample**,
+  and `pump()` yields only BETWEEN assets. Roughly 30ms for ten minutes of
+  stereo, unmeasured on anything longer. Nothing checks whether playback is
+  running before starting one, so a clip scrolled into view mid-playback can
+  stall the thread that is decoding it. Chunking the pass is the fix, and it
+  would reopen the identity window that `pump`'s "no re-check after the build"
+  note relies on — the guard would have to come back with it.
+- **"This file has no sound" and "the wave is still being worked out" are told
+  apart by a dim line versus nothing at all.** That is a real distinction and
+  it is announced properly (`clip-silent-note`), but the two DRAWINGS differ
+  only in a hairline's colour, which is subtle at 18px. Named independently by
+  the novice and a11y reviewers.
+- **Nothing anywhere tells a first-time user what the wave IS.** No label, no
+  tooltip, no word in the hint line or the status line — the canvas is
+  `aria-hidden` and `pointer-events: none`, so it cannot even be hovered. Every
+  editor does the same thing, which is not an argument that this one should.
+  A product/copy call for the owner.
+- **A clip trimmed into a silent passage of a source that has sound is visibly
+  flat but says nothing.** `clip-silent-note` is per-ASSET ("this file has no
+  audio track"), while the wave is per-CLIP and reflects its `[in, out)`. The
+  cheap version of the missing half would be a per-clip "이 부분은 조용해요",
+  which needs a rule for how quiet counts as quiet.
+- **The wave band takes the bottom 42% of a clip**, so the picture that
+  identifies the shot is now roughly the top half of an already small strip.
+  This compounds the name-pill entry below rather than being independent of it.
+- **`waveform.ts` and `thumbnails.ts` answer the same question twice** — a
+  visible frame range and a pixels-per-frame in, a grid out — and each has its
+  own three-field clip span (`ThumbSpan` / `WaveSpan`, structurally identical).
+  That is the second case, not the third; `engine/thumbnails.ts`'s own header
+  says to combine them when a third appears.
+- The peak pyramid, its queue and its refusal map in `ui/waveform.ts` are three
+  more module-level singletons of the same shape as the entry further down, and
+  would need the same treatment to open two documents.
 - **The "ask canRun, show the chord in `title`, dispatch via `perform`,
   `aria-disabled`" button now exists three times** — `Toolbar.Button`,
   `Timeline.ZoomButton` and the palette's rows. That is the rule-of-three

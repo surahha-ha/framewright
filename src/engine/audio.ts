@@ -33,6 +33,18 @@ export async function resumeAudio(): Promise<void> {
 }
 
 const buffers = new Map<string, AudioBuffer>();
+/**
+ * Assets whose file was opened and turned out to carry NO usable audio track.
+ *
+ * Not the same as "no buffer yet", and the difference is the whole point: audio
+ * is decoded after the picture, so between the two an asset has no buffer and
+ * nothing is known. Without this, a silent screen recording and a source still
+ * decoding look identical for ever — one of them permanently, and neither with
+ * a word anywhere. Runtime state derived from the media, like the decode
+ * registry, and deliberately NOT part of the document: it is a property of the
+ * file, not an edit.
+ */
+const silent = new Set<string>();
 
 export interface AudioDecodeOutcome {
   buffer: AudioBuffer | null;
@@ -179,6 +191,23 @@ export async function decodeAudioTrack(
 
 export function setAudioBuffer(assetId: string, buffer: AudioBuffer): void {
   buffers.set(assetId, buffer);
+  // A file that DOES have audio cancels any previous answer — the same asset id
+  // survives a re-link, so the old file's verdict must not outlive it.
+  silent.delete(assetId);
+}
+
+/** Record that this asset's file has no usable audio track. */
+export function markNoAudioTrack(assetId: string): void {
+  if (!buffers.has(assetId)) silent.add(assetId);
+}
+
+/**
+ * Is it KNOWN that this asset has no sound? False while the answer is still
+ * being worked out, which is why it is a separate question from
+ * `getAudioBuffer(id) === null`.
+ */
+export function hasNoAudioTrack(assetId: string): boolean {
+  return silent.has(assetId);
 }
 
 export function getAudioBuffer(assetId: string): AudioBuffer | null {
@@ -243,5 +272,8 @@ export function retainOnlyAudio(assetIds: Iterable<string>): void {
   const keep = new Set(assetIds);
   for (const id of [...buffers.keys()]) {
     if (!keep.has(id)) buffers.delete(id);
+  }
+  for (const id of [...silent]) {
+    if (!keep.has(id)) silent.delete(id);
   }
 }

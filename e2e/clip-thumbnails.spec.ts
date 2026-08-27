@@ -46,7 +46,7 @@ const clipFrames = async (page: Page) =>
 /** The canvas's CSS size and the viewport it must never outgrow. */
 async function canvasSize(page: Page) {
   return page.evaluate(() => {
-    const canvas = document.querySelector('.clip-thumbs') as HTMLCanvasElement;
+    const canvas = document.querySelector('.clip-canvas') as HTMLCanvasElement;
     const strip = document.querySelector('.strip') as HTMLElement;
     const clip = document.querySelector('.clip') as HTMLElement;
     return {
@@ -65,7 +65,7 @@ async function canvasSize(page: Page) {
  *  is an empty box — which looks exactly like "the footage is black". */
 async function paintedPixels(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const canvas = document.querySelector('.clip-thumbs') as HTMLCanvasElement;
+    const canvas = document.querySelector('.clip-canvas') as HTMLCanvasElement;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx || canvas.width === 0) return 0;
     const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -80,7 +80,7 @@ test.describe('clip thumbnails', () => {
     page,
   }) => {
     await withClip(page);
-    await expect(page.locator('.clip .clip-thumbs')).toHaveCount(1);
+    await expect(page.locator('.clip .clip-canvas')).toHaveCount(1);
     // Decoding is asynchronous and deliberately serial, so this is a wait, not
     // an immediate read.
     await expect
@@ -147,7 +147,7 @@ test.describe('clip thumbnails', () => {
     await withClip(page);
     const clip = page.locator('.clip').first();
     const before = await clip.getAttribute('aria-label');
-    await expect(page.locator('.clip-thumbs')).toHaveAttribute(
+    await expect(page.locator('.clip-canvas')).toHaveAttribute(
       'aria-hidden',
       'true',
     );

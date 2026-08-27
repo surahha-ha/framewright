@@ -54,7 +54,8 @@ import { describeEdit, LIMIT_TEXT } from '../engine/commands';
 import { formatChord } from '../engine/keymap';
 import { formatClock, formatTimecode, frameToSec } from '../engine/time';
 import { canRun, perform, whyNot } from './actions';
-import { ClipThumbs } from './ClipThumbs';
+import { ClipCanvas } from './ClipCanvas';
+import { hasNoAudioTrack } from '../engine/audio';
 import { useResolvedKeymap } from './useShortcuts';
 import type { Clip } from '../engine/types';
 
@@ -147,6 +148,10 @@ export function Timeline() {
    *  comes back — which, now that every other clip has pictures, looks exactly
    *  like one that is still decoding. It has to say which it is. */
   const unlinked = (assetId: string) => !getDecodeService(assetId);
+  /** Known to have no sound — not merely "no sound yet". The strip draws the
+   *  difference; this is the same fact for someone who cannot see it. */
+  const silent = (assetId: string) =>
+    !unlinked(assetId) && hasNoAudioTrack(assetId);
 
   // The strip measures itself; everything else is derived from that width.
   // `useLayoutEffect`, not `useEffect`: until the first measurement the scale
@@ -711,7 +716,12 @@ export function Timeline() {
                 // the name and it is the only way "this clip's file is gone"
                 // reaches someone who cannot see the missing pictures.
                 aria-describedby={
-                  unlinked(c.assetId) ? 'clip-unlinked-note' : undefined
+                  [
+                    unlinked(c.assetId) ? 'clip-unlinked-note' : '',
+                    silent(c.assetId) ? 'clip-silent-note' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || undefined
                 }
                 onFocus={() => {
                   lastFocused.current = { id: c.id, index: i };
@@ -725,7 +735,7 @@ export function Timeline() {
                 onPointerMove={onDragMove}
                 onKeyDown={(e) => onClipKey(c, i, e)}
               >
-                <ClipThumbs
+                <ClipCanvas
                   view={view}
                   clip={{
                     start: g.start,
@@ -766,6 +776,12 @@ export function Timeline() {
           <span id="clip-unlinked-note" className="sr-only">
             영상 파일이 연결되어 있지 않아 미리보기 그림이 없어요. 미디어
             목록에서 같은 영상을 다시 선택해 주세요.
+          </span>
+          {/* The other half of what the strip draws in the clip's bottom band.
+              A description, not part of the name — the name is identity,
+              position and length, and never state. */}
+          <span id="clip-silent-note" className="sr-only">
+            이 영상에는 소리가 없어요.
           </span>
         </div>
       </div>

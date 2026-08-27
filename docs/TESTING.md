@@ -269,8 +269,9 @@ same commit. Anything not on this list is free to change.
 | `.track`                | the clip strip, `role="group"`; clicking it scrubs             |
 | `.timeline .clip`       | one clip button, in timeline order                             |
 | `.gap`                  | a hole in the strip (decorative, `aria-hidden`)                |
-| `.clip-thumbs`          | a clip's picture strip: a canvas, always `aria-hidden="true"`  |
+| `.clip-canvas`          | a clip's pictures AND its waveform: one canvas, `aria-hidden` |
 | `.clip.unlinked`        | a clip whose media is not bound; carries `aria-describedby`    |
+| `clip-silent-note`      | described by a clip whose FILE is known to have no audio track |
 | `.statusbar`            | `role="status"`; the last thing that happened, in words        |
 | `.transport .dim`       | `playhead / total`, in frames                                  |
 | clip `aria-label`       | identity + position + length. **Never state.**                 |

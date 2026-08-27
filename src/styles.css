@@ -8,6 +8,19 @@
   --teal: #2dd4bf;
   --amber: #fbbf24;
   --rose: #fb7185;
+  /* The waveform, drawn on the clip's own canvas rather than in a box, so these
+     two are read with `getComputedStyle` instead of being applied by a rule.
+     They live here anyway: this is the palette, and the wave is the second
+     thing in the app (after `.clip-name`) whose effective backdrop is whatever
+     the footage happens to be. The ground is what makes that answerable — at
+     72% over the brightest possible frame the ink still reads about 5.9:1,
+     where the same ink straight onto white is 1.5:1 and invisible. */
+  --wave-ink: #7ff3e4;
+  --wave-ground: rgba(6, 16, 24, 0.72);
+  /* The line drawn where a file is KNOWN to have no sound. Deliberately not the
+     wave's own colour: it is a different claim, and reading it as a very quiet
+     wave would be worse than not drawing it. */
+  --wave-quiet: rgba(157, 178, 199, 0.6);
 }
 h2.panel-title {
   font-weight: 700;
@@ -468,15 +481,18 @@ body {
   border-color: var(--teal);
   z-index: 2;
 }
-/* The pictures inside a clip. A canvas, never wider than the window: at a
-   zoomed-in ten minutes the clip itself is hundreds of thousands of pixels
-   across, which no browser will allocate — the element would stay and the
-   drawing would vanish with nothing reported.
+/* What is drawn inside a clip: its pictures, and its waveform over them. One
+   canvas for both — same geometry, same redraw, and the wave layers by draw
+   order instead of by a second element's z-index.
+
+   Never wider than the window: at a zoomed-in ten minutes the clip itself is
+   hundreds of thousands of pixels across, which no browser will allocate — the
+   element would stay and the drawing would vanish with nothing reported.
 
    `z-index: 0` puts it behind the clip's own text. An absolutely positioned
    child otherwise paints OVER in-flow siblings, which would hide the name
    under the footage. */
-.clip-thumbs {
+.clip-canvas {
   position: absolute;
   top: 0;
   /* `height`, NOT `bottom: 0`. A canvas is a REPLACED element, so an absolutely
