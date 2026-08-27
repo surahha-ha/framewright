@@ -21,6 +21,7 @@ import {
   sweepMedia,
   type MediaRepository,
 } from '../engine/mediaStore';
+import { releaseThumbnails } from './thumbnails';
 import type { Asset } from '../engine/types';
 
 export const mediaRepo: MediaRepository = createOpfsMediaRepository();
@@ -114,6 +115,12 @@ export async function bindMedia(
   bytes: ArrayBuffer,
 ): Promise<AttachedMedia> {
   setDecodeService(assetId, source.service);
+  // AFTER the swap, not before: a thumbnail decode already in flight is
+  // rejected by identity against the new service, so purging first would leave
+  // a window where a picture of the OLD file could still land in the cache.
+  // The document keeps the same asset id across a re-link, so nothing else
+  // would ever invalidate those pictures.
+  releaseThumbnails(assetId);
   const audio = await attachAudio(assetId, file, bytes);
   return {
     demux: source.demux,

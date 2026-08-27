@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useStore } from './store/projectStore';
 import { retainOnly } from './engine/registry';
 import { retainOnlyAudio } from './engine/audio';
+import { retainOnlyThumbnails } from './ui/thumbnails';
 import { CommandPalette } from './ui/CommandPalette';
 import { MediaBin } from './ui/MediaBin';
 import { ShortcutsPanel } from './ui/ShortcutsPanel';
@@ -29,6 +30,9 @@ export default function App() {
     const ids = assets.map((a) => a.id);
     retainOnly(ids);
     retainOnlyAudio(ids);
+    // Same reason, different resource: a cached thumbnail is an `ImageBitmap`,
+    // which holds memory the collector is in no hurry to release.
+    retainOnlyThumbnails(ids);
   }, [assets]);
 
   const modal = overlay !== 'none';

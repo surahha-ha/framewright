@@ -238,6 +238,34 @@ file that moved. Then run `check:refs` and `typecheck`.
   only the native scrollbar. Zoom re-centres and the playhead auto-scrolls, so
   the app's own controls never strand you; a manual scroll can.
 
+- **A thumbnail slot can be up to twice as wide as the picture it holds.** The
+  step is a power of two in FRAMES (that is what makes a zoom step reuse half
+  the cache), so a slot is between `THUMB_PX` and `2 × THUMB_PX` wide while a
+  16:9 frame at clip height is ~74px. The draw is cover-fit, so the widest
+  slots crop the frame vertically by up to half. Honest but not pretty; the fix
+  is a pitch decoupled from the cache grid, which is a redesign of
+  `thumbStrip`'s contract.
+- **The clip's name pill covers part of its first thumbnail** — the one picture
+  that identifies the clip. The pill is text-height, so the top and bottom of
+  that frame still show, but the middle band is hidden.
+- **A clip decoding its pictures and a clip whose file is gone are told apart by
+  the ⚠ and the hatched fill, and by nothing else.** There is no "still
+  loading" affordance: a slow machine shows a plain clip filling in tile by
+  tile, with no spinner and no word. It resolves on its own and never blocks.
+- **`QUEUE_LIMIT` is global and trimmed FIFO while the queue drains LIFO.** With
+  many small clips visible at once their combined slot count can pass 32, and
+  the trim then drops the earliest-requested clip's slots even though none of
+  them are stale. It self-corrects on the next render, but the first clips in
+  DOM order can visibly lag the later ones — the opposite of what the module's
+  own comment promises.
+- **`.clip-name`'s pill is AA but not AAA over the brightest possible footage**
+  (≈6.9:1 against pure white). It is the one place in the stylesheet whose
+  effective background is not a design token but whatever the video contains.
+  `.clip-mark` and `.clip-name` also carry their colour and their contrast
+  treatment in two separate, non-adjacent CSS blocks.
+- The thumbnail cache, its decode queue, its refusal set and its listener set in
+  `ui/thumbnails.ts` are four more module-level singletons of the same shape as
+  the entry below, and would need the same treatment to open two documents.
 - The `Editor` instance is a module singleton in `store/projectStore.ts`. Fine for
   one document; move to React context if we ever open several projects at once.
   `mediaRepo` and the media work queue in `ui/media.ts` are the same shape and

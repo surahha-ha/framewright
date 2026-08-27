@@ -25,6 +25,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useStore } from '../store/projectStore';
+import { getDecodeService } from '../engine/registry';
 import { clipLength, timelineDuration, videoTrack } from '../engine/timeline';
 import {
   dragBounds,
@@ -53,6 +54,7 @@ import { describeEdit, LIMIT_TEXT } from '../engine/commands';
 import { formatChord } from '../engine/keymap';
 import { formatClock, formatTimecode, frameToSec } from '../engine/time';
 import { canRun, perform, whyNot } from './actions';
+import { ClipThumbs } from './ClipThumbs';
 import { useResolvedKeymap } from './useShortcuts';
 import type { Clip } from '../engine/types';
 
@@ -64,6 +66,24 @@ const DRAG_THRESHOLD_PX = 3;
  *  in pixels is what makes that true: 8px is 16 frames in a fitted minute and 1
  *  frame when zoomed all the way in, which is what the hand expects.) */
 const SNAP_PX = 8;
+
+/**
+ * The in-point the DRAWN geometry corresponds to.
+ *
+ * A head trim moves a clip's start and its in-point together, so while that
+ * edge is being dragged the stored in-point belongs to a start the clip no
+ * longer has. Using it would leave the thumbnails showing footage from before
+ * the trim — the one moment they are being looked at closely.
+ */
+function drawnInFrame(
+  clip: Clip,
+  drawnStart: number,
+  mode: DragMode | null,
+): number {
+  return mode === 'trimStart'
+    ? clip.inFrame + (drawnStart - clip.startFrame)
+    : clip.inFrame;
+}
 
 interface DragState {
   clipId: string;
@@ -108,6 +128,10 @@ export function Timeline() {
   const setTimelineWidth = useStore((s) => s.setTimelineWidth);
   const setTimelineScale = useStore((s) => s.setTimelineScale);
   const keymap = useResolvedKeymap();
+  // Re-linking a file changes NOTHING in the document, so the clips below would
+  // keep saying "다시 선택 필요" after the media came back without this. Same
+  // subscription, and the same reason, as the media panel's.
+  useStore((s) => s.mediaVersion);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [scrollPx, setScrollPx] = useState(0);
   /** The handlers live on `window` (see below) and must see the newest drag. */
@@ -119,6 +143,10 @@ export function Timeline() {
   const fps = project.timeline.fps;
   const assetName = (id: string) =>
     project.assets.find((a) => a.id === id)?.name ?? '클립';
+  /** A clip whose file is not linked draws no pictures and never will until it
+   *  comes back — which, now that every other clip has pictures, looks exactly
+   *  like one that is still decoding. It has to say which it is. */
+  const unlinked = (assetId: string) => !getDecodeService(assetId);
 
   // The strip measures itself; everything else is derived from that width.
   // `useLayoutEffect`, not `useEffect`: until the first measurement the scale
@@ -656,7 +684,8 @@ export function Timeline() {
                 className={
                   'clip' +
                   (selected ? ' selected' : '') +
-                  (isDragging ? ' dragging' : '')
+                  (isDragging ? ' dragging' : '') +
+                  (unlinked(c.assetId) ? ' unlinked' : '')
                 }
                 // A one-frame clip is thinner than a pixel when fitted; `.clip`
                 // carries a min-width so it stays grabbable whatever the numbers
@@ -674,6 +703,16 @@ export function Timeline() {
                   c.startFrame,
                   fps,
                 )}부터 길이 ${formatTimecode(clipLength(c), fps)}, ${clipLength(c)}프레임`}
+                // A DESCRIPTION, not part of the name. The name carries
+                // identity, position and length and never state — that rule is
+                // the e2e DOM contract, and it was written after four specs
+                // broke over a label that moved when only state changed. A
+                // description is the channel state has: it is announced after
+                // the name and it is the only way "this clip's file is gone"
+                // reaches someone who cannot see the missing pictures.
+                aria-describedby={
+                  unlinked(c.assetId) ? 'clip-unlinked-note' : undefined
+                }
                 onFocus={() => {
                   lastFocused.current = { id: c.id, index: i };
                 }}
@@ -686,7 +725,30 @@ export function Timeline() {
                 onPointerMove={onDragMove}
                 onKeyDown={(e) => onClipKey(c, i, e)}
               >
+                <ClipThumbs
+                  view={view}
+                  clip={{
+                    start: g.start,
+                    length: g.length,
+                    inFrame: drawnInFrame(
+                      c,
+                      g.start,
+                      isDragging ? drag.mode : null,
+                    ),
+                  }}
+                  assetId={c.assetId}
+                  fps={fps}
+                />
                 <span className="clip-handle start" aria-hidden="true" />
+                {unlinked(c.assetId) && (
+                  <span
+                    className="clip-warn"
+                    aria-hidden="true"
+                    title="영상 파일이 연결되어 있지 않아요 — 미디어 목록에서 같은 영상을 다시 선택해 주세요."
+                  >
+                    ⚠
+                  </span>
+                )}
                 <span className="clip-mark" aria-hidden="true">
                   {selected ? '◉' : '◎'}
                 </span>
@@ -699,6 +761,12 @@ export function Timeline() {
             className="playhead"
             style={{ left: frameToX(view, playhead) + 'px' }}
           />
+          {/* One node, referenced by every clip that needs it. Visually hidden
+              because the ⚠ and the hatched fill already say it on screen. */}
+          <span id="clip-unlinked-note" className="sr-only">
+            영상 파일이 연결되어 있지 않아 미리보기 그림이 없어요. 미디어
+            목록에서 같은 영상을 다시 선택해 주세요.
+          </span>
         </div>
       </div>
       {/* Read from the live keymap, so a rebinding shows up here instead of

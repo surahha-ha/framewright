@@ -468,6 +468,85 @@ body {
   border-color: var(--teal);
   z-index: 2;
 }
+/* The pictures inside a clip. A canvas, never wider than the window: at a
+   zoomed-in ten minutes the clip itself is hundreds of thousands of pixels
+   across, which no browser will allocate — the element would stay and the
+   drawing would vanish with nothing reported.
+
+   `z-index: 0` puts it behind the clip's own text. An absolutely positioned
+   child otherwise paints OVER in-flow siblings, which would hide the name
+   under the footage. */
+.clip-thumbs {
+  position: absolute;
+  top: 0;
+  /* `height`, NOT `bottom: 0`. A canvas is a REPLACED element, so an absolutely
+     positioned one with `height: auto` takes its INTRINSIC height — the
+     `height` attribute — and ignores `bottom`. The component sizes that
+     attribute from `clientHeight`, so `bottom: 0` made the two feed each other
+     and the canvas grew a couple of percent per render: it reached 894px tall
+     inside a 42px clip, and every frame was drawn ten times too large and
+     cropped to its middle. Nothing threw, no test saw it. */
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 5px;
+}
+/* The name has to stay readable over a bright frame, so it carries its own
+   ground rather than relying on the clip's. Shape, not opacity: a translucent
+   picture reads as a broken thumbnail, a labelled one reads as a label. */
+.clip-mark,
+.clip-name {
+  position: relative;
+  z-index: 1;
+}
+.clip-name {
+  background: rgba(8, 16, 22, 0.72);
+  border-radius: 4px;
+  padding: 1px 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The same ground as the name, for the same reason. A drop shadow only softens
+   a halo; it cannot promise a dark background, and this glyph is the one that
+   says which clip is selected. Over a snow or sky frame the teal on white was
+   about 1.9:1. */
+.clip-mark {
+  background: rgba(8, 16, 22, 0.72);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+/* Reachable by a screen reader, absent from the screen. The first such element
+   in this app: everything else that had to be said out loud was also worth
+   showing. This one is not — the ⚠ and the hatched fill already say it. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+/* A clip whose file is not linked. It has no pictures and never will until the
+   file comes back, which now looks exactly like a clip that is still decoding —
+   so it says which it is. Matches the media panel's ⚠. */
+.clip.unlinked {
+  background: repeating-linear-gradient(
+    135deg,
+    #16242f,
+    #16242f 6px,
+    #1b2c38 6px,
+    #1b2c38 12px
+  );
+  border-style: dashed;
+}
+.clip-warn {
+  position: relative;
+  z-index: 1;
+  color: var(--amber);
+}
 /* Grab zones. Purely an affordance — hit testing is done from the pointer's x,
    so a handle that is hidden on a very short clip changes nothing. */
 .clip-handle {
