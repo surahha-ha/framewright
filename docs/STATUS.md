@@ -10,182 +10,177 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-08-27 01:08 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-08-27 01:55 UTC — `npm run verify` **GREEN**
 
-- unit 288 passed · e2e 72 passed
+- unit 340 passed · e2e 76 passed
 
 <!-- VERIFY:END -->
+
 ## Where we are
 
-**C's second half has started: a clip now shows its own footage.** Thumbnails
-are built; the audio waveform is not.
+**Epic C is finished. A clip now shows both what it looks like and what it
+sounds like.** The thumbnails landed in the previous unit; this one is the
+audio waveform, and with it C has nothing left in it.
 
-`main` is at `78b656c` and **this unit is committed and pushed.** The commit is
-`feat(timeline): let a clip show the footage that is in it` — twelve files, the
-three new modules plus the docs and styles around them — and `origin/main` has
-it. Nothing described below is still only in a working tree.
-
-The previous unit (C's first half — the timeline's own scale, zoom and ruler
-ticks, `docs/adr/0010-the-timeline-has-a-scale.md`) is committed and pushed as
-`7e94229`, so `origin/main` has it.
+This unit is committed and pushed as `95a6d38`. The clip-thumbnail unit before
+it is `78b656c` (plus `8c61aeb`, its handoff). `origin/main` has both, and
+nothing described below is still only in a working tree.
 
 ### What is new
 
-Three files, in three layers, deliberately:
+- **`src/engine/waveform.ts`** (new, pure, 29 unit tests) — `buildPyramid`,
+  `peakLevelFor`, `waveAmplitude`, `wavePlan`. Which samples become which
+  buckets, which rung a zoom reads, and where those buckets go.
+- **`src/ui/waveform.ts`** (new, 17 unit tests) — one peak pyramid per asset:
+  when it is built, when it is thrown away, and when it must not be built at
+  all.
+- **`src/engine/audio.ts`** gained a small registry — `markNoAudioTrack` /
+  `hasNoAudioTrack` (new `src/engine/audio.test.ts`, 6 tests) — because "no
+  audio buffer" was two different situations wearing the same face.
+- **`src/ui/ClipThumbs.tsx` is now `src/ui/ClipCanvas.tsx`** and `.clip-thumbs`
+  is now `.clip-canvas`. The wave is drawn on the SAME canvas as the pictures.
+- Plus: `Timeline.tsx` (the renamed component, and a describedby note for a
+  clip whose file has no sound), `media.ts` (release the peaks on a re-link,
+  and announce a file that turns out to be silent), `App.tsx`
+  (`retainOnlyPeaks`), `styles.css` (`--wave-ink`, `--wave-ground`,
+  `--wave-quiet`), `docs/TESTING.md` (two contract rows),
+  `e2e/clip-waveform.spec.ts` (new, 4 tests).
 
-- **`src/engine/thumbnails.ts`** (new, pure, 19 unit tests) — `thumbStep` and
-  `thumbStrip`: which source frames to ask for, and where each picture goes.
-  Node-testable, no DOM, no WebCodecs.
-- **`src/ui/thumbnails.ts`** (new, 10 unit tests) — the decode queue and the
-  `ImageBitmap` cache. Serial, newest-first, bounded three ways.
-- **`src/ui/ClipThumbs.tsx`** (new) — one `<canvas>` per clip, and the effect
-  that keeps the other two in step. Nothing else.
+**No new ADR.** Nothing here reverses an architectural decision; ADR-0010's
+scale is what made both halves of C possible, and it already says so.
 
-Plus: `Timeline.tsx` renders `ClipThumbs` per clip and marks clips whose media
-is not bound; `App.tsx` releases an asset's pictures alongside its decode
-service and audio; `media.ts` purges them when media is (re-)bound;
-`styles.css` gains `.clip-thumbs`, `.sr-only`, `.clip.unlinked` and a ground
-for `.clip-name`/`.clip-mark`; `e2e/clip-thumbnails.spec.ts` is new (6 tests).
+### Six decisions a future session would otherwise get wrong
 
-**No new ADR.** ADR-0010 already named thumbnails as a consequence of giving
-the timeline a scale, and nothing here reverses an architectural decision.
+1. **The peaks are a pyramid, and each level is half the one below.** `ZOOM_STEP`
+   is 2, so one zoom press moves exactly one rung. This is the same reason
+   `thumbStep` is a power of two, arrived at from the other end — there, so a
+   zoom step keeps half the cached pictures; here, so a zoom step does not have
+   to resample anything at all.
 
-### Five decisions a future session would otherwise get wrong
+2. **The buckets are anchored to the SOURCE FILE.** Not to the clip, not to the
+   viewport — a pyramid level IS a partition of the file, so this is forced
+   rather than chosen. It falls out nicely: trimming a clip cannot move its
+   buckets, and two clips cut from the same source read the same arrays.
 
-1. **The placement arithmetic is in a NEW sibling module, `engine/thumbnails.ts`,
-   not inside `engine/timelineView.ts`.** The previous STATUS said to put it in
-   `timelineView.ts`. It reuses `frameToX`/`frameAtX` from there rather than
-   re-deriving them, but `thumbStep`/`thumbStrip` are thumbnail-domain concepts
-   (a decode-cost-aware grid) and `timelineView.ts` owns the coordinate system
-   itself. The waveform is next and wants its own answer to the same question;
-   combine the three then, not these two now.
+3. **ONE canvas for the pictures and the wave, hence the rename.** They want the
+   same geometry, the same memo and the same "something arrived, draw again"
+   signal, and the wave is drawn OVER the footage — a second absolutely
+   positioned canvas would re-derive all of that and would layer by z-index
+   instead of by draw order. Measured in Chrome afterwards: 21 playhead moves,
+   0 canvas redraws, so the memo the previous unit added still holds.
 
-2. **The step is a power of two in FRAMES, and that is the whole cache
-   strategy.** A zoom press is x2, so the coarser grid is a subset of the finer
-   one and half the pictures survive a zoom step. Any other rounding — "a nice
-   round number of frames", "exactly `THUMB_PX` worth" — lands on a different
-   set at every zoom and makes each press a full re-decode of the visible strip.
+4. **`waveAmplitude` is a square root, and it is not decoration.** See the next
+   section.
 
-3. **The grid is anchored to the CLIP, not to the viewport.** So scrolling asks
-   for the same frames again (cache hits), and a clip always starts with its own
-   first frame — which is what identifies it. Anchoring to the viewport would
-   re-decode on every pointer event while looking perfectly correct.
+5. **The peaks are invalidated by BUFFER IDENTITY** (`getAudioBuffer(id) ===
+theBufferIReduced`), the exact analogue of the thumbnail cache's service
+   identity, and for the same reason: a re-link keeps the asset id. Here the
+   object the peaks were built from IS the receipt, so there is nothing to
+   remember by hand.
 
-4. **The canvas is a window-sized strip positioned inside the clip, never the
-   clip's own width.** A zoomed-in ten-minute clip is hundreds of thousands of
-   pixels wide; a canvas that size is not allocated, and the browser reports
-   nothing — the element stays and the drawing silently disappears.
+6. **`refuse` in `ui/waveform.ts` is not belt and braces.** `bindMedia` swaps
+   the decoder and releases the peaks BEFORE it decodes the new audio, so at
+   that moment `getAudioBuffer` still answers with the OUTGOING file's buffer.
+   Releasing alone therefore undid itself: the release notifies, every clip
+   re-renders, the re-render asks again, and the file being replaced was
+   reduced and cached as current — which by identity it still was.
 
-5. **A picture is keyed by `(assetId, sourceFrame)` and is invalidated by
-   SERVICE IDENTITY, not by presence.** A re-link keeps the asset id and swaps
-   the decoder, so `getDecodeService(id) === theServiceThisDecodeUsed` is the
-   test for "is this picture still of the right file". Both halves matter:
-   `media.ts` purges the cache after `setDecodeService` (order matters — see the
-   comment there), and `pump()` re-checks identity after every await.
+### The defect that only a browser found
 
-### The bug that only a browser found
+The gate was green and four persona reviewers had passed it. In Chrome, every
+clip's waveform was a **flat line**: ink on exactly two rows of an eighteen-pixel
+band.
 
-The gate was green and four persona reviewers had passed it when the strip was
-looked at in Chrome: every thumbnail was the middle of a frame, magnified about
-ten times.
+Nothing was wrong with the arithmetic. `e2e/fixtures/sample-h264.mp4` peaks at
+**0.189** — about -14 dBFS, an unremarkable level — and 0.189 of an eight-pixel
+half-band is one and a half pixels. The feature was correct and useless.
 
-**A `<canvas>` is a replaced element.** Absolutely positioned with `height:
-auto`, it takes its INTRINSIC height — the `height` attribute — and ignores
-`bottom`. `ClipThumbs` sizes that attribute from `clientHeight`, so `top: 0;
-bottom: 0` made the two feed each other: the canvas grew a couple of percent per
-render and reached **894px tall inside a 42px clip**. Nothing threw. `.clip`'s
-`overflow: hidden` hid the overflow, so the only symptom was the magnification.
+`waveAmplitude` (a square root: monotonic, sign-preserving, the same family of
+curve a dB meter uses) now carries the value to the screen, and the same fixture
+fills six rows instead of two. Normalising each asset to its own peak was the
+other obvious fix and was rejected: it would make two clips from different
+sources look equally loud.
 
-`.clip-thumbs` uses `height: 100%` now, and
-`e2e/clip-thumbnails.spec.ts` asserts the canvas is no taller than the clip
-after a zoom round-trip. That test was confirmed red with the fix reverted
-(620px in a 44px clip).
-
-This is the second unit running in which looking at the real UI found what the
-whole gate could not. It is not optional.
+**The e2e spec had passed the whole time** — it asserted that ink existed and
+that it was in the bottom band, and a flat line satisfies both. It now also
+asserts that the ink spans more than a tenth of the canvas's height, and that
+assertion was confirmed red with the curve reverted (0.024 against a floor of
+0.1). This is the third unit running in which looking at the real UI found what
+the whole gate could not.
 
 ### What the persona round found
 
-Four reviewers (guardrail, QA, a11y, novice), **zero blockers**, and QA and the
-guardrail reviewer independently named the same major. Fixed:
+Four reviewers (guardrail, QA, a11y, novice), **zero blockers**. Fixed:
 
-1. **The cache survived a media re-link** (QA + guardrail, major). Same asset
-   id, different file, stale pictures presented as correct — the failure shape
-   this project has shipped before. Fixed by service identity plus a purge on
-   bind; two unit tests, both confirmed red with the guard reverted.
-2. **A decode landing after its asset was removed** re-inserted an
-   `ImageBitmap` into the cache the cleanup had just emptied (QA, major). Same
-   identity check; the bitmap is closed instead.
-3. **Every visible clip redrew its whole canvas on every playhead tick** — sixty
-   times a second during playback, on the thread that is decoding it (QA,
-   major). `ClipThumbs` is `memo`ised on the values that change the picture.
-   Measured in Chrome afterwards: 20 playhead moves, 0 redraws.
-4. **A clip whose file is gone looked exactly like one still decoding** (novice,
-   major). It now carries `⚠`, a hatched fill and a dashed border, and an
-   `aria-describedby` note.
-5. **The selection mark `◉`/`◎` had no ground** and washed out over bright
-   footage — about 1.9:1 on white (a11y + novice, major). It carries the same
-   pill as the name.
-6. **`ui/thumbnails.ts` had no unit tests at all** (QA, minor, but it is the
-   riskiest file in the unit). It has 10 now, in Node, with the decoder and
-   `createImageBitmap` stubbed.
-7. `missing` was the one collection in that file with no bound (QA, minor).
+1. **Peaks of the file being replaced could be rebuilt and cached as current**
+   during a re-link (QA, major). Decision 6 above; two unit tests, confirmed
+   red without the guard.
+2. **`pump()` had no error containment and no failure memory** (QA, major).
+   It is started as `void pump()`, so anything escaping it was an unhandled
+   rejection that stopped the queue, told nobody, and was asked for again on
+   the very next render. It now catches and remembers, exactly like
+   `thumbnails.ts` remembers a frame that came back empty — three unit tests.
+3. **"Still working it out" and "this file has no sound" were the same picture,
+   one of them for ever** (novice + a11y, major, named independently).
+   `engine/audio.ts` now records the verdict once it is known; a clip whose file
+   has no audio track draws the band with a dim line through it and carries
+   `aria-describedby="clip-silent-note"`. Six unit tests.
 
-Everything not fixed is in `CLAUDE.md` "Known tech debt" — seven new entries.
+Everything not fixed is in `CLAUDE.md` "Known tech debt" — eight new entries,
+the two largest being the synchronous `buildPyramid` pass versus live playback,
+and the fact that nothing anywhere tells a first-time user what the wave IS.
 
 ### One rule this unit obeyed rather than changed
 
-The unlinked cue was first written into the clip's `aria-label`. That breaks the
-DOM contract in `docs/TESTING.md` ("clip `aria-label`: identity + position +
-length. **Never state.**"), which exists because four e2e tests once broke over
-a label that moved when only state changed. The state moved to
-`aria-describedby` and a visually hidden note instead — a description is the
-channel state has. `docs/TESTING.md` gained two contract rows (`.clip-thumbs`,
-`.clip.unlinked`) but the rule itself was not touched.
+The silent-clip cue went into `aria-describedby`, never into the clip's
+`aria-label`. `docs/TESTING.md`'s DOM contract says a clip's name is identity +
+position + length and **never state**, because four e2e tests once broke over a
+label that moved when only state changed. That is the same channel the
+unlinked-media cue uses; it is now a list rather than a single id, since a clip
+could in principle need both.
 
 ## Next single step
 
-**The audio waveform** — C's remaining half.
+**Epic B — E7.** In the order agreed: subtitles, transitions, audio volume and
+fades, transform.
 
-It is the same shape as this unit and should reuse it: given a visible frame
-range and a pixels-per-frame, which columns do I draw. Three things that are
-NOT the same, and are the whole difficulty:
+Two things this unit leaves for whoever starts it:
 
-- **There is no per-frame decode to cache.** Audio is already fully decoded in
-  memory (`engine/audio.ts` holds an `AudioBuffer` per asset — see the tech debt
-  entry about `decodeAudioData` on the whole file). So the expensive thing is
-  not decoding, it is reducing hundreds of thousands of samples to a few hundred
-  peak pairs, and the cache should hold a **peak pyramid** per asset, not
-  pictures.
-- **`thumbStrip`'s power-of-two step is the right idea for the pyramid too** —
-  each level is half the resolution of the one below, and a zoom step moves one
-  level. That is the third case; when it lands, consider merging
-  `engine/thumbnails.ts` and the waveform module.
-- **There is no audio track in the document yet.** The waveform therefore draws
-  under the VIDEO clip, from that clip's asset. Decide deliberately whether it
-  shares `.clip-thumbs`'s canvas (one draw pass, one memo) or gets its own.
+- **The audio half of E7 will want to draw itself ON the waveform** — a fade is
+  a shape over the peaks — so read `src/ui/ClipCanvas.tsx` before designing it.
+  That canvas already draws two things; a third is the rule-of-three trigger for
+  splitting the draw passes apart.
+- **`engine/thumbnails.ts` and `engine/waveform.ts` are the same question asked
+  twice**, and each has its own three-field clip span. `engine/thumbnails.ts`'s
+  own header says to combine them when a THIRD case appears. E7's transform or
+  its fades may be it — decide deliberately; do not merge them because they look
+  similar.
 
 ## Blocked / needs the owner
 
-1. **Nothing here is waiting on a commit any more** — the owner said to commit and
-   push, and it is done (`78b656c`). The tree still carries the untracked
+1. **Nothing here is waiting on a commit** — the owner said to commit and push,
+   and it is done (`95a6d38`). The tree still carries the untracked
    `bash.exe.stackdump` — a crash artefact, safe to delete, deliberately never
    staged.
 
-2. **Thumbnail slots can be up to twice the width of the picture in them**, so
+2. **A quiet source still reads as a thickened line rather than a shape.** The
+   square-root curve fixed "invisible"; it did not make an 18px band generous.
+   The next levers are a true dB curve (costs honesty about relative level) or
+   a taller band (costs picture). Left as it is deliberately; the owner may
+   disagree. See also the two product calls now in "Known tech debt": nothing
+   explains what the wave is, and "no sound" versus "not yet" differ only by a
+   hairline's colour.
+
+3. **Thumbnail slots can be up to twice the width of the picture in them**, so
    the widest ones crop the frame vertically by up to half. Fixing it properly
-   means decoupling the drawing pitch from the cache grid, which changes
-   `thumbStrip`'s contract. Left alone deliberately; the owner may disagree.
+   changes `thumbStrip`'s contract. Unchanged from the previous unit.
 
-3. **Unchanged from the previous unit, and still open:** the `m:ss` ruler label
-   is a product call the owner can overturn; `MAX_SCALE = 40` px/frame has only
-   ever been tried on the three-second fixture; and the two directions the owner
-   set — **AWS deployment for real users** and design informed by
-   `docs/research/editor-pain-points.md` — have no code yet. The gating question
-   is still static hosting (S3 + CloudFront, possible today) versus a real
-   backend for projects and media. A consequence worth restating: **a project
-   does not follow the user to another machine** — the document is in
-   `localStorage`, the video in that browser profile's OPFS.
-
-4. **The remaining backlog, in the order agreed:** the waveform finishes C, then
-   B: E7 (subtitles, transitions, audio volume/fades, transform).
+4. **Unchanged and still open:** the `m:ss` ruler label is a product call the
+   owner can overturn; `MAX_SCALE = 40` px/frame has only ever been tried on the
+   three-second fixture; and the two directions the owner set — **AWS deployment
+   for real users** and design informed by `docs/research/editor-pain-points.md`
+   — have no code yet. The gating question is still static hosting (S3 +
+   CloudFront, possible today) versus a real backend for projects and media. A
+   consequence worth restating: **a project does not follow the user to another
+   machine** — the document is in `localStorage`, the video in that browser
+   profile's OPFS.
