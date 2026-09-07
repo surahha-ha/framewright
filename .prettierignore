@@ -1,2 +1,4 @@
 dist
 node_modules
+# vendored harness skeleton — mirrored byte-for-byte from ../harness-agent/skeletons (drift-watch)
+.harness

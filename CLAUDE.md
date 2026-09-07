@@ -167,9 +167,24 @@ Both are already configured (`.claude/`). Two things follow from that.
   instead. e2e is not in this hook (too slow per turn); it belongs to the
   explicit `npm run verify`.
 - **SessionStart** prints the live handoff from `docs/STATUS.md`.
+- **Bash / PowerShell (pre + post)** run the vendored harness guard
+  (`.harness/danger-guard.mjs`, rules in `harness.config.mjs`). It **denies**
+  force-pushes and piping a verify/test command into anything (the exit code
+  would be the pipe's, so red reads as green), and **asks** before git writes
+  and before anything that discards uncommitted work — the mechanised form of
+  "announce before any git operation". The block message names the rule and
+  what to do instead; read it rather than routing around it. Nothing here
+  replaces the owner's approval.
+- **Stop** also runs `.harness/turn-end.mjs`, which only records that the turn
+  ended (plus a test-coverage count for `src/engine/`). It never blocks.
+  `node .harness/metrics.mjs` renders the report; `.harness/log.jsonl` is
+  git-ignored and stays local.
 
 None of that replaces running `npm run verify` yourself. The hook is a net, not
-the gate.
+the gate. The guard's status is `node .harness/danger-guard.mjs --status` —
+"active" there means the rules load, not that the hook is wired; the hook is
+wired in `.claude/settings.json` (and its courier copy `_claude-setup/`, which
+`npm run setup:claude` copies over `.claude/` — keep both in step).
 
 ### Use the persona subagents — do not role-play them
 
@@ -256,10 +271,44 @@ file that moved. Then run `check:refs` and `typecheck`.
   more module-level singletons of the same shape as the entry further down, and
   would need the same treatment to open two documents.
 - **The "ask canRun, show the chord in `title`, dispatch via `perform`,
-  `aria-disabled`" button now exists three times** — `Toolbar.Button`,
-  `Timeline.ZoomButton` and the palette's rows. That is the rule-of-three
-  trigger; the three differ enough in markup that extracting one component is
-  a real design decision, not a mechanical move.
+  `aria-disabled`" button is now one component** (`ui/CommandButton.tsx`,
+  used by the toolbar, the zoom buttons and the subtitle panel). The
+  palette's rows are `option`s in a listbox and still carry their own copy of
+  the same four steps; a fourth surface is the trigger to fold them in too.
+- **A subtitle with no words can sit on the timeline for ever.** "자막 넣기"
+  makes an empty one and says 내용을 적어 주세요 once; nothing says it again,
+  and the chip just reads 내용 없음. Harmless (never drawn, never exported)
+  but clutter. A cheap nudge would be the status line on export.
+- **A paste into a subtitle splits it, and the split is silent.** The tail
+  is a new subtitle with the same words (`splitSubtitleAt`, wired into
+  `clip.paste`); the status line still says only where the clip landed. The
+  owner chose splitting over stretching or leaving it, after seeing both
+  halves of the alternative on a real frame. A word about the split in the
+  paste's `done` sentence is the obvious next touch.
+- **Two drag gestures, one per kind of thing** — `Timeline.tsx` for clips and
+  `SubtitleLane.tsx` for subtitles, with the same ~120 lines of pointer
+  handling around shared engine arithmetic. The third draggable thing is the
+  trigger to extract the DOM half.
+- **Delete on a subtitle chip is a key the component handles itself**, not a
+  binding (`SubtitleLane.onChipKey`). The keymap binds a chord to ONE action
+  and Delete belongs to `clip.deleteRipple`; so this is exactly the shape E6
+  removed from the clips. Fine until someone rebinds Delete and finds the
+  chip did not follow.
+- **Subtitles have no one-frame nudge.** A clip has six; a subtitle is timed
+  by dragging or by parking the playhead and pressing one of the three
+  재생 위치로 buttons. A keyboard user gets frame-exact results that way but
+  needs the ruler for every step.
+- **The preview's subtitle overlay is drawn at the TIMELINE's size and scaled
+  onto the picture's box**; the export letterboxes the picture INTO the
+  timeline's box. When the two aspect ratios differ the words are right for
+  the file and slightly off on screen. Needs a mixed-aspect project to see.
+- **The subtitle font is whatever the browser resolves** from the stack in
+  `subtitleRender.ts`. One browser previews and exports, so they agree with
+  each other; another machine may wrap a line differently.
+- `Track.type` still admits `'text'` and nothing creates one (subtitles are
+  their own list, ADR-0011). Remove it when nothing saved can refer to it.
+- `subtitle.add`'s last `disabledReason` branch ('지금은 쓸 수 없어요.') is
+  unreachable given its `canRun`; it exists so the function total.
 - **A disabled control's reason is reachable only by pressing it.** It lives in
   `title` (mouse hover) and in `setStatus` on the click of an `aria-disabled`
   button. That is the app-wide convention, not new — but a screen-reader user

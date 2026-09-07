@@ -12,3 +12,8 @@ dist-ssr
 # so they drop the tree here and `npm run setup:claude` installs it. The
 # installed .claude/ is what belongs in git; this is just the courier.
 _claude-setup
+
+# harness (surahha-ha/harness-agent) — instrumentation log and promotion records carry
+# command prefixes and rule reasons; the skeleton copy is committed, these are not.
+.harness/log.jsonl
+.harness/promotions.jsonl

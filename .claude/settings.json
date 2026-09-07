@@ -13,7 +13,20 @@
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "node scripts/hook-protect.mjs" }]
+        "hooks": [
+          { "type": "command", "command": "node scripts/hook-protect.mjs" }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "timeout": 10,
+            "command": "node \"$CLAUDE_PROJECT_DIR/.harness/danger-guard.mjs\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -24,11 +37,30 @@
           { "type": "command", "command": "node scripts/check-guardrails.mjs" },
           { "type": "command", "command": "node scripts/check-references.mjs" }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "timeout": 10,
+            "command": "node \"$CLAUDE_PROJECT_DIR/.harness/danger-guard.mjs\" --post"
+          }
+        ]
       }
     ],
     "Stop": [
       {
-        "hooks": [{ "type": "command", "command": "node scripts/hook-gate.mjs" }]
+        "hooks": [
+          { "type": "command", "command": "node scripts/hook-gate.mjs" },
+          {
+            "type": "command",
+            "shell": "bash",
+            "timeout": 10,
+            "command": "node \"$CLAUDE_PROJECT_DIR/.harness/turn-end.mjs\""
+          }
+        ]
       }
     ]
   }
