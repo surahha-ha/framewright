@@ -18,12 +18,19 @@ repo does not.
 
 ## Where we are
 
-**E7's first item, subtitles, is built and gate-green — and NOT yet committed.**
-The whole change is in the working tree. The owner has to say the word before
-any git operation (standing rule 1 in `docs/HANDOVER.md`).
+**E7's first item, subtitles, is built, gate-green and committed as
+`9d4ee2b`.** Not pushed yet; `origin/main` is still at `c1c54e5`.
+
+One oddity in the history, harmless but worth knowing: the owner committed
+their harness guard (`f298f07`) from the same working tree while this unit was
+being staged, and that commit carried `CLAUDE.md` — including this unit's
+"Known tech debt" entries — plus the harness files. `9d4ee2b` therefore has
+34 files and no `CLAUDE.md`. Every line is in `HEAD`; nothing is lost or
+duplicated. Rewriting the two unpushed commits to separate them is possible
+and was deliberately not done without the owner.
 
 The two units before this one were epic C (clip thumbnails `78b656c`, audio
-waveform `95a6d38`, handoff `c1c54e5`); `origin/main` is at `c1c54e5`.
+waveform `95a6d38`, handoff `c1c54e5`).
 
 ### What is new
 
@@ -156,7 +163,7 @@ scrolls), and the help line under the field wraps once. Not defects.
 
 ## Next single step
 
-**Get approval, commit this unit, then E7 item 2: transitions.** Before
+**Push (owner's call), then E7 item 2: transitions.** Before
 designing transitions, read `src/ui/ClipCanvas.tsx` (it draws pictures and the
 wave; a transition mark is the third thing on that canvas and the trigger to
 split its draw passes) and `src/engine/exportPlan.ts` (a transition is two
@@ -164,16 +171,10 @@ source frames per timeline frame, which `ExportFrame` cannot express yet).
 
 ## Blocked / needs the owner
 
-1. **Commit approval.** Suggested shape, as this repo does it: one code
-   commit, then a `docs(status)` commit once the hash is known. Do NOT stage
-   `.claude/settings.json`, `.gitignore`, `.prettierignore`, `CLAUDE.md`'s
-   harness section, `.harness/` or `harness.config.mjs` unless the owner says
-   so — those changes arrived in the working tree during this unit from the
-   owner's own, separate work on a "harness guard" (see the new "Bash /
-   PowerShell (pre + post)" bullet in `CLAUDE.md`). `CLAUDE.md` is touched by
-   BOTH: this unit's tech-debt entries and the owner's harness bullets share
-   the file, so it will need to be staged as a whole or split by hunk.
-   `bash.exe.stackdump` is still a crash artefact, safe to delete.
+1. **Push.** `f298f07` (harness) and `9d4ee2b` (subtitles) are local only.
+   The owner decides whether to push as they are or first tidy the
+   `CLAUDE.md` split described above. `bash.exe.stackdump` is still a crash
+   artefact in the tree, untracked, safe to delete.
 2. **Visual pass: done** (see "What the browser found"). One thing not
    looked at: the drag READOUT in the track head mid-drag — a scripted drag
    completes in one gesture, so the live sentence was never on screen.
