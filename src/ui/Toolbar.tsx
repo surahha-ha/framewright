@@ -8,16 +8,10 @@
 // control exists — and never hears why it is waiting.
 import { useStore } from '../store/projectStore';
 import { formatChord } from '../engine/keymap';
-import {
-  APP_ACTIONS,
-  canRun,
-  entries,
-  perform,
-  whyNot,
-  type Entry,
-} from './actions';
+import { APP_ACTIONS, entries, type Entry } from './actions';
 import { useResolvedKeymap } from './useShortcuts';
 import { ExportButton } from './ExportButton';
+import { CommandButton } from './CommandButton';
 
 /** Commands in registry order, with each action slotted in after its anchor. */
 function toolbarEntries(): Entry[] {
@@ -36,54 +30,25 @@ function toolbarEntries(): Entry[] {
 }
 
 export function Toolbar() {
-  const setStatus = useStore((s) => s.setStatus);
   const setOverlay = useStore((s) => s.setOverlay);
   const keymap = useResolvedKeymap();
   // subscribe so buttons re-evaluate canRun as the document/selection moves
   useStore((s) => s.playhead);
   useStore((s) => s.selectedClipId);
+  useStore((s) => s.selectedSubtitleId);
   useStore((s) => s.project);
   useStore((s) => s.hasClipboard);
   useStore((s) => s.canUndo);
   useStore((s) => s.canRedo);
 
-  function Button({
-    id,
-    label,
-    icon,
-  }: {
-    id: string;
-    label: string;
-    icon?: string;
-  }) {
-    const enabled = canRun(id);
-    const why = enabled ? '' : whyNot(id);
-    const chord = keymap.byAction.get(id) ?? null;
-    return (
-      <button
-        aria-disabled={!enabled}
-        onClick={() => {
-          // Saying why beats a click that does nothing at all.
-          if (!enabled) return setStatus(why);
-          perform(id);
-        }}
-        title={
-          enabled ? (chord ? `${label} (${formatChord(chord)})` : label) : why
-        }
-      >
-        <span aria-hidden="true">{icon}</span> {label}
-      </button>
-    );
-  }
-
   return (
     <div className="toolbar">
       {toolbarEntries().map((e) => (
-        <Button key={e.id} id={e.id} label={e.label} icon={e.icon} />
+        <CommandButton key={e.id} id={e.id} label={e.label} icon={e.icon} />
       ))}
       <span className="sep" />
-      <Button id="app.undo" label="되돌리기" icon="↩" />
-      <Button id="app.redo" label="다시 실행" icon="↪" />
+      <CommandButton id="app.undo" label="되돌리기" icon="↩" />
+      <CommandButton id="app.redo" label="다시 실행" icon="↪" />
       <span className="sep" />
       <button
         onClick={() => setOverlay('palette')}

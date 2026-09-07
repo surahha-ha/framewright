@@ -19,7 +19,14 @@ export type DragMode = 'move' | 'trimStart' | 'trimEnd';
 /** Why a drag stopped. The UI turns this into a sentence — a clip that freezes
  *  under the pointer with no explanation reads as a bug, not as a limit. */
 export type DragLimit =
-  'timelineStart' | 'neighbour' | 'source' | 'minLength' | 'none';
+  | 'timelineStart'
+  | 'neighbour'
+  | 'source'
+  | 'minLength'
+  /** A subtitle's far wall: the picture ends here. A clip never hits this — its
+   *  far wall is its own source (`source`), which is a different sentence. */
+  | 'videoEnd'
+  | 'none';
 
 export interface DragBounds {
   min: number;

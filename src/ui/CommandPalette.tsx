@@ -29,6 +29,7 @@ export function CommandPalette() {
   useStore((s) => s.project);
   useStore((s) => s.playhead);
   useStore((s) => s.selectedClipId);
+  useStore((s) => s.selectedSubtitleId);
   useStore((s) => s.hasClipboard);
   useStore((s) => s.canUndo);
   useStore((s) => s.canRedo);

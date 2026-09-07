@@ -21,11 +21,16 @@ import {
   pastePlan,
   type ClipboardEntry,
 } from './clipboard';
+import { SUBTITLE_COMMANDS } from './subtitleCommands';
+import { rippleSubtitles, splitSubtitleAt, subtitleDiffOps } from './subtitles';
 
 export interface EditorCtx {
   project: Project;
   playhead: number; // timeline frame
   selectedClipId: string | null;
+  /** One thing is selected at a time, so this and `selectedClipId` are never
+   *  both set: Delete must act on the thing the user can see is chosen. */
+  selectedSubtitleId?: string | null;
   /** What copy/cut put aside. Not document state — it outlives undo. */
   clipboard?: ClipboardEntry | null;
 }
@@ -36,6 +41,7 @@ export const LIMIT_TEXT: Record<DragLimit, string> = {
   timelineStart: '맨 앞이에요. 더 앞으로는 갈 수 없어요.',
   neighbour: '옆 클립에 닿았어요.',
   source: '원본 영상이 여기까지예요.',
+  videoEnd: '영상이 여기서 끝나요.',
   minLength: '더 짧게는 줄일 수 없어요.',
   none: '',
 };
@@ -69,6 +75,9 @@ export interface Command<Args = void> {
    *  to say which one, or the user is left guessing which of the clips that
    *  just moved is the new one. */
   selects?(before: EditorCtx): string;
+  /** The subtitle to select once the command has run — the same promise
+   *  `selects` makes for a clip, for the other kind of thing on the timeline. */
+  selectsSubtitle?(before: EditorCtx): string;
   /** Why the button is greyed out right now. A disabled control that will not
    *  say what it is waiting for is indistinguishable from a broken one. */
   disabledReason?(ctx: EditorCtx): string;
@@ -165,6 +174,12 @@ export const deleteRippleCommand: Command = {
     const clip = track.clips[index];
     const len = clipLength(clip);
     const later = track.clips.slice(index + 1);
+    // The words go with the pictures: subtitles over the removed footage go,
+    // subtitles after it slide left with the clips that follow.
+    const words = subtitleDiffOps(
+      ctx.project.subtitles,
+      rippleSubtitles(ctx.project.subtitles, clip.startFrame, -len),
+    );
 
     const forward: Op[] = [
       { kind: 'removeClip', trackId: track.id, index },
@@ -174,8 +189,10 @@ export const deleteRippleCommand: Command = {
         clipId: c.id,
         changes: { startFrame: c.startFrame - len },
       })),
+      ...words.forward,
     ];
     const inverse: Op[] = [
+      ...words.inverse,
       ...later.map<Op>((c) => ({
         kind: 'updateClip',
         trackId: track.id,
@@ -350,8 +367,14 @@ export const closeGapsCommand: Command = {
     const forward: Op[] = [];
     const inverse: Op[] = [];
     let cursor = 0;
+    // Each gap closed is a span of time removed; the subtitles are rippled
+    // through the same spans, in order, on a running copy of the list. The
+    // spans are taken in the ORIGINAL frame numbers, so each is expressed
+    // where it sits after the ones before it have already been closed.
+    let words = ctx.project.subtitles;
     for (const c of track.clips) {
       if (c.startFrame !== cursor) {
+        words = rippleSubtitles(words, cursor, cursor - c.startFrame);
         forward.push({
           kind: 'updateClip',
           trackId: track.id,
@@ -370,7 +393,11 @@ export const closeGapsCommand: Command = {
       cursor += clipLength(c);
     }
     if (forward.length === 0) throw new Error('timeline.closeGaps: no gaps');
-    return { forward, inverse };
+    const diff = subtitleDiffOps(ctx.project.subtitles, words);
+    return {
+      forward: [...forward, ...diff.forward],
+      inverse: [...diff.inverse, ...inverse],
+    };
   },
 };
 
@@ -670,6 +697,23 @@ export const pasteCommand: Command = {
       plan.pushBy > 0
         ? track.clips.filter((c) => c.startFrame >= plan.startFrame)
         : [];
+    // Subtitles over the pushed footage are pushed with it — and one that
+    // straddles the paste point is cut in two first, so its head stays on the
+    // footage before the paste and its tail (a new subtitle, next id after
+    // the clip's) follows the footage after it. Neither half captions the
+    // pasted frames: those words were never about them.
+    const split =
+      plan.pushBy > 0
+        ? splitSubtitleAt(
+            ctx.project.subtitles,
+            plan.startFrame,
+            ctx.project.nextId + 1,
+          )
+        : { subtitles: ctx.project.subtitles, nextId: ctx.project.nextId + 1 };
+    const words = subtitleDiffOps(
+      ctx.project.subtitles,
+      rippleSubtitles(split.subtitles, plan.startFrame, plan.pushBy),
+    );
 
     const forward: Op[] = [
       ...moved.map<Op>((c) => ({
@@ -678,12 +722,14 @@ export const pasteCommand: Command = {
         clipId: c.id,
         changes: { startFrame: c.startFrame + plan.pushBy },
       })),
+      ...words.forward,
       { kind: 'insertClip', trackId: track.id, index, clip },
-      { kind: 'setNextId', value: ctx.project.nextId + 1 },
+      { kind: 'setNextId', value: split.nextId },
     ];
     const inverse: Op[] = [
       { kind: 'setNextId', value: ctx.project.nextId },
       { kind: 'removeClip', trackId: track.id, index },
+      ...words.inverse,
       ...moved.map<Op>((c) => ({
         kind: 'updateClip',
         trackId: track.id,
@@ -773,6 +819,9 @@ export const BUILTIN_COMMANDS: Command<any>[] = [
   deleteRippleCommand,
   pasteCommand,
   closeGapsCommand,
+  // The toolbar is registry order, so "자막 넣기" sits after the clip edits;
+  // the rest of the subtitle commands are keyboard/panel/palette only.
+  ...SUBTITLE_COMMANDS,
   trimStartCommand,
   trimEndCommand,
   moveClipCommand,

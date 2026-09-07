@@ -6,7 +6,7 @@
 //     session at the next clip's source position.
 // The playback loop reads live state through refs — a captured closure would
 // keep playing the pre-edit document and would fight the user's seeking.
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useStore } from '../store/projectStore';
 import { getDecodeService } from '../engine/registry';
 import { frameToSec, secToFrame, formatTimecode } from '../engine/time';
@@ -16,10 +16,19 @@ import { buildAudioSchedule } from '../engine/audioSchedule';
 import { AudioPlayer } from '../engine/audioPlayer';
 import { audioContext, getAudioBuffer, resumeAudio } from '../engine/audio';
 import type { PlaybackSession } from '../engine/playbackSession';
+import { subtitleAt } from '../engine/subtitles';
+import { drawSubtitle } from '../engine/subtitleRender';
+import { evenDimensions } from '../engine/exportPlan';
 import { TOGGLE_PLAY_EVENT } from './actions';
 
 export function Preview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** The words, on their own canvas over the picture. Separate on purpose: the
+   *  picture only redraws when a frame arrives, the words must change on the
+   *  exact frame a subtitle starts or ends — and a subtitle drawn INTO the
+   *  picture would stay there on every held frame after it had ended. */
+  const overlayRef = useRef<HTMLCanvasElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<number | null>(null);
   const busyRef = useRef(false);
   const sessionRef = useRef<PlaybackSession | null>(null);
@@ -145,6 +154,62 @@ export function Preview() {
       audioRef.current?.stop();
     };
   }, []);
+
+  // ---- SUBTITLE OVERLAY ----
+  // Drawn at the TIMELINE's size — the size the export renders at — and
+  // stretched by CSS over the picture, so the words are laid out by the same
+  // function on the same pixel grid as the file will have (`drawSubtitle`).
+  // While the user is typing, the draft is what they want to see on the
+  // picture — the document only gets it on Enter/blur.
+  const draft = useStore((s) => s.subtitleDraft);
+  const current = total > 0 ? subtitleAt(project, playhead) : null;
+  const words = !current
+    ? ''
+    : draft && draft.id === current.id
+      ? draft.text
+      : current.text;
+  // A LAYOUT effect: the picture is painted inside the rAF tick and the
+  // playhead update that changes `words` is committed right after, so drawing
+  // the words before that commit reaches the screen keeps both on the same
+  // paint. A passive effect put the words one paint behind the picture.
+  useLayoutEffect(() => {
+    const overlay = overlayRef.current;
+    const ctx = overlay?.getContext('2d');
+    if (!overlay || !ctx) return;
+    const { width, height } = evenDimensions(
+      project.timeline.width,
+      project.timeline.height,
+    );
+    if (overlay.width !== width || overlay.height !== height) {
+      overlay.width = width;
+      overlay.height = height;
+    }
+    ctx.clearRect(0, 0, width, height);
+    if (words) drawSubtitle(ctx, words, width, height);
+  }, [words, project.timeline.width, project.timeline.height]);
+
+  // The picture is centred and letterboxed by CSS, so the overlay finds out
+  // where it landed and sits exactly on top of it. Re-measured whenever the
+  // stage or the picture changes size.
+  useEffect(() => {
+    const stage = stageRef.current;
+    const picture = canvasRef.current;
+    const overlay = overlayRef.current;
+    if (!stage || !picture || !overlay) return;
+    const place = () => {
+      const s = stage.getBoundingClientRect();
+      const p = picture.getBoundingClientRect();
+      overlay.style.left = `${p.left - s.left}px`;
+      overlay.style.top = `${p.top - s.top}px`;
+      overlay.style.width = `${p.width}px`;
+      overlay.style.height = `${p.height}px`;
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(stage);
+    observer.observe(picture);
+    return () => observer.disconnect();
+  }, [total]);
 
   function stopPlayback() {
     cancelAnimationFrame(rafRef.current);
@@ -297,8 +362,18 @@ export function Preview() {
   return (
     <div className="preview">
       <div className="panel-title">프리뷰</div>
-      <div className="stage">
+      <div className="stage" ref={stageRef}>
         <canvas ref={canvasRef} />
+        {/* Hidden from assistive tech when blank; named by its words when not,
+            so a screen reader user can ask what is on screen without being
+            read every subtitle as it flies past during playback. */}
+        <canvas
+          ref={overlayRef}
+          className="stage-subtitle"
+          role={words ? 'img' : undefined}
+          aria-label={words ? `자막: ${words}` : undefined}
+          aria-hidden={words ? undefined : true}
+        />
         {total > 0 && missingMedia && restoring && (
           <p className="stage-note">
             저장해 둔 영상을 여는 중이에요. 잠시만 기다려 주세요.

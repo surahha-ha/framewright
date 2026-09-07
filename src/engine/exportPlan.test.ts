@@ -94,3 +94,35 @@ describe('export plan', () => {
     expect(plan[25].sourceFrame).toBe(5);
   });
 });
+
+describe('subtitles in the plan', () => {
+  it('records the words for every frame they cover, and null elsewhere', () => {
+    const p: Project = {
+      ...seed(10),
+      subtitles: [
+        { id: 'sub_1', text: '안녕', startFrame: 2, endFrame: 5 },
+        { id: 'sub_2', text: '', startFrame: 7, endFrame: 9 }, // empty = nothing to burn
+      ],
+    };
+    const plan = buildExportPlan(p);
+    expect(plan.map((f) => f.subtitle)).toEqual([
+      null, null, '안녕', '안녕', '안녕', null, null, null, null, null,
+    ]);
+  });
+
+  it('burns a subtitle into a gap too — a hole in the picture is still time', () => {
+    const p: Project = {
+      ...seed(10),
+      subtitles: [{ id: 'sub_1', text: '검은 화면 위 글자', startFrame: 0, endFrame: 10 }],
+    };
+    const ed = createEditor(p);
+    ed.setPlayhead(4);
+    ed.dispatch('clip.split');
+    ed.select('clip_1');
+    // Move the second half right to open a gap at [4, 6).
+    ed.dispatch('clip.move', { clipId: 'clip_2', startFrame: 6 });
+    const plan = buildExportPlan(ed.project);
+    expect(plan[5].assetId).toBeNull();
+    expect(plan[5].subtitle).toBe('검은 화면 위 글자');
+  });
+});

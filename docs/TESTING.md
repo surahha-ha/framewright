@@ -211,8 +211,10 @@ page`, and this machine's `netstat` shows no connection attempt at all — while
   `switch_browser`, which prompts every connected Chrome and lets the owner
   click Connect in the right one — `select_browser` cannot help, because the
   entry looks correct.
-  A second symptom of the same cause: `window.outerWidth`/`outerHeight` read
-  `0 × 0` on a tab in that browser.
+  The decisive proof is on the shell side: `netstat -an | grep 9990` showing
+  an ESTABLISHED loopback pair means a browser on this machine really
+  connected. `window.outerWidth`/`outerHeight` reading `0 × 0` is NOT a tell —
+  this machine's own Chrome read `0 × 0` too (measured 2026-08-27).
 - **Pick a browser by deviceId, never by display name.** More than one Chrome
   can be connected and the names are unreliable — selecting the one listed as
   "Browser 1" reported back "Connected to browser 'Browser 2'". The ids are
@@ -263,26 +265,32 @@ Playwright tests reach into the DOM, so the DOM is an API. These selectors and
 attributes are a **contract**: change one and you must change the specs in the
 same commit. Anything not on this list is free to change.
 
-| Contract                | Meaning                                                        |
-| ----------------------- | -------------------------------------------------------------- |
-| `.ruler`                | the playhead, `role="slider"`, `aria-valuenow` = current frame |
-| `.track`                | the clip strip, `role="group"`; clicking it scrubs             |
-| `.timeline .clip`       | one clip button, in timeline order                             |
-| `.gap`                  | a hole in the strip (decorative, `aria-hidden`)                |
-| `.clip-canvas`          | a clip's pictures AND its waveform: one canvas, `aria-hidden` |
-| `.clip.unlinked`        | a clip whose media is not bound; carries `aria-describedby`    |
-| `clip-silent-note`      | described by a clip whose FILE is known to have no audio track |
-| `.statusbar`            | `role="status"`; the last thing that happened, in words        |
-| `.transport .dim`       | `playhead / total`, in frames                                  |
-| clip `aria-label`       | identity + position + length. **Never state.**                 |
-| clip `aria-pressed`     | selected or not. The ONLY place selection lives.               |
-| `.track-hint`           | the key hints under the track, rendered FROM the keymap        |
-| `.toolbar button`       | `"<글리프> <라벨>"`; glyphs unique, no label inside another    |
-| `.overlay`              | the modal backdrop; clicking it closes the dialog              |
-| dialog "명령 찾기"      | the palette: a `combobox` over a `listbox` of `option`s        |
-| palette `option`        | one entry; `aria-disabled` carries "cannot run now"            |
-| dialog "단축키"         | the keymap settings; one row per bindable action               |
-| row button `aria-label` | `"<라벨> 단축키 바꾸기"` — how a spec picks a row              |
+| Contract                | Meaning                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `.ruler`                | the playhead, `role="slider"`, `aria-valuenow` = current frame                                               |
+| `.track`                | the clip strip, `role="group"`; clicking it scrubs                                                           |
+| `.timeline .clip`       | one clip button, in timeline order                                                                           |
+| `.gap`                  | a hole in the strip (decorative, `aria-hidden`)                                                              |
+| `.clip-canvas`          | a clip's pictures AND its waveform: one canvas, `aria-hidden`                                                |
+| `.clip.unlinked`        | a clip whose media is not bound; carries `aria-describedby`                                                  |
+| `clip-silent-note`      | described by a clip whose FILE is known to have no audio track                                               |
+| `.subtitle-lane`        | the subtitle strip under the track, `role="group"`; scrubs                                                   |
+| `.subtitle`             | one subtitle chip button, in timeline order; `.empty` = no words                                             |
+| `.stage-subtitle`       | the words over the preview: a canvas, `role="img"` named by its words when showing, `aria-hidden` when blank |
+| textbox "내용"          | the selected subtitle's words; Enter or blur commits, Escape reverts                                         |
+| subtitle `aria-label`   | `자막 N, words (or 내용 없음), tc부터 길이 tc` — identity, never state                                       |
+| subtitle `aria-pressed` | selected or not. Never set together with a clip's.                                                           |
+| `.statusbar`            | `role="status"`; the last thing that happened, in words                                                      |
+| `.transport .dim`       | `playhead / total`, in frames                                                                                |
+| clip `aria-label`       | identity + position + length. **Never state.**                                                               |
+| clip `aria-pressed`     | selected or not. The ONLY place selection lives.                                                             |
+| `.track-hint`           | the key hints under the track, rendered FROM the keymap                                                      |
+| `.toolbar button`       | `"<글리프> <라벨>"`; glyphs unique, no label inside another                                                  |
+| `.overlay`              | the modal backdrop; clicking it closes the dialog                                                            |
+| dialog "명령 찾기"      | the palette: a `combobox` over a `listbox` of `option`s                                                      |
+| palette `option`        | one entry; `aria-disabled` carries "cannot run now"                                                          |
+| dialog "단축키"         | the keymap settings; one row per bindable action                                                             |
+| row button `aria-label` | `"<라벨> 단축키 바꾸기"` — how a spec picks a row                                                            |
 
 The keymap lives in `localStorage` under `framewright.keymap.v1` and **outlives a
 reload**. A spec that rebinds anything must clear that key first, or the previous

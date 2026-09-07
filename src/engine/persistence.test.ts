@@ -54,6 +54,32 @@ describe('serialize / deserialize', () => {
     expect(deserialize('null')).toBeNull();
   });
 
+  it('gives a schema-1 document (no subtitle list) an empty one, versions included', () => {
+    // A project saved before subtitles existed has no `subtitles` key at all.
+    // Everything downstream indexes that list, so it must come back present —
+    // on the live document AND on every snapshot in the history.
+    const { subtitles: _dropped, ...legacyProject } = createProject();
+    void _dropped;
+    const raw = JSON.stringify({
+      schemaVersion: 1,
+      project: legacyProject,
+      versions: [{ id: 'v1', kind: 'auto', ts: 5, project: legacyProject }],
+      generation: 3,
+    });
+    const state = deserialize(raw);
+    expect(state).not.toBeNull();
+    expect(state!.project.subtitles).toEqual([]);
+    expect(state!.versions[0].project.subtitles).toEqual([]);
+    // ...and a current document keeps the subtitles it has.
+    const withOne = {
+      ...createProject(),
+      subtitles: [{ id: 'sub_1', text: '안녕', startFrame: 0, endFrame: 30 }],
+    };
+    expect(
+      deserialize(serialize(withOne, [], 1))!.project.subtitles,
+    ).toHaveLength(1);
+  });
+
   it('refuses data written by a NEWER app version rather than corrupting it', () => {
     const raw = JSON.stringify({
       schemaVersion: CURRENT_SCHEMA + 1,

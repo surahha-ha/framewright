@@ -16,6 +16,7 @@ ones, don't delete.
 | 0008 | Media time starts at first picture  | Accepted |
 | 0009 | Keep the media (OPFS)               | Accepted |
 | 0010 | The timeline has a scale of its own | Accepted |
+| 0011 | Subtitles are not clips; one draw   | Accepted |
 
 ## Template
 

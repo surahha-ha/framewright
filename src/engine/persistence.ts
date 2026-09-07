@@ -5,7 +5,11 @@
 
 import type { Project } from './types';
 
-export const CURRENT_SCHEMA = 1;
+/**
+ * 1 → 2: the document gained a `subtitles` list. An older file simply has none,
+ * so reading it means filling the list in — see `upgradeProject`.
+ */
+export const CURRENT_SCHEMA = 2;
 
 export interface Version {
   id: string;
@@ -52,6 +56,18 @@ function looksLikeProject(value: unknown): value is Project {
 }
 
 /**
+ * Bring a document written by an older schema up to the current one. Every
+ * project that comes out of `deserialize` — the live one AND every version's
+ * snapshot — goes through here, so nothing downstream has to ask "does this
+ * one have the list yet".
+ */
+export function upgradeProject(project: Project): Project {
+  return Array.isArray(project.subtitles)
+    ? project
+    : { ...project, subtitles: [] };
+}
+
+/**
  * Read saved state. Returns null (never throws) for anything we cannot trust —
  * losing an autosave is bad, but loading a corrupted document is worse.
  */
@@ -70,11 +86,13 @@ export function deserialize(raw: string): PersistedState | null {
   if (state.schemaVersion > CURRENT_SCHEMA) return null;
   if (!looksLikeProject(state.project)) return null;
   const versions = Array.isArray(state.versions)
-    ? state.versions.filter((v) => v && looksLikeProject(v.project))
+    ? state.versions
+        .filter((v) => v && looksLikeProject(v.project))
+        .map((v) => ({ ...v, project: upgradeProject(v.project) }))
     : [];
   return {
     schemaVersion: state.schemaVersion,
-    project: state.project,
+    project: upgradeProject(state.project),
     versions,
     generation: typeof state.generation === 'number' ? state.generation : 0,
   };

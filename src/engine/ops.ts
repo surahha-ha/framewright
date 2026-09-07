@@ -3,7 +3,7 @@
 // Patch { forward, inverse }; undo applies the inverse, redo re-applies the SAME
 // recorded forward ops (so redo is deterministic — it never re-runs the command).
 
-import type { Asset, Clip, Project, TimelineConfig } from './types';
+import type { Asset, Clip, Project, Subtitle, TimelineConfig } from './types';
 
 export type Op =
   | { kind: 'insertClip'; trackId: string; index: number; clip: Clip }
@@ -13,6 +13,15 @@ export type Op =
       trackId: string;
       clipId: string;
       changes: Partial<Omit<Clip, 'id'>>;
+    }
+  /** Subtitles are their own list (see `types.ts`), so they get their own
+   *  three ops — the same shape as a clip's, keyed by index and by id. */
+  | { kind: 'insertSubtitle'; index: number; subtitle: Subtitle }
+  | { kind: 'removeSubtitle'; index: number }
+  | {
+      kind: 'updateSubtitle';
+      subtitleId: string;
+      changes: Partial<Omit<Subtitle, 'id'>>;
     }
   | { kind: 'addAsset'; asset: Asset }
   | { kind: 'removeAsset'; assetId: string }
@@ -81,6 +90,23 @@ export function applyOp(project: Project, op: Op): Project {
       return mapTrack(project, op.trackId, (clips) =>
         clips.map((c) => (c.id === op.clipId ? { ...c, ...op.changes } : c)),
       );
+    case 'insertSubtitle': {
+      const next = project.subtitles.slice();
+      next.splice(op.index, 0, op.subtitle);
+      return { ...project, subtitles: next };
+    }
+    case 'removeSubtitle': {
+      const next = project.subtitles.slice();
+      next.splice(op.index, 1);
+      return { ...project, subtitles: next };
+    }
+    case 'updateSubtitle':
+      return {
+        ...project,
+        subtitles: project.subtitles.map((s) =>
+          s.id === op.subtitleId ? { ...s, ...op.changes } : s,
+        ),
+      };
     case 'addAsset':
       return { ...project, assets: [...project.assets, op.asset] };
     case 'removeAsset':

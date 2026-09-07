@@ -18,5 +18,6 @@ export function createProject(
       { id: 'a1', type: 'audio', clips: [] },
     ],
     assets: [],
+    subtitles: [],
   };
 }

@@ -13,6 +13,8 @@ export interface Editor {
   readonly project: Project;
   readonly playhead: number;
   readonly selectedClipId: string | null;
+  /** Never set together with `selectedClipId` — one selection at a time. */
+  readonly selectedSubtitleId: string | null;
   /**
    * What copy/cut set aside. Deliberately NOT part of the document: undo must
    * not empty your clipboard, and a version restore must not repopulate it.
@@ -35,7 +37,9 @@ export interface Editor {
   dispatch(commandId: string, args?: unknown, coalesceKey?: string): boolean;
 
   setPlayhead(frame: number): void;
+  /** Selecting a clip drops any selected subtitle, and vice versa. */
   select(clipId: string | null): void;
+  selectSubtitle(subtitleId: string | null): void;
   setClipboard(entry: ClipboardEntry | null): void;
 
   /** End the current coalescing gesture (key released, pointer lifted). */
@@ -65,6 +69,7 @@ export function createEditor(initial: Project): Editor {
   let project = initial;
   let playhead = 0;
   let selectedClipId: string | null = null;
+  let selectedSubtitleId: string | null = null;
   let clipboard: ClipboardEntry | null = null;
   const undoStack: Patch[] = [];
   const redoStack: Patch[] = [];
@@ -74,6 +79,7 @@ export function createEditor(initial: Project): Editor {
     project,
     playhead,
     selectedClipId,
+    selectedSubtitleId,
     clipboard,
   });
 
@@ -84,13 +90,18 @@ export function createEditor(initial: Project): Editor {
     playhead = Math.min(last, Math.max(0, playhead));
   }
 
-  /** Drop a selection pointing at a clip that no longer exists. */
+  /** Drop a selection pointing at a clip or subtitle that no longer exists. */
   function pruneSelection(): void {
-    if (!selectedClipId) return;
-    const exists = project.tracks.some((t) =>
-      t.clips.some((c) => c.id === selectedClipId),
-    );
-    if (!exists) selectedClipId = null;
+    if (selectedClipId) {
+      const exists = project.tracks.some((t) =>
+        t.clips.some((c) => c.id === selectedClipId),
+      );
+      if (!exists) selectedClipId = null;
+    }
+    if (selectedSubtitleId) {
+      const exists = project.subtitles.some((s) => s.id === selectedSubtitleId);
+      if (!exists) selectedSubtitleId = null;
+    }
   }
 
   function commit(patch: Patch, coalesceKey?: string): void {
@@ -120,6 +131,9 @@ export function createEditor(initial: Project): Editor {
     get selectedClipId() {
       return selectedClipId;
     },
+    get selectedSubtitleId() {
+      return selectedSubtitleId;
+    },
     get clipboard() {
       return clipboard;
     },
@@ -148,7 +162,15 @@ export function createEditor(initial: Project): Editor {
       commit(patch, coalesceKey);
       // After the edit, so `pruneSelection` cannot drop the clip we just made.
       const created = cmd.selects?.(c);
-      if (created) selectedClipId = created;
+      if (created) {
+        selectedClipId = created;
+        selectedSubtitleId = null;
+      }
+      const createdSubtitle = cmd.selectsSubtitle?.(c);
+      if (createdSubtitle) {
+        selectedSubtitleId = createdSubtitle;
+        selectedClipId = null;
+      }
       return true;
     },
 
@@ -160,6 +182,11 @@ export function createEditor(initial: Project): Editor {
     },
     select(clipId) {
       selectedClipId = clipId;
+      if (clipId) selectedSubtitleId = null;
+    },
+    selectSubtitle(subtitleId) {
+      selectedSubtitleId = subtitleId;
+      if (subtitleId) selectedClipId = null;
     },
     setClipboard(entry) {
       clipboard = entry;
@@ -209,6 +236,7 @@ export function createEditor(initial: Project): Editor {
       // The old playhead may be past the end of the restored timeline.
       this.setPlayhead(playhead);
       selectedClipId = null;
+      selectedSubtitleId = null;
     },
 
     importAsset(assetInput, durationFrames, sequence) {

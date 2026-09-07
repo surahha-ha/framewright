@@ -287,6 +287,15 @@ body {
   object-fit: contain;
   display: block;
 }
+/* The words over the picture. Placed by script exactly over the picture
+   canvas (see Preview.tsx), so `left/top/width/height` are set there and this
+   rule only takes it out of flow and out of the way of the pointer. */
+.stage canvas.stage-subtitle {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  pointer-events: none;
+}
 .transport {
   display: flex;
   align-items: center;
@@ -607,6 +616,199 @@ body {
 }
 .track.dragging {
   cursor: grabbing;
+}
+/* ------------------------------------------------------------ subtitles
+   A second lane under the clips, in the same scroll container at the same
+   scale. Shorter than the track: a chip carries one line of words, not a
+   picture. Amber, so it never reads as a clip. */
+.subtitle-lane {
+  position: relative;
+  height: 32px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  overflow: hidden;
+}
+.subtitle-lane.dragging {
+  cursor: grabbing;
+}
+/* Stays at the left edge however far the strip is scrolled. */
+.lane-label {
+  position: sticky;
+  left: 4px;
+  top: 4px;
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: var(--faint);
+  background: rgba(8, 16, 22, 0.72);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 3;
+}
+.lane-hint {
+  position: sticky;
+  left: 48px;
+  top: 6px;
+  display: inline-block;
+  font-size: 11px;
+  color: var(--faint);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.lane-hint kbd {
+  font-family: ui-monospace, monospace;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.subtitle {
+  position: absolute;
+  min-width: 24px;
+  top: 4px;
+  bottom: 4px;
+  background: linear-gradient(180deg, #3a2f14, #2a2210);
+  border: 1px solid #6b5a2a;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 11.5px;
+  font-family: inherit;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+/* `--muted`, not `--faint`: over the chip's amber gradient the fainter grey
+   fell to about 4.1:1 at the lighter end, under AA for 11.5px text — and this
+   is the state every subtitle is in the moment it is made. */
+.subtitle.empty {
+  color: var(--muted);
+  font-style: italic;
+  border-style: dashed;
+}
+.subtitle.selected {
+  border-color: var(--teal);
+  box-shadow: inset 0 0 0 1px var(--teal);
+}
+.subtitle.dragging {
+  cursor: grabbing;
+  opacity: 0.9;
+  border-color: var(--teal);
+  z-index: 2;
+}
+.subtitle:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+.subtitle-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.subtitle:hover .clip-handle.start,
+.subtitle:focus-visible .clip-handle.start,
+.subtitle.selected .clip-handle.start {
+  border-left-color: var(--teal);
+}
+.subtitle:hover .clip-handle.end,
+.subtitle:focus-visible .clip-handle.end,
+.subtitle.selected .clip-handle.end {
+  border-right-color: var(--teal);
+}
+.subtitle:hover .clip-handle::after,
+.subtitle:focus-visible .clip-handle::after,
+.subtitle.selected .clip-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border-left: 1px dotted var(--ink);
+  border-right: 1px dotted var(--ink);
+  opacity: 0.7;
+}
+/* The selected subtitle's words and timing, in the sidebar. */
+.subtitle-panel {
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+.subtitle-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 12px 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.subtitle-field textarea {
+  resize: vertical;
+  min-height: 3.2em;
+  background: #0b1219;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.5;
+}
+.subtitle-field textarea:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.subtitle-field-help {
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.subtitle-field-help kbd {
+  font-family: ui-monospace, monospace;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+/* Stacked, one fact per line, and never broken inside a word: side by side
+   in the 260px sidebar the range wrapped as "00:03:00까 / 지". Seen in Chrome;
+   asserted in e2e/subtitles.spec.ts. */
+.subtitle-when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 12px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+}
+.subtitle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 12px 8px;
+}
+.subtitle-actions button {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.subtitle-actions button:hover:not([aria-disabled='true']) {
+  border-color: var(--teal);
+}
+.subtitle-actions button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.subtitle-actions button.danger {
+  border-color: #5a2530;
+  color: var(--rose);
 }
 .drag-readout {
   color: var(--teal);

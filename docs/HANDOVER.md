@@ -90,7 +90,14 @@ Done: **E0–E6.**
   and its last frames were unreachable. `rebaseToPresentationStart` in
   `demux.ts`; ADR-0008 records why the fix belongs to demux and not to playback.
 
-Next, in order: **E7** (text/subtitles, transitions, audio volume/fades,
+- Epic C (outside the numbered list) — **clip thumbnails and the audio
+  waveform** on the timeline strip, on the scale ADR-0010 gave it.
+- E7, first item — **subtitles**: `Project.subtitles`, the commands in
+  `src/engine/subtitleCommands.ts`, one draw function for preview and export
+  (`src/engine/subtitleRender.ts`), the lane under the clips and the sidebar
+  panel. ADR-0011 records why a subtitle is not a clip.
+
+Next, in order: the rest of **E7** (transitions, audio volume/fades,
 transform), E8 (style presets, shorts reframe), E9 (silence auto-cut).
 
 Still owed regardless of epic: timeline zoom + ruler ticks + thumbnails +

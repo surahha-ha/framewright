@@ -14,6 +14,7 @@ import type { VideoDecodeService } from './decoder';
 import { HOLD, type PlaybackSession } from './playbackSession';
 import { buildAudioSchedule } from './audioSchedule';
 import { renderTimelineAudio } from './audio';
+import { drawSubtitle } from './subtitleRender';
 
 export interface ExportOptions {
   bitrate?: number;
@@ -101,7 +102,8 @@ async function pickEncoderConfig(
     };
     try {
       const support = await VideoEncoder.isConfigSupported(config);
-      if (support.supported) return (support.config as VideoEncoderConfig) ?? config;
+      if (support.supported)
+        return (support.config as VideoEncoderConfig) ?? config;
       lastReason = `${profile} 프로파일 미지원`;
     } catch (e) {
       lastReason = e instanceof Error ? e.message : String(e);
@@ -200,12 +202,19 @@ export async function exportProject(
     if (encodeError) throw encodeError;
   }
 
+  // Two canvases. `picture` holds the footage and is only touched when the
+  // footage changes (a HOLD frame keeps it as it is). `canvas` is what gets
+  // encoded: the picture, then the subtitle for THIS frame on top. Burning
+  // the words into `picture` directly would leave them on every held frame
+  // after the subtitle had ended.
+  const picture = new OffscreenCanvas(width, height);
+  const pictureCtx = picture.getContext('2d', { alpha: false });
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d', { alpha: false });
-  if (!ctx) throw new Error('캔버스를 만들 수 없어요.');
+  if (!ctx || !pictureCtx) throw new Error('캔버스를 만들 수 없어요.');
   const blank = () => {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, width, height);
+    pictureCtx.fillStyle = '#000';
+    pictureCtx.fillRect(0, 0, width, height);
   };
   blank(); // start opaque black, never transparent
 
@@ -280,7 +289,7 @@ export async function exportProject(
                 height,
               );
               blank();
-              ctx.drawImage(decoded, r.x, r.y, r.width, r.height);
+              pictureCtx.drawImage(decoded, r.x, r.y, r.width, r.height);
             } finally {
               decoded.close();
             }
@@ -290,6 +299,11 @@ export async function exportProject(
       } else {
         blank(); // a gap is black, not missing time
       }
+
+      // Compose: the footage, then this frame's words. Same function as the
+      // preview's overlay, at the same size, so the file matches the screen.
+      ctx.drawImage(picture, 0, 0);
+      if (entry.subtitle) drawSubtitle(ctx, entry.subtitle, width, height);
 
       // Per-sample duration must match the gap to the NEXT timestamp, otherwise
       // fractional rates (29.97) drift against the declared duration.

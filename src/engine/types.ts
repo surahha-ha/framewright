@@ -51,6 +51,25 @@ export interface Track {
   clips: Clip[];
 }
 
+/**
+ * A subtitle: words shown over the picture for a range of TIMELINE frames.
+ *
+ * Not a clip. A clip is a window onto a source file (`inFrame`/`outFrame`
+ * name frames of media); a subtitle has no source, only a position and the
+ * text itself, so it lives in its own list rather than pretending to be a
+ * clip on a `text` track with nothing to point at. Same half-open rule as
+ * everything else: shown on frames `[startFrame, endFrame)`.
+ *
+ * Subtitles are kept sorted by `startFrame` and never overlap — one line of
+ * words on screen at a time is the whole of what a first-time user expects.
+ */
+export interface Subtitle {
+  id: string;
+  text: string;
+  startFrame: number;
+  endFrame: number; // EXCLUSIVE
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -59,4 +78,5 @@ export interface Project {
   timeline: TimelineConfig;
   tracks: Track[];
   assets: Asset[];
+  subtitles: Subtitle[];
 }

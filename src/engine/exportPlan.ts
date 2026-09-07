@@ -5,6 +5,7 @@
 
 import type { Project } from './types';
 import { resolveAt, videoDuration } from './timeline';
+import { subtitleAt } from './subtitles';
 
 export interface ExportFrame {
   timelineFrame: number;
@@ -12,6 +13,10 @@ export interface ExportFrame {
   assetId: string | null;
   clipId: string | null;
   sourceFrame: number;
+  /** The words burnt into this frame, or null. Part of the plan, not looked
+   *  up at render time, so "what does frame N show" is answered in one place
+   *  and the preview and the export cannot answer it differently. */
+  subtitle: string | null;
 }
 
 export function buildExportPlan(project: Project): ExportFrame[] {
@@ -19,14 +24,23 @@ export function buildExportPlan(project: Project): ExportFrame[] {
   const plan: ExportFrame[] = new Array(total);
   for (let f = 0; f < total; f++) {
     const hit = resolveAt(project, f);
+    const words = subtitleAt(project, f)?.text ?? '';
+    const subtitle = words.length ? words : null;
     plan[f] = hit
       ? {
           timelineFrame: f,
           assetId: hit.clip.assetId,
           clipId: hit.clip.id,
           sourceFrame: hit.sourceFrame,
+          subtitle,
         }
-      : { timelineFrame: f, assetId: null, clipId: null, sourceFrame: 0 };
+      : {
+          timelineFrame: f,
+          assetId: null,
+          clipId: null,
+          sourceFrame: 0,
+          subtitle,
+        };
   }
   return plan;
 }
@@ -56,7 +70,10 @@ export function isContinuous(
 }
 
 /** Encoders reject odd dimensions with 4:2:0 chroma. */
-export function evenDimensions(width: number, height: number): {
+export function evenDimensions(
+  width: number,
+  height: number,
+): {
   width: number;
   height: number;
 } {

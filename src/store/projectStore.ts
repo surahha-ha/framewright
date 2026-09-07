@@ -54,6 +54,18 @@ interface State {
   project: Project;
   playhead: number;
   selectedClipId: string | null;
+  /** Mirrors `editor.selectedSubtitleId`. Never set together with a clip. */
+  selectedSubtitleId: string | null;
+  /** Bumped when a command has just CREATED a subtitle and selected it — the
+   *  words are what comes next, so the panel puts the cursor in the field. Only
+   *  then: an undo that empties the words, or tabbing onto an empty chip, must
+   *  not pull focus away from where the keyboard is. */
+  subtitleWordsWanted: number;
+  /** What is being typed for a subtitle RIGHT NOW, before it is committed.
+   *  The preview draws it so the words show up as they are typed; the
+   *  document only changes on Enter/blur (one edit, one undo step). */
+  subtitleDraft: { id: string; text: string } | null;
+  setSubtitleDraft: (draft: { id: string; text: string } | null) => void;
   canUndo: boolean;
   canRedo: boolean;
   isPlaying: boolean;
@@ -124,6 +136,7 @@ interface State {
   setPlayhead: (frame: number) => void;
   seekTo: (frame: number) => void;
   select: (clipId: string | null) => void;
+  selectSubtitle: (subtitleId: string | null) => void;
   setPlaying: (b: boolean) => void;
   setExporting: (b: boolean) => void;
   setStatus: (s: string) => void;
@@ -210,10 +223,26 @@ export const useStore = create<State>((set, get) => {
     scheduleSave();
   }
 
+  /**
+   * Save what is being typed for a subtitle before the selection moves on.
+   *
+   * The field commits on blur, but a chip or a clip is selected on MOUSEDOWN —
+   * which runs, re-renders and unmounts the field before the browser gets to
+   * move focus and fire the blur. The words typed so far were simply gone.
+   * So the selection change itself saves them first.
+   */
+  function flushSubtitleDraft() {
+    const draft = get().subtitleDraft;
+    if (!draft) return;
+    set({ subtitleDraft: null });
+    get().run('subtitle.setText', { subtitleId: draft.id, text: draft.text });
+  }
+
   const snapshot = () => ({
     project: editor.project,
     playhead: editor.playhead,
     selectedClipId: editor.selectedClipId,
+    selectedSubtitleId: editor.selectedSubtitleId,
     canUndo: editor.canUndo(),
     canRedo: editor.canRedo(),
   });
@@ -222,6 +251,10 @@ export const useStore = create<State>((set, get) => {
     project: editor.project,
     playhead: 0,
     selectedClipId: null,
+    selectedSubtitleId: null,
+    subtitleWordsWanted: 0,
+    subtitleDraft: null,
+    setSubtitleDraft: (subtitleDraft) => set({ subtitleDraft }),
     canUndo: false,
     canRedo: false,
     isPlaying: false,
@@ -264,7 +297,11 @@ export const useStore = create<State>((set, get) => {
       const before = editor.context();
       if (!editor.dispatch(commandId, args, coalesceKey)) return false;
       afterDocumentChange();
-      const done = editor.commands().find((c) => c.id === commandId)?.done;
+      const command = editor.commands().find((c) => c.id === commandId);
+      if (command?.selectsSubtitle) {
+        set((s) => ({ subtitleWordsWanted: s.subtitleWordsWanted + 1 }));
+      }
+      const done = command?.done;
       const text =
         typeof done === 'function' ? done(before, editor.context()) : done;
       // While another tab owns the document nothing here reaches disk. The
@@ -405,8 +442,21 @@ export const useStore = create<State>((set, get) => {
     },
 
     select: (clipId) => {
+      flushSubtitleDraft();
       editor.select(clipId);
-      set({ selectedClipId: editor.selectedClipId });
+      set({
+        selectedClipId: editor.selectedClipId,
+        selectedSubtitleId: editor.selectedSubtitleId,
+      });
+    },
+
+    selectSubtitle: (subtitleId) => {
+      flushSubtitleDraft();
+      editor.selectSubtitle(subtitleId);
+      set({
+        selectedClipId: editor.selectedClipId,
+        selectedSubtitleId: editor.selectedSubtitleId,
+      });
     },
 
     overlay: 'none',

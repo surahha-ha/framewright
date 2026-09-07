@@ -9,6 +9,7 @@ import { CommandPalette } from './ui/CommandPalette';
 import { MediaBin } from './ui/MediaBin';
 import { ShortcutsPanel } from './ui/ShortcutsPanel';
 import { Preview } from './ui/Preview';
+import { SubtitlePanel } from './ui/SubtitlePanel';
 import { Timeline } from './ui/Timeline';
 import { Toolbar } from './ui/Toolbar';
 import { VersionPanel } from './ui/VersionPanel';
@@ -65,6 +66,7 @@ export default function App() {
         <main className="workspace">
           <div className="sidebar">
             <MediaBin />
+            <SubtitlePanel />
             <VersionPanel />
           </div>
           <Preview />

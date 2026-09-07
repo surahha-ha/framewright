@@ -53,8 +53,9 @@ import {
 import { describeEdit, LIMIT_TEXT } from '../engine/commands';
 import { formatChord } from '../engine/keymap';
 import { formatClock, formatTimecode, frameToSec } from '../engine/time';
-import { canRun, perform, whyNot } from './actions';
 import { ClipCanvas } from './ClipCanvas';
+import { CommandButton } from './CommandButton';
+import { SubtitleLane } from './SubtitleLane';
 import { hasNoAudioTrack } from '../engine/audio';
 import { useResolvedKeymap } from './useShortcuts';
 import type { Clip } from '../engine/types';
@@ -135,6 +136,8 @@ export function Timeline() {
   useStore((s) => s.mediaVersion);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [scrollPx, setScrollPx] = useState(0);
+  /** The subtitle lane's own drag sentence; it shares the readout slot. */
+  const [subtitleReadout, setSubtitleReadout] = useState<string | null>(null);
   /** The handlers live on `window` (see below) and must see the newest drag. */
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
@@ -224,7 +227,12 @@ export function Timeline() {
     // `reduce`, not `Math.max(...spread)`: a project with tens of thousands of
     // cuts would pass that many arguments in one call and throw.
     (widest, g) => Math.max(widest, (g.start + g.length) * scale),
-    contentWidth(view),
+    // A subtitle can outlast a video that was shortened underneath it; the
+    // content grows to keep it reachable rather than clipping it off.
+    project.subtitles.reduce(
+      (widest, s) => Math.max(widest, s.endFrame * scale),
+      contentWidth(view),
+    ),
   );
 
   const viewRef = useRef(view);
@@ -510,33 +518,10 @@ export function Timeline() {
    * icon-only buttons put the deciding word behind a hover, which is where a
    * first-time user who cannot click a narrow clip will never look for it.
    */
-  function ZoomButton({
-    id,
-    icon,
-    label,
-    short,
-  }: Record<'id' | 'icon' | 'label' | 'short', string>) {
-    const enabled = canRun(id);
-    const why = enabled ? '' : whyNot(id);
-    const chord = keymap.byAction.get(id) ?? null;
-    return (
-      <button
-        type="button"
-        className="zoom-btn"
-        aria-disabled={!enabled}
-        aria-label={label}
-        title={
-          enabled ? (chord ? `${label} (${formatChord(chord)})` : label) : why
-        }
-        onClick={() => {
-          // Saying why beats a click that does nothing at all.
-          if (!enabled) return setStatus(why);
-          perform(id);
-        }}
-      >
-        <span aria-hidden="true">{icon}</span> {short}
-      </button>
-    );
+  function ZoomButton(
+    props: Record<'id' | 'icon' | 'label' | 'short', string>,
+  ) {
+    return <CommandButton {...props} className="zoom-btn" />;
   }
 
   /**
@@ -598,7 +583,12 @@ export function Timeline() {
             label="작게 보기"
             short="작게"
           />
-          <ZoomButton id="view.zoomIn" icon="⊕" label="크게 보기" short="크게" />
+          <ZoomButton
+            id="view.zoomIn"
+            icon="⊕"
+            label="크게 보기"
+            short="크게"
+          />
           {/* ⛶, not ⤢: a four-corner frame is the fit-to-view mark people know
               from image viewers and maps, where a diagonal arrow reads as
               "resize this corner". */}
@@ -611,7 +601,7 @@ export function Timeline() {
         </span>
         <span className="zoom-span">{spanText()}</span>
         <span className="drag-readout" aria-hidden="true">
-          {readout ?? ''}
+          {readout ?? subtitleReadout ?? ''}
         </span>
       </div>
       <div
@@ -784,6 +774,14 @@ export function Timeline() {
             이 영상에는 소리가 없어요.
           </span>
         </div>
+        {/* Same scroll container, same scale: a subtitle sits exactly under
+            the frames it is shown on. */}
+        <SubtitleLane
+          view={view}
+          contentPx={contentPx}
+          onScrub={seekFromX}
+          onReadout={setSubtitleReadout}
+        />
       </div>
       {/* Read from the live keymap, so a rebinding shows up here instead of
           leaving the hint quietly lying about which keys work. */}
@@ -798,7 +796,10 @@ export function Timeline() {
         줄이려면 <kbd>{key('clip.trimStartToPlayhead')}</kbd>(앞),{' '}
         <kbd>{key('clip.trimEndToPlayhead')}</kbd>(뒤)를 눌러요. 좁아서 고르기
         어려우면 <kbd>{key('view.zoomIn')}</kbd> 로 크게 보고,{' '}
-        <kbd>{key('view.zoomFit')}</kbd> 로 전체를 다시 봐요.
+        <kbd>{key('view.zoomFit')}</kbd> 로 전체를 다시 봐요. 자막은{' '}
+        <kbd>{key('subtitle.add')}</kbd> 로 재생 위치에 넣고, 아래 자막 줄에서
+        끌어 옮기거나 양 끝을 끌어 길이를 조절해요. 자막을 고른 뒤{' '}
+        <kbd>Delete</kbd> 를 누르면 그 자막만 지워져요.
       </p>
     </section>
   );
