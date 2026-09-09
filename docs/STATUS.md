@@ -19,10 +19,9 @@ repo does not.
 ## Where we are
 
 **E7's second item, fades (the transitions), is built, gate-green and
-UNCOMMITTED in the working tree.** The three commits before it (`f298f07`
-harness, `9d4ee2b` subtitles, `8ff129d` handoff) were pushed on 2026-09-09;
-`origin/main` = `main` = `8ff129d`. Everything below is `git status` — 19
-modified files and 11 new ones — waiting for the owner's word on a commit.
+committed as `4f970f8`** (one commit, `CLAUDE.md` included). Not pushed:
+`origin/main` is at `8ff129d` (the subtitles unit, pushed 2026-09-09 with
+the owner's approval). Everything below is in that commit.
 
 ### What is new
 
@@ -140,7 +139,7 @@ document was left as found (three undos, verified 0 marks).
 
 ## Next single step
 
-**Commit (owner's call), then E7 item 3: audio volume.** Before designing
+**Push (owner's call), then E7 item 3: audio volume.** Before designing
 it, read `src/engine/audioSchedule.ts` (gain points already exist per
 segment — a per-clip volume is a third source of gain to fold into the same
 ramp list) and `src/ui/ClipPanel.tsx` (the natural home for a volume control,
@@ -148,9 +147,8 @@ next to the fades).
 
 ## Blocked / needs the owner
 
-1. **Commit.** Announced and waiting. Suggested message:
-   `feat(fades): let a clip's edges come and go softly` — one commit for the
-   unit, `CLAUDE.md` included this time.
+1. **Push.** `4f970f8` (fades) and the docs commit after it are local
+   only; the owner decides when.
 2. **Playback through a dissolve was not watched by eye** (hidden tab). The
    e2e reads pixels frame by frame while paused, and the pool's behaviour is
    unit-tested; the real-time look of a dissolve on real footage is still
