@@ -231,6 +231,39 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **The fade mark is subtle over bright or busy footage.** `.clip-fade` is a
+  dark ramp plus a 2px teal diagonal drawn over whatever the thumbnails
+  contain; the ramp is legible for its first third and the diagonal is thin
+  against a rainbow frame (seen in the owner's Chrome, 2026-09-09). It is
+  decorative — the clip's `aria-describedby` says the same in words — and it
+  has no `title`, so a sighted user who did not add the fade learns what it
+  is only by selecting the clip. A bar along the mark's extent, or a
+  hover title, are the cheap next levers. Same shape as the `.clip-name`
+  contrast entry below: the ground is the footage, not a token.
+- **The preview leaves a dissolve's second picture out until that decoder
+  delivers its first frame**; the export waits for it. A neighbour's decoder
+  opened cold at a cut takes a few frames, so on screen a dissolve starts
+  a few frames late and the file does not. Chosen over the alternative
+  (black at the fade's weight, which flashed dark at every dissolve). A
+  pre-roll started before the cut would hide it; that is the same warm-decoder
+  work playback already owes at every hard cut.
+- **`missingFrames` counts a frame whose DISSOLVE picture could not be read
+  as a missing frame**, and the export sentence then says those frames were
+  "검은 화면으로 채웠어요" — overstated: the footage was there, only the
+  picture under it went black. Honest count, imprecise sentence.
+- **The audio crossfade is linear, like the picture.** An equal-power curve
+  sounds better through a long dissolve and would then disagree with what
+  the eye sees ramping. ADR-0012 leaves it linear on purpose.
+- **A fade-out and a fade-in on the same cut dip through black**, legally
+  and silently: each panel note says where its own edge goes, nothing says
+  "the cut now goes dark". A first-time user who wanted a dissolve and set
+  both gets the dip. One sentence on the second toggle would do it.
+- **A split inside a fade steepens the ramp** — each piece fades over what it
+  has. The split's own sentence says so (`서서히 구간도 나뉘어 짧아졌어요`),
+  which is the honest option short of refusing the split.
+- **The palette finds the fades only by their Korean label.** Typing `fade`
+  or `페이드` finds nothing; the filter is a plain substring on the label
+  (see the palette entry further down). The panel is the discoverable route.
 - **A quiet source still reads as a thickened line, not a shape.** The wave is
   drawn through `waveAmplitude` (a square root) so that ordinary audio is
   visible at all in an 18px band — the repo's own fixture peaks at 0.19, which
@@ -298,10 +331,6 @@ file that moved. Then run `check:refs` and `typecheck`.
   by dragging or by parking the playhead and pressing one of the three
   재생 위치로 buttons. A keyboard user gets frame-exact results that way but
   needs the ruler for every step.
-- **The preview's subtitle overlay is drawn at the TIMELINE's size and scaled
-  onto the picture's box**; the export letterboxes the picture INTO the
-  timeline's box. When the two aspect ratios differ the words are right for
-  the file and slightly off on screen. Needs a mixed-aspect project to see.
 - **The subtitle font is whatever the browser resolves** from the stack in
   `subtitleRender.ts`. One browser previews and exports, so they agree with
   each other; another machine may wrap a line differently.

@@ -54,6 +54,7 @@ import { describeEdit, LIMIT_TEXT } from '../engine/commands';
 import { formatChord } from '../engine/keymap';
 import { formatClock, formatTimecode, frameToSec } from '../engine/time';
 import { ClipCanvas } from './ClipCanvas';
+import { effectiveFades, fadeSecondsText } from '../engine/fades';
 import { CommandButton } from './CommandButton';
 import { SubtitleLane } from './SubtitleLane';
 import { hasNoAudioTrack } from '../engine/audio';
@@ -671,6 +672,7 @@ export function Timeline() {
             const selected = c.id === selectedClipId;
             const isDragging = drag?.active && drag.clipId === c.id;
             const g = drawn[i];
+            const fades = effectiveFades(c);
             return (
               <button
                 key={c.id}
@@ -709,6 +711,7 @@ export function Timeline() {
                   [
                     unlinked(c.assetId) ? 'clip-unlinked-note' : '',
                     silent(c.assetId) ? 'clip-silent-note' : '',
+                    fades.fadeIn || fades.fadeOut ? `clip-fade-${c.id}` : '',
                   ]
                     .filter(Boolean)
                     .join(' ') || undefined
@@ -739,6 +742,37 @@ export function Timeline() {
                   assetId={c.assetId}
                   fps={fps}
                 />
+                {/* A softened edge (ADR-0012): a ramp over the frames it
+                    takes, in the clip's own scale. Decorative — the clip's
+                    description says it in words. */}
+                {fades.fadeIn > 0 && (
+                  <span
+                    className="clip-fade in"
+                    aria-hidden="true"
+                    style={{ width: frameToX(view, fades.fadeIn) + 'px' }}
+                  />
+                )}
+                {fades.fadeOut > 0 && (
+                  <span
+                    className="clip-fade out"
+                    aria-hidden="true"
+                    style={{ width: frameToX(view, fades.fadeOut) + 'px' }}
+                  />
+                )}
+                {(fades.fadeIn > 0 || fades.fadeOut > 0) && (
+                  <span id={`clip-fade-${c.id}`} className="sr-only">
+                    {[
+                      fades.fadeIn > 0
+                        ? `앞 ${fadeSecondsText(fades.fadeIn, fps)} 동안 서서히 나타남`
+                        : '',
+                      fades.fadeOut > 0
+                        ? `뒤 ${fadeSecondsText(fades.fadeOut, fps)} 동안 서서히 사라짐`
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                )}
                 <span className="clip-handle start" aria-hidden="true" />
                 {unlinked(c.assetId) && (
                   <span

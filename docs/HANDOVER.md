@@ -97,8 +97,15 @@ Done: **E0–E6.**
   (`src/engine/subtitleRender.ts`), the lane under the clips and the sidebar
   panel. ADR-0011 records why a subtitle is not a clip.
 
-Next, in order: the rest of **E7** (transitions, audio volume/fades,
-transform), E8 (style presets, shorts reframe), E9 (silence auto-cut).
+- E7, second item — **fades** (the transitions): `Clip.fadeIn` /
+  `Clip.fadeOut`, derived partner (the butted neighbour's overhang, or
+  black), `ExportFrame.blend`, gain ramps in the audio schedule, one decoder
+  pool (`src/engine/feeds.ts`) and one draw (`src/engine/compose.ts`) for
+  preview and export, the "클립" sidebar panel. ADR-0012 records why a fade
+  is an edge of a clip and why nothing about it is stored but its length.
+
+Next, in order: the rest of **E7** (audio volume, transform), E8 (style
+presets, shorts reframe), E9 (silence auto-cut).
 
 Still owed regardless of epic: timeline zoom + ruler ticks + thumbnails +
 waveform, preview depth (quality toggle, loop range, fullscreen, safe area),

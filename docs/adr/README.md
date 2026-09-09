@@ -17,6 +17,7 @@ ones, don't delete.
 | 0009 | Keep the media (OPFS)               | Accepted |
 | 0010 | The timeline has a scale of its own | Accepted |
 | 0011 | Subtitles are not clips; one draw   | Accepted |
+| 0012 | A fade is an edge of a clip         | Accepted |
 
 ## Template
 

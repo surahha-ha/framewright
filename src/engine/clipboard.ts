@@ -25,6 +25,10 @@ export interface ClipboardEntry {
   inFrame: number;
   /** Exclusive — ranges are half-open [in, out). */
   outFrame: number;
+  /** The clip's fades (ADR-0012), so a pasted clip looks like its source.
+   *  Present only when the clip had them — never `undefined` keys. */
+  fadeIn?: number;
+  fadeOut?: number;
 }
 
 export function entryLength(entry: ClipboardEntry): number {
@@ -43,6 +47,8 @@ export function copyEntry(
     assetId: clip.assetId,
     inFrame: clip.inFrame,
     outFrame: clip.outFrame,
+    ...(clip.fadeIn !== undefined ? { fadeIn: clip.fadeIn } : {}),
+    ...(clip.fadeOut !== undefined ? { fadeOut: clip.fadeOut } : {}),
   };
 }
 

@@ -6,6 +6,7 @@
 import type { Project } from './types';
 import { resolveAt, videoDuration } from './timeline';
 import { subtitleAt } from './subtitles';
+import { blendAt, type Blend } from './fades';
 
 export interface ExportFrame {
   timelineFrame: number;
@@ -17,6 +18,11 @@ export interface ExportFrame {
    *  up at render time, so "what does frame N show" is answered in one place
    *  and the preview and the export cannot answer it differently. */
   subtitle: string | null;
+  /** A second picture mixed over this one — the other side of a fade — and
+   *  how much of it shows (ADR-0012). `assetId: null` is black. In the plan
+   *  for the same reason as the words: one answer per frame, for both
+   *  surfaces. */
+  blend: Blend | null;
 }
 
 export function buildExportPlan(project: Project): ExportFrame[] {
@@ -33,6 +39,7 @@ export function buildExportPlan(project: Project): ExportFrame[] {
           clipId: hit.clip.id,
           sourceFrame: hit.sourceFrame,
           subtitle,
+          blend: blendAt(project, f),
         }
       : {
           timelineFrame: f,
@@ -40,6 +47,7 @@ export function buildExportPlan(project: Project): ExportFrame[] {
           clipId: null,
           sourceFrame: 0,
           subtitle,
+          blend: null,
         };
   }
   return plan;

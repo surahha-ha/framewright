@@ -2,8 +2,9 @@
 // Everything resolves through the TIMELINE (resolveAt), so cuts and deletes are
 // reflected in what you see.
 //   - SCRUB: single-flight, latest-wins decode (stale frames dropped).
-//   - PLAYBACK: one streaming session per clip; crossing a cut restarts the
-//     session at the next clip's source position.
+//   - PLAYBACK: streaming sessions from the feed pool — one per source in
+//     play, two through a dissolve; crossing a cut re-cues only what the pool
+//     cannot carry on (ADR-0012).
 // The playback loop reads live state through refs — a captured closure would
 // keep playing the pre-edit document and would fight the user's seeking.
 import { useEffect, useLayoutEffect, useRef } from 'react';
@@ -11,14 +12,15 @@ import { useStore } from '../store/projectStore';
 import { getDecodeService } from '../engine/registry';
 import { frameToSec, secToFrame, formatTimecode } from '../engine/time';
 import { resolveAt, timelineDuration } from '../engine/timeline';
-import { isContinuous } from '../engine/exportPlan';
 import { buildAudioSchedule } from '../engine/audioSchedule';
 import { AudioPlayer } from '../engine/audioPlayer';
 import { audioContext, getAudioBuffer, resumeAudio } from '../engine/audio';
-import type { PlaybackSession } from '../engine/playbackSession';
 import { subtitleAt } from '../engine/subtitles';
 import { drawSubtitle } from '../engine/subtitleRender';
 import { evenDimensions } from '../engine/exportPlan';
+import { blendAt } from '../engine/fades';
+import { FeedPool } from '../engine/feeds';
+import { composeFrame, type BlendLayer } from '../engine/compose';
 import { TOGGLE_PLAY_EVENT } from './actions';
 
 export function Preview() {
@@ -31,9 +33,9 @@ export function Preview() {
   const stageRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<number | null>(null);
   const busyRef = useRef(false);
-  const sessionRef = useRef<PlaybackSession | null>(null);
-  const sessionAssetRef = useRef<string | null>(null);
-  const lastSourceRef = useRef(-1);
+  /** The decoders behind playback. Made when playback starts, emptied when
+   *  it stops; a fade needs two of them at once. */
+  const poolRef = useRef<FeedPool | null>(null);
   const rafRef = useRef(0);
   const baseFrameRef = useRef(0);
   const baseWallRef = useRef(0);
@@ -69,38 +71,33 @@ export function Preview() {
   seekVersionRef.current = seekVersion;
   const seenSeekRef = useRef(seekVersion);
 
-  function drawFrame(frame: VideoFrame) {
+  /**
+   * Paint one timeline frame: black, the footage, the other side of a fade.
+   * The canvas is the TIMELINE's size and the footage is letterboxed into it
+   * — exactly what the export does — so the screen and the file agree even
+   * when a source's aspect differs from the sequence's. The words are not
+   * here; they have their own layer (above).
+   */
+  function paint(primary: VideoFrame | null, blend: BlendLayer | null) {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
-    if (
-      canvas.width !== frame.displayWidth ||
-      canvas.height !== frame.displayHeight
-    ) {
-      canvas.width = frame.displayWidth;
-      canvas.height = frame.displayHeight;
+    const { width, height } = evenDimensions(
+      projectRef.current.timeline.width,
+      projectRef.current.timeline.height,
+    );
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
     }
-    ctx.drawImage(frame, 0, 0);
+    composeFrame(ctx, width, height, primary, blend, null);
   }
 
   /** A gap has no picture. Holding the previous frame is what makes a hole in
    *  the timeline look like footage — and export writes black there, so the
    *  preview would be lying about the file it is going to produce. */
   function drawBlank() {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-
-  /** Draw and always release the frame, even if drawing throws. */
-  function drawAndRelease(frame: VideoFrame) {
-    try {
-      drawFrame(frame);
-    } finally {
-      frame.close();
-    }
+    paint(null, null);
   }
 
   // ---- SCRUB (single-flight, latest wins) ----
@@ -111,7 +108,8 @@ export function Preview() {
       while (pendingRef.current !== null) {
         const timelineFrame = pendingRef.current;
         pendingRef.current = null;
-        const hit = resolveAt(projectRef.current, timelineFrame);
+        const doc = projectRef.current;
+        const hit = resolveAt(doc, timelineFrame);
         if (!hit) {
           drawBlank();
           continue;
@@ -124,7 +122,27 @@ export function Preview() {
         } catch {
           frame = null; // decoder released internally; keep the last good frame
         }
-        if (frame) drawAndRelease(frame);
+        if (!frame) continue;
+        // The other side of a fade, when this frame has one: the neighbour's
+        // overhang or pre-roll, or black.
+        const mix = blendAt(doc, timelineFrame);
+        let other: VideoFrame | null = null;
+        if (mix?.assetId) {
+          try {
+            other =
+              (await getDecodeService(mix.assetId)?.decodeAtSec(
+                frameToSec(mix.sourceFrame, fps),
+              )) ?? null;
+          } catch {
+            other = null;
+          }
+        }
+        try {
+          paint(frame, mix ? { frame: other, weight: mix.weight } : null);
+        } finally {
+          frame.close();
+          other?.close();
+        }
       }
     } finally {
       busyRef.current = false;
@@ -150,7 +168,7 @@ export function Preview() {
   useEffect(() => {
     return () => {
       cancelAnimationFrame(rafRef.current);
-      sessionRef.current?.stop();
+      poolRef.current?.stopAll();
       audioRef.current?.stop();
     };
   }, []);
@@ -214,10 +232,8 @@ export function Preview() {
   function stopPlayback() {
     cancelAnimationFrame(rafRef.current);
     rafRef.current = 0;
-    sessionRef.current?.stop();
-    sessionRef.current = null;
-    sessionAssetRef.current = null;
-    lastSourceRef.current = -1;
+    poolRef.current?.stopAll();
+    poolRef.current = null;
     audioRef.current?.stop();
     setPlaying(false);
   }
@@ -254,6 +270,18 @@ export function Preview() {
     void startAudio(from);
     setPlaying(true);
 
+    const onDecodeError = (e: DOMException) => {
+      console.error('playback decode error:', e);
+      setStatus('영상을 재생하는 중 문제가 생겨 멈췄어요. 다시 재생해 보세요.');
+      stopPlayback();
+    };
+    const pool = new FeedPool(
+      (assetId) =>
+        getDecodeService(assetId)?.createPlaybackSession(onDecodeError) ?? null,
+      fps,
+    );
+    poolRef.current = pool;
+
     const loop = () => {
       // Rebase only on a REAL user seek. (Comparing playhead values instead made
       // every slow render look like a seek, which re-cued audio ~60×/second and
@@ -263,10 +291,7 @@ export function Preview() {
         baseFrameRef.current = playheadRef.current;
         baseWallRef.current = performance.now();
         lastSetRef.current = playheadRef.current;
-        sessionRef.current?.stop();
-        sessionRef.current = null;
-        sessionAssetRef.current = null;
-        lastSourceRef.current = -1;
+        pool.stopAll();
         void startAudio(baseFrameRef.current); // re-cue audio at the new position
       }
 
@@ -285,47 +310,47 @@ export function Preview() {
         return;
       }
 
-      const hit = resolveAt(projectRef.current, frame);
+      const doc = projectRef.current;
+      const hit = resolveAt(doc, frame);
+      // A frame: ask the pool for each picture it needs, then drop the rest.
+      // In a gap that is nothing — so the clip on the far side re-cues
+      // instead of being judged "continuous" across it.
+      pool.begin();
       if (hit) {
-        const svc = getDecodeService(hit.clip.assetId);
-        if (svc) {
-          const sourceSec = frameToSec(hit.sourceFrame, fps);
-          // Keep the decoder running whenever the SOURCE is still continuous.
-          // Splitting a clip changes its id but not the material, so restarting
-          // on id alone would stall playback at every cut.
-          if (
-            !sessionRef.current ||
-            !isContinuous(
-              sessionAssetRef.current,
-              lastSourceRef.current,
-              hit.clip.assetId,
-              hit.sourceFrame,
-            )
-          ) {
-            sessionRef.current?.stop();
-            sessionRef.current = svc.createPlaybackSession((e) => {
-              console.error('playback decode error:', e);
-              setStatus(
-                '영상을 재생하는 중 문제가 생겨 멈췄어요. 다시 재생해 보세요.',
-              );
-              stopPlayback();
-            });
-            sessionRef.current.start(sourceSec);
-            sessionAssetRef.current = hit.clip.assetId;
+        const feed = pool.feed({
+          assetId: hit.clip.assetId,
+          sourceFrame: hit.sourceFrame,
+        });
+        if (feed) {
+          pool.pull(feed, frameToSec(hit.sourceFrame, fps));
+          const mix = blendAt(doc, frame);
+          let blend: BlendLayer | null = null;
+          if (mix) {
+            const other = mix.assetId
+              ? pool.feed({
+                  assetId: mix.assetId,
+                  sourceFrame: mix.sourceFrame,
+                })
+              : null;
+            if (other) pool.pull(other, frameToSec(mix.sourceFrame, fps));
+            // A neighbour's decoder opened THIS tick has nothing yet (decoder
+            // output is always asynchronous). Drawing black in its place at
+            // the fade's weight flashed dark at the start of every dissolve;
+            // leave the blend out until its first picture lands. Black as
+            // the partner is what the plan asked for, so that one stays.
+            blend =
+              other && !other.current
+                ? null
+                : { frame: other?.current ?? null, weight: mix.weight };
           }
-          lastSourceRef.current = hit.sourceFrame;
-          const vf = sessionRef.current?.frameFor(sourceSec) ?? null;
-          if (vf) drawAndRelease(vf);
+          // Nothing decoded yet (a cold start at a cut): keep the last
+          // picture on the canvas rather than flashing black for a frame.
+          if (feed.current) paint(feed.current, blend);
         }
       } else {
-        // In a gap: show black, and forget the decoder's position so the clip on
-        // the far side re-cues instead of being judged "continuous" across it.
         drawBlank();
-        sessionRef.current?.stop();
-        sessionRef.current = null;
-        sessionAssetRef.current = null;
-        lastSourceRef.current = -1;
       }
+      pool.end();
 
       lastSetRef.current = frame;
       setPlayhead(frame);

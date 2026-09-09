@@ -87,8 +87,13 @@ export function applyOp(project: Project, op: Op): Project {
         return next;
       });
     case 'updateClip':
+      // `dropUndefined` for the same reason as an asset: a clip's fades are
+      // optional, and "fadeOut: undefined" must REMOVE the field so that undo
+      // and a reload agree on the document.
       return mapTrack(project, op.trackId, (clips) =>
-        clips.map((c) => (c.id === op.clipId ? { ...c, ...op.changes } : c)),
+        clips.map((c) =>
+          c.id === op.clipId ? dropUndefined({ ...c, ...op.changes }) : c,
+        ),
       );
     case 'insertSubtitle': {
       const next = project.subtitles.slice();

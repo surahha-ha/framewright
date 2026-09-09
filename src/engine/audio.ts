@@ -9,6 +9,7 @@
 
 import type { DemuxAudioResult } from './demux';
 import { timescaleToUs } from './time';
+import { scheduleGain, type GainPoint } from './audioSchedule';
 
 let sharedContext: AudioContext | null = null;
 
@@ -230,6 +231,7 @@ export async function renderTimelineAudio(
     whenSec: number;
     offsetSec: number;
     durationSec: number;
+    gain?: GainPoint[];
   }[],
   totalDurationSec: number,
 ): Promise<AudioBuffer | null> {
@@ -261,7 +263,15 @@ export async function renderTimelineAudio(
     if (duration <= 0) continue;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(ctx.destination);
+    if (segment.gain) {
+      // Same ramp as playback, on a clock that starts at 0 (ADR-0012).
+      const gain = ctx.createGain();
+      scheduleGain(gain.gain, segment.gain, 0);
+      source.connect(gain);
+      gain.connect(ctx.destination);
+    } else {
+      source.connect(ctx.destination);
+    }
     source.start(segment.whenSec, offset, duration);
   }
   return await ctx.startRendering();

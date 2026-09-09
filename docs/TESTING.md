@@ -277,6 +277,12 @@ same commit. Anything not on this list is free to change.
 | `.subtitle-lane`        | the subtitle strip under the track, `role="group"`; scrubs                                                   |
 | `.subtitle`             | one subtitle chip button, in timeline order; `.empty` = no words                                             |
 | `.stage-subtitle`       | the words over the preview: a canvas, `role="img"` named by its words when showing, `aria-hidden` when blank |
+| `.stage canvas`         | the picture, at the TIMELINE's size (letterboxed like the export); a fade's black shows in its pixels        |
+| `.clip-fade.in/.out`    | a softened edge's ramp inside its clip, as wide as the frames it takes (decorative, `aria-hidden`)           |
+| `clip-fade-<id>`        | described by a clip with a fade: "앞 0.5초 동안 서서히 나타남 · 뒤 …" — words for the mark                  |
+| heading "클립"          | the selected clip's panel; absent when no clip is selected                                                   |
+| button "서서히 나타나기" | the fade-in toggle, `aria-pressed`; "서서히 사라지기" likewise. Both in the palette, neither on the toolbar    |
+| combobox "… 길이"       | the fade's length in seconds, shown only while that edge is on; its value is the frame count                 |
 | textbox "내용"          | the selected subtitle's words; Enter or blur commits, Escape reverts                                         |
 | subtitle `aria-label`   | `자막 N, words (or 내용 없음), tc부터 길이 tc` — identity, never state                                       |
 | subtitle `aria-pressed` | selected or not. Never set together with a clip's.                                                           |

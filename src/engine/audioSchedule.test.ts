@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildAudioSchedule } from './audioSchedule';
+import { buildAudioSchedule, gainAt, scheduleGain } from './audioSchedule';
 import { createProject } from './project';
 import { createEditor } from './command';
 import { FPS_30 } from './time';
@@ -18,7 +18,9 @@ function seed(frames = 90): Project {
     ...p,
     nextId: 2,
     timeline: { ...p.timeline, fps: FPS_30 },
-    tracks: p.tracks.map((t) => (t.type === 'video' ? { ...t, clips: [c] } : t)),
+    tracks: p.tracks.map((t) =>
+      t.type === 'video' ? { ...t, clips: [c] } : t,
+    ),
   };
 }
 
@@ -50,9 +52,7 @@ describe('audio schedule', () => {
     const ed = createEditor(seed(90));
     ed.setPlayhead(30);
     ed.dispatch('clip.split'); // [0,30) [30,90)
-    ed.select(
-      ed.project.tracks.find((t) => t.type === 'video')!.clips[0].id,
-    );
+    ed.select(ed.project.tracks.find((t) => t.type === 'video')!.clips[0].id);
     ed.dispatch('clip.deleteRipple'); // drop the first second
 
     const s = buildAudioSchedule(ed.project, 0);
@@ -95,8 +95,20 @@ describe('audio schedule', () => {
           ? {
               ...t,
               clips: [
-                { id: 'c1', assetId: 'a1', startFrame: 0, inFrame: 0, outFrame: 30 },
-                { id: 'c2', assetId: 'a1', startFrame: 60, inFrame: 0, outFrame: 30 },
+                {
+                  id: 'c1',
+                  assetId: 'a1',
+                  startFrame: 0,
+                  inFrame: 0,
+                  outFrame: 30,
+                },
+                {
+                  id: 'c2',
+                  assetId: 'a1',
+                  startFrame: 60,
+                  inFrame: 0,
+                  outFrame: 30,
+                },
               ],
             }
           : t,
@@ -106,5 +118,191 @@ describe('audio schedule', () => {
     expect(s).toHaveLength(2);
     expect(s[0].whenSec).toBe(0);
     expect(s[1].whenSec).toBeCloseTo(2, 6); // 60 frames @30fps — the gap is kept
+  });
+});
+
+describe('audio schedule — fades (ADR-0012)', () => {
+  const sec = (frames: number) => frames / 30;
+
+  /** Two 30-frame clips of two 3 s files, butted at frame 30. */
+  function pair(a: Partial<Clip> = {}, b: Partial<Clip> = {}): Project {
+    const p = createProject();
+    const first: Clip = {
+      id: 'clip_a',
+      assetId: 'asset_a',
+      startFrame: 0,
+      inFrame: 0,
+      outFrame: 30,
+      ...a,
+    };
+    const second: Clip = {
+      id: 'clip_b',
+      assetId: 'asset_b',
+      startFrame: 30,
+      inFrame: 20,
+      outFrame: 50,
+      ...b,
+    };
+    return {
+      ...p,
+      nextId: 3,
+      timeline: { ...p.timeline, fps: FPS_30 },
+      assets: ['asset_a', 'asset_b'].map((id) => ({
+        id,
+        kind: 'video' as const,
+        name: id,
+        meta: { durationSec: 3 },
+      })),
+      tracks: p.tracks.map((t) =>
+        t.type === 'video' ? { ...t, clips: [first, second] } : t,
+      ),
+    };
+  }
+
+  it('carries no gain for a hard cut', () => {
+    const s = buildAudioSchedule(pair(), 0);
+    expect(s.map((x) => x.gain)).toEqual([undefined, undefined]);
+  });
+
+  it('ramps the sound with the picture on a fade from black', () => {
+    const s = buildAudioSchedule(pair({ fadeIn: 15 }), 0);
+    expect(s[0].gain).toEqual([
+      { atSec: 0, value: 0 },
+      { atSec: sec(15), value: 1 },
+    ]);
+    expect(s[0].whenSec).toBe(0);
+    expect(s[0].durationSec).toBeCloseTo(sec(30), 9);
+  });
+
+  it('ramps down to the last frame on a fade to black', () => {
+    const s = buildAudioSchedule(pair({}, { fadeOut: 10 }), 0);
+    expect(s[1].gain).toEqual([
+      { atSec: sec(50), value: 1 },
+      { atSec: sec(60), value: 0 },
+    ]);
+  });
+
+  it('lets the previous clip’s sound run on under a dissolve, fading out', () => {
+    // b fades in at the cut: a keeps playing its overhang for those frames.
+    const s = buildAudioSchedule(pair({}, { fadeIn: 10 }), 0);
+    expect(s[0].durationSec).toBeCloseTo(sec(40), 9);
+    expect(s[0].gain).toEqual([
+      { atSec: sec(30), value: 1 },
+      { atSec: sec(40), value: 0 },
+    ]);
+    expect(s[1].gain).toEqual([
+      { atSec: sec(30), value: 0 },
+      { atSec: sec(40), value: 1 },
+    ]);
+  });
+
+  it('starts the next clip’s sound early, fading in, when this one fades out at the cut', () => {
+    const s = buildAudioSchedule(pair({ fadeOut: 10 }), 0);
+    // b has 20 frames of pre-roll in its file; the fade needs 10 of them.
+    expect(s[1].whenSec).toBeCloseTo(sec(20), 9);
+    expect(s[1].offsetSec).toBeCloseTo(sec(10), 9);
+    expect(s[1].durationSec).toBeCloseTo(sec(40), 9); // 30 of clip + 10 pre-roll
+    expect(s[1].gain).toEqual([
+      { atSec: sec(20), value: 0 },
+      { atSec: sec(30), value: 1 },
+    ]);
+  });
+
+  it('starts the sound at the cut, at full, when the file has no pre-roll', () => {
+    // b starts at its file's first frame: no pre-roll possible; the picture
+    // holds b's first frame and is at full weight at the cut, so the sound
+    // simply starts there — no ramp, and no ramp means no pop either.
+    const s = buildAudioSchedule(
+      pair({ fadeOut: 10 }, { inFrame: 0, outFrame: 30 }),
+      0,
+    );
+    expect(s[1].whenSec).toBeCloseTo(sec(30), 9);
+    expect(s[1].offsetSec).toBe(0);
+    expect(s[1].gain).toBeUndefined();
+  });
+
+  it('ramps over the pre-roll it has when that is shorter than the fade', () => {
+    // 3 frames of pre-roll under a 10-frame fade: the ramp must reach zero
+    // where the sound STARTS, not at the picture's fade start — anchored at
+    // the picture's, the first audible sample would be at 70%.
+    const s = buildAudioSchedule(
+      pair({ fadeOut: 10 }, { inFrame: 3, outFrame: 33 }),
+      0,
+    );
+    expect(s[1].whenSec).toBeCloseTo(sec(27), 9);
+    expect(s[1].offsetSec).toBeCloseTo(sec(0), 9);
+    expect(s[1].gain).toEqual([
+      { atSec: sec(27), value: 0 },
+      { atSec: sec(30), value: 1 },
+    ]);
+  });
+
+  it('dips through black when both sides soften one cut — no overhang, no pre-roll', () => {
+    const s = buildAudioSchedule(pair({ fadeOut: 10 }, { fadeIn: 10 }), 0);
+    expect(s[0].durationSec).toBeCloseTo(sec(30), 9);
+    expect(s[1].whenSec).toBeCloseTo(sec(30), 9);
+    expect(s[0].gain).toEqual([
+      { atSec: sec(20), value: 1 },
+      { atSec: sec(30), value: 0 },
+    ]);
+    expect(s[1].gain).toEqual([
+      { atSec: sec(30), value: 0 },
+      { atSec: sec(40), value: 1 },
+    ]);
+  });
+
+  it('keeps ramp points relative to the start, even in the past', () => {
+    // Playback starting inside a fade: the ramp began before "now".
+    const s = buildAudioSchedule(pair({ fadeIn: 15 }), 10);
+    expect(s[0].gain).toEqual([
+      { atSec: -sec(10), value: 0 },
+      { atSec: sec(5), value: 1 },
+    ]);
+  });
+});
+
+describe('gain ramps', () => {
+  const ramp = [
+    { atSec: -1, value: 0 },
+    { atSec: 1, value: 1 },
+    { atSec: 3, value: 1 },
+    { atSec: 4, value: 0 },
+  ];
+
+  it('interpolates, and holds the ends', () => {
+    expect(gainAt(ramp, -5)).toBe(0);
+    expect(gainAt(ramp, 0)).toBe(0.5);
+    expect(gainAt(ramp, 2)).toBe(1);
+    expect(gainAt(ramp, 3.5)).toBe(0.5);
+    expect(gainAt(ramp, 9)).toBe(0);
+    expect(gainAt([], 1)).toBe(1);
+  });
+
+  it('starts the parameter where the ramp already is and ramps to every later point', () => {
+    const calls: string[] = [];
+    const param = {
+      setValueAtTime: (v: number, t: number) => calls.push(`set ${v} @${t}`),
+      linearRampToValueAtTime: (v: number, t: number) =>
+        calls.push(`ramp ${v} @${t}`),
+    };
+    scheduleGain(param, ramp, 10);
+    expect(calls).toEqual([
+      'set 0.5 @10',
+      'ramp 1 @11',
+      'ramp 1 @13',
+      'ramp 0 @14',
+    ]);
+  });
+
+  it('touches nothing for a segment with no ramp', () => {
+    const param = {
+      setValueAtTime: () => {
+        throw new Error('should not be called');
+      },
+      linearRampToValueAtTime: () => {
+        throw new Error('should not be called');
+      },
+    };
+    expect(() => scheduleGain(param, undefined, 0)).not.toThrow();
   });
 });

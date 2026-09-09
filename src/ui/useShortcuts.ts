@@ -68,6 +68,12 @@ const ARROWS = new Set(['arrowleft', 'arrowright', 'arrowup', 'arrowdown']);
  * had focus. The ruler stops propagation for the arrows it does handle.
  */
 function controlOwnsKey(target: EventTarget | null, chord: string): boolean {
+  // A <select> uses every plain key: letters jump to an option, Delete and
+  // Backspace are typed too. `Delete` on the fade-length list once ripple-
+  // deleted the clip whose fade was being set. Modified chords (Ctrl+Z,
+  // Ctrl+K) are not a select's, and stay the app's.
+  const tag = (target as HTMLElement | null)?.tagName;
+  if (tag === 'SELECT' && !chord.includes('+')) return true;
   if (chord === 'space' || chord === 'enter') return isActivatable(target);
   if (ARROWS.has(chord) || chord === 'home' || chord === 'end') {
     return isActivatable(target) || target instanceof HTMLInputElement;

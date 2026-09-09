@@ -21,12 +21,18 @@ export function CommandButton({
   icon,
   short,
   className,
+  pressed,
+  describedBy,
 }: {
   id: string;
   label: string;
   icon?: string;
   short?: string;
   className?: string;
+  /** For a command that toggles something: whether it is on right now. */
+  pressed?: boolean;
+  /** An element that explains the control (its id), read after the name. */
+  describedBy?: string;
 }) {
   const setStatus = useStore((s) => s.setStatus);
   const keymap = useResolvedKeymap();
@@ -38,6 +44,8 @@ export function CommandButton({
       type="button"
       className={className}
       aria-disabled={!enabled}
+      aria-pressed={pressed}
+      aria-describedby={describedBy}
       aria-label={short ? label : undefined}
       title={
         enabled ? (chord ? `${label} (${formatChord(chord)})` : label) : why

@@ -126,3 +126,38 @@ describe('subtitles in the plan', () => {
     expect(plan[5].subtitle).toBe('검은 화면 위 글자');
   });
 });
+
+describe('export plan — fades (ADR-0012)', () => {
+  it('records the second picture per frame, so preview and file agree', () => {
+    const p = seed(30);
+    const clips = p.tracks.find((t) => t.type === 'video')!.clips;
+    clips[0].fadeIn = 10;
+    const plan = buildExportPlan(p);
+    expect(plan[0].blend).toEqual({ assetId: null, sourceFrame: 0, weight: 1 });
+    expect(plan[9].blend).toEqual({ assetId: null, sourceFrame: 0, weight: 0.1 });
+    expect(plan[10].blend).toBeNull();
+    expect(plan[29].blend).toBeNull();
+  });
+
+  it('has no blend in a gap', () => {
+    const p = createProject();
+    const withGap: Project = {
+      ...p,
+      tracks: p.tracks.map((t) =>
+        t.type === 'video'
+          ? {
+              ...t,
+              clips: [
+                { id: 'c1', assetId: 'a', startFrame: 0, inFrame: 0, outFrame: 5, fadeOut: 2 },
+                { id: 'c2', assetId: 'a', startFrame: 8, inFrame: 5, outFrame: 10 },
+              ],
+            }
+          : t,
+      ),
+    };
+    const plan = buildExportPlan(withGap);
+    expect(plan[6].blend).toBeNull();
+    // ...and a fade at a gap goes to black, not to the clip across it
+    expect(plan[4].blend).toMatchObject({ assetId: null, weight: 1 });
+  });
+});

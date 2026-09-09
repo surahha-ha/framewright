@@ -1119,3 +1119,118 @@ button[aria-disabled='true'] {
   font-size: 12px;
   color: var(--amber);
 }
+/* ------------------------------------------------------------ fades (ADR-0012)
+   A softened edge, drawn over the clip's pictures as a ramp: dark at the edge
+   where the picture is mostly black (or mostly the neighbour), clear where it
+   is fully itself, with a diagonal so the shape reads as a rise or a fall and
+   not as a shadow. Sits over the canvas (DOM order, same z) and under the
+   name (z 1). `pointer-events: none` — the trim handle underneath still works. */
+.clip-fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      to top right,
+      transparent calc(50% - 1px),
+      var(--teal) calc(50% - 1px),
+      var(--teal) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    linear-gradient(to right, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0));
+}
+.clip-fade.in {
+  left: -1px; /* the padding-box pixel, like the canvas */
+}
+.clip-fade.out {
+  right: -1px;
+  background:
+    linear-gradient(
+      to top left,
+      transparent calc(50% - 1px),
+      var(--teal) calc(50% - 1px),
+      var(--teal) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    linear-gradient(to left, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0));
+}
+/* The selected clip's panel — same bones as the subtitle panel. */
+.clip-panel {
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+.clip-when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 12px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+}
+.clip-panel-name {
+  font-family: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clip-edges {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 12px 8px;
+}
+.clip-edge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.clip-edge button {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.clip-edge button:hover:not([aria-disabled='true']) {
+  border-color: var(--teal);
+}
+.clip-edge button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+/* On: the same treatment as a selected clip, so "this is active" is one look. */
+.clip-edge button[aria-pressed='true'] {
+  border-color: var(--teal);
+  box-shadow: inset 0 0 0 1px var(--teal);
+}
+.clip-fade-length {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.clip-fade-length select {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.clip-fade-length select:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.clip-edge-note {
+  flex-basis: 100%;
+  font-size: 12px;
+}

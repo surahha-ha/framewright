@@ -22,6 +22,8 @@ import {
   type ClipboardEntry,
 } from './clipboard';
 import { SUBTITLE_COMMANDS } from './subtitleCommands';
+import { FADE_COMMANDS } from './fadeCommands';
+import { effectiveFades } from './fades';
 import { rippleSubtitles, splitSubtitleAt, subtitleDiffOps } from './subtitles';
 
 export interface EditorCtx {
@@ -70,7 +72,8 @@ export interface Command<Args = void> {
    * place that still knows what was ASKED for (a paste reports where it decided
    * to put the clip, which the finished document can no longer tell you).
    */
-  done?: string | ((before: EditorCtx, after: EditorCtx) => string);
+  done?:
+    string | ((before: EditorCtx, after: EditorCtx, args?: unknown) => string);
   /** Clip to select once the command has run. A command that CREATES a clip has
    *  to say which one, or the user is left guessing which of the clips that
    *  just moved is the new one. */
@@ -106,7 +109,16 @@ export const splitCommand: Command = {
   // ◫ says what this does — one block becomes two — and joins ◧/◨ as a family.
   icon: '◫',
   defaultKey: 'c',
-  done: '재생 위치에서 두 개로 나눴어요.',
+  done(before) {
+    const hit = resolveAt(before.project, before.playhead);
+    // A split inside a fade cannot keep the fade whole: each piece keeps
+    // what fits it, so the ramp is steeper than before. Say so, or the
+    // brighter frame right before the cut reads as a glitch.
+    if (hit && splitCutsFade(hit.clip, before.playhead)) {
+      return '재생 위치에서 두 개로 나눴어요 · 서서히 구간도 나뉘어 짧아졌어요.';
+    }
+    return '재생 위치에서 두 개로 나눴어요.';
+  },
   // N.B. `canRun` also needs playhead > startFrame — saying "move it onto the
   // clip" when it is already on the clip's first frame is a dead end.
   disabledReason: () =>
@@ -121,12 +133,26 @@ export const splitCommand: Command = {
     if (!hit) throw new Error('clip.split: nothing under the playhead');
     const { clip, trackId, index, sourceFrame } = hit;
 
+    // The fades stay with the edges they were on: the head keeps its
+    // fade-in, the tail its fade-out, and the NEW cut is hard (ADR-0012).
+    // Each is written at what its piece can hold — a fade longer than its
+    // clip would be clamped on reading anyway, but the document should not
+    // carry a number the picture does not.
+    const leftLength = sourceFrame - clip.inFrame;
+    const rightLength = clip.outFrame - sourceFrame;
+    const fadeIn =
+      clip.fadeIn !== undefined ? Math.min(clip.fadeIn, leftLength) : undefined;
+    const fadeOut =
+      clip.fadeOut !== undefined
+        ? Math.min(clip.fadeOut, rightLength)
+        : undefined;
     const right: Clip = {
       id: `clip_${ctx.project.nextId}`,
       assetId: clip.assetId,
       startFrame: ctx.playhead,
       inFrame: sourceFrame, // left ends exactly where right begins
       outFrame: clip.outFrame,
+      ...(fadeOut !== undefined ? { fadeOut } : {}),
     };
 
     const forward: Op[] = [
@@ -134,7 +160,7 @@ export const splitCommand: Command = {
         kind: 'updateClip',
         trackId,
         clipId: clip.id,
-        changes: { outFrame: sourceFrame },
+        changes: { outFrame: sourceFrame, fadeIn, fadeOut: undefined },
       },
       { kind: 'insertClip', trackId, index: index + 1, clip: right },
       { kind: 'setNextId', value: ctx.project.nextId + 1 },
@@ -146,12 +172,23 @@ export const splitCommand: Command = {
         kind: 'updateClip',
         trackId,
         clipId: clip.id,
-        changes: { outFrame: clip.outFrame },
+        changes: {
+          outFrame: clip.outFrame,
+          fadeIn: clip.fadeIn,
+          fadeOut: clip.fadeOut,
+        },
       },
     ];
     return { forward, inverse };
   },
 };
+
+/** Does a split at this frame fall inside one of the clip's fades? */
+function splitCutsFade(clip: Clip, frame: number): boolean {
+  const { fadeIn, fadeOut } = effectiveFades(clip);
+  const k = frame - clip.startFrame;
+  return k < fadeIn || k >= clipLength(clip) - fadeOut;
+}
 
 /** Delete the selected clip and pull everything after it back by its length. */
 export const deleteRippleCommand: Command = {
@@ -691,6 +728,8 @@ export const pasteCommand: Command = {
       startFrame: plan.startFrame,
       inFrame: entry.inFrame,
       outFrame: entry.outFrame,
+      ...(entry.fadeIn !== undefined ? { fadeIn: entry.fadeIn } : {}),
+      ...(entry.fadeOut !== undefined ? { fadeOut: entry.fadeOut } : {}),
     };
     // Pushing preserves order, so the insert index is the same before and after.
     const moved =
@@ -822,6 +861,8 @@ export const BUILTIN_COMMANDS: Command<any>[] = [
   // The toolbar is registry order, so "자막 넣기" sits after the clip edits;
   // the rest of the subtitle commands are keyboard/panel/palette only.
   ...SUBTITLE_COMMANDS,
+  // Panel and palette only (ADR-0012).
+  ...FADE_COMMANDS,
   trimStartCommand,
   trimEndCommand,
   moveClipCommand,

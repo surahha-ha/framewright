@@ -43,6 +43,17 @@ export interface Clip {
   startFrame: number; // position on the timeline (frames)
   inFrame: number; // in-point within the (conformed) source, frames
   outFrame: number; // out-point, EXCLUSIVE — ranges are half-open [in, out)
+  /**
+   * How many of the clip's first / last TIMELINE frames are softened
+   * (ADR-0012). Absent or 0 is a hard cut. What the edge softens INTO is not
+   * stored: it is the butted neighbour's overhang when there is one and that
+   * neighbour does not soften the same cut itself, and black otherwise — so
+   * a fade never moves a clip, and the same field is a dissolve at a cut and
+   * a fade from black at the start of the video. A value longer than the clip
+   * is clamped when drawn, the head first (`effectiveFades`), never rewritten.
+   */
+  fadeIn?: number;
+  fadeOut?: number;
 }
 
 export interface Track {

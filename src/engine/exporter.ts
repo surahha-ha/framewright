@@ -7,14 +7,14 @@
 
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import type { Project, Rational } from './types';
-import { buildExportPlan, evenDimensions, isContinuous } from './exportPlan';
-import { avcCodecString, containRect, type AvcProfile } from './exportConfig';
+import { buildExportPlan, evenDimensions } from './exportPlan';
+import { avcCodecString, type AvcProfile } from './exportConfig';
 import { fpsToNumber, frameToSec, secToUs } from './time';
 import type { VideoDecodeService } from './decoder';
-import { HOLD, type PlaybackSession } from './playbackSession';
 import { buildAudioSchedule } from './audioSchedule';
 import { renderTimelineAudio } from './audio';
-import { drawSubtitle } from './subtitleRender';
+import { FeedPool } from './feeds';
+import { composeFrame, type BlendLayer } from './compose';
 
 export interface ExportOptions {
   bitrate?: number;
@@ -202,30 +202,26 @@ export async function exportProject(
     if (encodeError) throw encodeError;
   }
 
-  // Two canvases. `picture` holds the footage and is only touched when the
-  // footage changes (a HOLD frame keeps it as it is). `canvas` is what gets
-  // encoded: the picture, then the subtitle for THIS frame on top. Burning
-  // the words into `picture` directly would leave them on every held frame
-  // after the subtitle had ended.
-  const picture = new OffscreenCanvas(width, height);
-  const pictureCtx = picture.getContext('2d', { alpha: false });
+  // One canvas, composed from scratch every frame: black, the footage, the
+  // other side of a fade at its weight, the words (`composeFrame` — the same
+  // function the preview uses, so the file matches the screen). The pictures
+  // themselves are held by the feed pool, which is what lets a HOLD frame
+  // keep its footage while the words and the fade move on.
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d', { alpha: false });
-  if (!ctx || !pictureCtx) throw new Error('캔버스를 만들 수 없어요.');
-  const blank = () => {
-    pictureCtx.fillStyle = '#000';
-    pictureCtx.fillRect(0, 0, width, height);
-  };
-  blank(); // start opaque black, never transparent
+  if (!ctx) throw new Error('캔버스를 만들 수 없어요.');
 
-  let session: PlaybackSession | null = null;
-  let sessionAssetId: string | null = null;
-  let lastSourceFrame = -1;
+  // Reuses a running decoder whenever the source is still continuous — a
+  // split changes the clip id but not the material — and runs two at once
+  // through a dissolve (ADR-0012).
+  const pool = new FeedPool(
+    (assetId) => getService(assetId)?.createPlaybackSession(fail) ?? null,
+    fps,
+  );
   let missingFrames = 0;
 
   const cleanup = () => {
-    session?.stop();
-    session = null;
+    pool.stopAll();
     for (const codec of [encoder, audioEncoder]) {
       try {
         codec?.close();
@@ -247,63 +243,63 @@ export async function exportProject(
       if (encodeError) throw encodeError;
 
       const entry = plan[i];
+      pool.begin();
 
+      let primary: VideoFrame | null = null;
       if (entry.assetId && entry.clipId) {
-        const service = getService(entry.assetId);
-        if (!service) {
-          blank(); // the source is gone — black, not a frozen leftover frame
-          missingFrames++;
+        const feed = pool.feed({
+          assetId: entry.assetId,
+          sourceFrame: entry.sourceFrame,
+        });
+        if (!feed) {
+          missingFrames++; // the source is gone — black, not a frozen leftover
         } else {
-          // Reuse the running decoder whenever the source is still continuous —
-          // a split changes the clip id but not the material.
-          if (
-            !session ||
-            !isContinuous(
-              sessionAssetId,
-              lastSourceFrame,
-              entry.assetId,
-              entry.sourceFrame,
-            )
-          ) {
-            session?.stop();
-            session = service.createPlaybackSession(fail);
-            session.start(frameToSec(entry.sourceFrame, fps));
-            sessionAssetId = entry.assetId;
-          }
-          lastSourceFrame = entry.sourceFrame;
-          const decoded = await session!.awaitFrameFor(
+          const got = await pool.pullWait(
+            feed,
             frameToSec(entry.sourceFrame, fps),
             options.signal,
           );
           abortIfRequested();
-          if (decoded === null) {
-            blank();
-            missingFrames++;
-          } else if (decoded !== HOLD) {
-            try {
-              // Letterbox exactly like the preview does (preview == export).
-              const r = containRect(
-                decoded.displayWidth,
-                decoded.displayHeight,
-                width,
-                height,
-              );
-              blank();
-              pictureCtx.drawImage(decoded, r.x, r.y, r.width, r.height);
-            } finally {
-              decoded.close();
-            }
-          }
-          // HOLD: the source repeats this picture — keep the canvas as it is.
+          if (got === 'missing') missingFrames++;
+          // 'hold': the source repeats this picture — the feed still has it.
+          primary = feed.current;
         }
-      } else {
-        blank(); // a gap is black, not missing time
+      }
+      // else: a gap is black, not missing time.
+
+      let blend: BlendLayer | null = null;
+      if (entry.blend) {
+        if (entry.blend.assetId === null) {
+          blend = { frame: null, weight: entry.blend.weight };
+        } else {
+          const feed = pool.feed({
+            assetId: entry.blend.assetId,
+            sourceFrame: entry.blend.sourceFrame,
+          });
+          // A neighbour whose file is gone, or has no such frame, fades to
+          // black instead — and that is a frame the source could not supply,
+          // so it is COUNTED, like a missing primary. "Nothing wrong" over a
+          // dissolve that came out black would be a false report.
+          if (!feed) {
+            missingFrames++;
+          } else {
+            const got = await pool.pullWait(
+              feed,
+              frameToSec(entry.blend.sourceFrame, fps),
+              options.signal,
+            );
+            abortIfRequested();
+            if (got === 'missing') missingFrames++;
+          }
+          blend = { frame: feed?.current ?? null, weight: entry.blend.weight };
+        }
       }
 
-      // Compose: the footage, then this frame's words. Same function as the
-      // preview's overlay, at the same size, so the file matches the screen.
-      ctx.drawImage(picture, 0, 0);
-      if (entry.subtitle) drawSubtitle(ctx, entry.subtitle, width, height);
+      // Draw, THEN drop what this frame did not ask for — the same order as
+      // the preview, so a change to what `end()` closes can never leave one
+      // surface drawing from a closed frame while the other is fine.
+      composeFrame(ctx, width, height, primary, blend, entry.subtitle);
+      pool.end();
 
       // Per-sample duration must match the gap to the NEXT timestamp, otherwise
       // fractional rates (29.97) drift against the declared duration.

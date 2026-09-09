@@ -3,13 +3,15 @@
 // precise time on the audio clock. The audio clock is then the MASTER clock for
 // playback: video follows it, which is what keeps A/V in sync.
 
-import type { AudioSegment } from './audioSchedule';
+import { scheduleGain, type AudioSegment } from './audioSchedule';
 
 const START_LEAD_SEC = 0.05; // a beat to schedule everything before it plays
 
 export class AudioPlayer {
   private ctx: AudioContext;
   private sources: AudioBufferSourceNode[] = [];
+  /** One per faded segment (ADR-0012); disconnected with its source. */
+  private gains: GainNode[] = [];
   private startedAt = 0;
   private active = false;
 
@@ -32,7 +34,17 @@ export class AudioPlayer {
       if (duration <= 0) continue;
       const source = this.ctx.createBufferSource();
       source.buffer = buffer;
-      source.connect(this.ctx.destination);
+      if (seg.gain) {
+        // The ramp rides the same clock as the start times, so it lands on
+        // the same frames the picture blends on.
+        const gain = this.ctx.createGain();
+        scheduleGain(gain.gain, seg.gain, t0);
+        source.connect(gain);
+        gain.connect(this.ctx.destination);
+        this.gains.push(gain);
+      } else {
+        source.connect(this.ctx.destination);
+      }
       source.start(t0 + seg.whenSec, offset, duration);
       this.sources.push(source);
     }
@@ -71,6 +83,8 @@ export class AudioPlayer {
       }
       source.disconnect();
     }
+    for (const gain of this.gains) gain.disconnect();
+    this.gains = [];
     this.sources = [];
     this.active = false;
   }

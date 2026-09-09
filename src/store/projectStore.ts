@@ -303,7 +303,9 @@ export const useStore = create<State>((set, get) => {
       }
       const done = command?.done;
       const text =
-        typeof done === 'function' ? done(before, editor.context()) : done;
+        typeof done === 'function'
+          ? done(before, editor.context(), args)
+          : done;
       // While another tab owns the document nothing here reaches disk. The
       // warning is posted once, when the other tab appears — and then every
       // successful edit used to overwrite it with its own cheerful sentence, so

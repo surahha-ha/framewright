@@ -10,181 +10,157 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-07 05:21 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-09 02:31 UTC — `npm run verify` **GREEN**
 
-- unit 398 passed · e2e 90 passed
+- unit 462 passed · e2e 96 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
 
-**E7's first item, subtitles, is built, gate-green and committed as
-`9d4ee2b`.** Not pushed yet; `origin/main` is still at `c1c54e5`.
-
-One oddity in the history, harmless but worth knowing: the owner committed
-their harness guard (`f298f07`) from the same working tree while this unit was
-being staged, and that commit carried `CLAUDE.md` — including this unit's
-"Known tech debt" entries — plus the harness files. `9d4ee2b` therefore has
-34 files and no `CLAUDE.md`. Every line is in `HEAD`; nothing is lost or
-duplicated. Rewriting the two unpushed commits to separate them is possible
-and was deliberately not done without the owner.
-
-The two units before this one were epic C (clip thumbnails `78b656c`, audio
-waveform `95a6d38`, handoff `c1c54e5`).
+**E7's second item, fades (the transitions), is built, gate-green and
+UNCOMMITTED in the working tree.** The three commits before it (`f298f07`
+harness, `9d4ee2b` subtitles, `8ff129d` handoff) were pushed on 2026-09-09;
+`origin/main` = `main` = `8ff129d`. Everything below is `git status` — 19
+modified files and 11 new ones — waiting for the owner's word on a commit.
 
 ### What is new
 
-- **`src/engine/types.ts`** — `Project.subtitles: Subtitle[]`. A subtitle is
-  `{ id, text, startFrame, endFrame }`, half-open, sorted, never overlapping.
-  It is NOT a clip; ADR-0011 says why.
-- **`src/engine/ops.ts`** — `insertSubtitle` / `removeSubtitle` /
-  `updateSubtitle`.
-- **`src/engine/persistence.ts`** — `CURRENT_SCHEMA` 1 → 2; `upgradeProject`
-  fills the list into older saves, on the live document and every version.
-- **`src/engine/subtitles.ts`** (new, 27 unit tests) — where a new one goes
-  (`subtitlePlan`), how far its edges may travel (`subtitleLimits`,
-  `subtitleDragBounds`, `subtitleDragTargets`), how ripple edits move it
-  (`rippleSubtitles`, `splitSubtitleAt`, `subtitleDiffOps`), text
-  normalisation, the drag sentences (`describeSubtitleEdit`,
-  `SUBTITLE_LIMIT_TEXT`).
-- **`src/engine/subtitleCommands.ts`** (new, 17 dispatcher tests) —
-  `subtitle.add` (toolbar, key `T`), `subtitle.setText`, `subtitle.remove`,
-  `subtitle.move` / `trimStart` / `trimEnd` (drag), `subtitle.moveToPlayhead`
-  / `startToPlayhead` / `endToPlayhead` (the keyboard's timing).
-- **`src/engine/subtitleRender.ts`** (new, 8 unit tests) — ONE draw function
-  for preview and export. Font, padding and margin are relative to the
-  picture's height; the wrap/centre/stack arithmetic is separate from the
-  canvas calls and tested with a fake measurer.
-- **`src/engine/exportPlan.ts`** — every `ExportFrame` now carries
-  `subtitle: string | null`. **`src/engine/exporter.ts`** — a `picture`
-  canvas plus a composed output canvas, so a HOLD frame cannot keep words
-  that have ended.
-- **`src/engine/commands.ts`** — `clip.deleteRipple`, `clip.paste` and
-  `timeline.closeGaps` now move the subtitles with the footage.
-- **`src/engine/command.ts`** — `selectedSubtitleId`, one selection at a time.
-- **`src/ui/SubtitleLane.tsx`** (new) — the lane under the clip strip, in the
-  same scroll container at the same scale; chips with move/trim drag,
-  Enter/Space selects, Delete removes.
-- **`src/ui/SubtitlePanel.tsx`** (new) — the words (textarea; Enter or blur
-  commits, Shift+Enter breaks a line, Escape reverts and says so), the time
-  range, the three 재생 위치로 buttons and 자막 지우기.
-- **`src/ui/CommandButton.tsx`** (new) — the one button that asks `canRun`,
-  shows the chord, dispatches via `perform` and stays `aria-disabled`.
-  Replaces `Toolbar.Button` and `Timeline.ZoomButton`.
-- **`src/ui/Preview.tsx`** — an overlay canvas over the picture, sized to the
-  timeline's dimensions and placed over the picture by script; drawn in a
-  layout effect so the words land on the same paint as the frame; `role="img"`
-  named by its words. The draft being typed is drawn too.
-- **`src/store/projectStore.ts`** — `selectedSubtitleId`,
-  `subtitleWordsWanted` (focus the field only when a command just CREATED a
-  subtitle), `subtitleDraft` (what is being typed, drawn live and flushed
-  into the document before any selection change).
-- Docs: ADR-0011, six DOM-contract rows in `docs/TESTING.md`, one line in
-  `docs/TESTING.md` "Operational facts" corrected (`outerWidth 0×0` is not a
-  wrong-machine tell; `netstat` is), `docs/HANDOVER.md` progress, eleven new
-  entries in `CLAUDE.md` "Known tech debt", one entry there resolved.
-- Tests: unit 340 → 398, e2e 76 → 90 (`e2e/subtitles.spec.ts`, 14 scenarios).
+- **`src/engine/types.ts`** — `Clip.fadeIn?` / `Clip.fadeOut?`, frames,
+  absent for a hard cut. Nothing else is stored; ADR-0012 says why.
+- **`src/engine/ops.ts`** — `updateClip` drops `undefined` fields, so undo
+  leaves no `fadeIn: undefined` key (persistence round-trip equality).
+- **`src/engine/fades.ts`** (new, 26 unit tests) — `effectiveFades` (clamp
+  to the clip, head first), `fadeLimit`, `fadePartner` (butted neighbour
+  unless it softens the same cut, else black), `blendAt` (the second picture
+  and its weight per frame), `fadeIntoText`, `fadeShortenedText`,
+  `describeFade`, `fadeSecondsText` ("0.5초"), `DEFAULT_FADE_SEC` 0.5,
+  `FADE_CHOICES_SEC` [0.3, 0.5, 1, 2].
+- **`src/engine/fadeCommands.ts`** (new, 10 dispatcher tests) —
+  `clip.fadeIn` / `clip.fadeOut`: no args = toggle the selected clip's edge
+  with the default; `{ clipId?, frames }` = set (0 = off). `hidden` (panel and
+  palette, not the toolbar). `Command.done` now receives the command's
+  `args` as a third parameter (`commands.ts`, `projectStore.run`).
+- **`src/engine/commands.ts`** — `clip.split` keeps the head's fade-in and
+  the tail's fade-out, written at what each piece can hold, and says
+  "서서히 구간도 나뉘어 짧아졌어요" when the cut fell inside a fade;
+  `clip.paste` carries fades from the clipboard (`clipboard.ts` entry).
+- **`src/engine/exportPlan.ts`** — `ExportFrame.blend`.
+- **`src/engine/audioSchedule.ts`** — `AudioSegment.gain` (linear ramp
+  points, timeline-relative, may be negative), neighbour overhang under a
+  fade-in and pre-roll under a fade-out, `gainAt`, `scheduleGain`;
+  `audioPlayer.ts` and `audio.ts`'s offline render put it on a `GainNode`.
+- **`src/engine/feeds.ts`** (new, 9 tests) — `FeedPool`: the decoder
+  sessions behind a frame, the "continue or re-cue" rule (`isContinuous`)
+  in one place, two sessions through a dissolve, a feed keeps its newest
+  `VideoFrame` and closes it itself.
+- **`src/engine/compose.ts`** (new, 5 tests) — `composeFrame`: black,
+  footage letterboxed into the box, blend at its weight, words. Used by the
+  exporter and the preview. **The preview canvas is now the TIMELINE's
+  size**, which retires the overlay-aspect debt entry.
+- **`src/engine/exporter.ts`** — uses the pool and `composeFrame`; a missing
+  blend picture counts in `missingFrames`.
+- **`src/ui/Preview.tsx`** — playback and scrub through the pool; a
+  neighbour's decoder with no picture yet leaves the blend out (no black
+  flash); a cold primary keeps the last picture.
+- **`src/ui/ClipPanel.tsx`** (new) — the "클립" sidebar panel: name, range,
+  two toggles (`CommandButton` with `aria-pressed` and `aria-describedby`),
+  a length `<select>` per edge while it is on, a note per edge (what it
+  goes to / why it is off / that it was cut short) with an id the controls
+  point at. `Edge` is a module-level component — inside the panel it
+  remounted on every click and dropped focus.
+- **`src/ui/Timeline.tsx`** — `.clip-fade.in/.out` ramps inside the clip,
+  and a per-clip sr-only `clip-fade-<id>` in the clip's `aria-describedby`.
+- **`src/ui/useShortcuts.ts`** — a `<select>` owns every unmodified key
+  (Delete on the length list used to ripple-delete the clip).
+- **`src/ui/CommandButton.tsx`** — `pressed`, `describedBy` props.
+- Docs: ADR-0012, seven DOM-contract rows in `docs/TESTING.md`,
+  `docs/HANDOVER.md` progress, seven new entries in `CLAUDE.md` "Known tech
+  debt", one entry there resolved (overlay aspect).
+- Tests: unit 398 → 462, e2e 90 → 96 (`e2e/fades.spec.ts`, 6 scenarios).
 
 ### Decisions a future session would otherwise get wrong
 
-1. **A subtitle is its own list, not a `text`-track clip.** Every consumer of
-   `track.clips` reads `assetId`/`inFrame`/`outFrame`; a subtitle has none.
-   `Track.type: 'text'` is still in the union, unused (ADR-0011).
-2. **Captions follow the footage.** Ripple delete, paste-push and close-gaps
-   call `rippleSubtitles`. A subtitle wholly inside a removed span is dropped
-   (undoable); one straddling an edge keeps the surviving part; **one
-   straddling a paste point is split** (`splitSubtitleAt`): the head keeps
-   its id, the tail is `sub_<next>` with the same words and moves with the
-   footage after the paste — neither half sits on the pasted frames. The
-   owner chose this over "leave it" after watching frame 60 show the pasted
-   clip under the old words and frame 105 show the old shot without them.
-   `clip.move` and the trims do NOT ripple — they open gaps, they do not
-   remove time.
-3. **The words are committed on Enter/blur, one undo step per edit** — and
-   because a chip or clip is selected on MOUSEDOWN, before the field's blur
-   can run, the store's `select`/`selectSubtitle` flush the draft first.
-4. **Focus goes into the words only on creation** (`subtitleWordsWanted`).
-   "Text is empty" was the trigger for an afternoon; an undo of the words
-   then pulled focus into the field, where Ctrl+Z was the browser's.
-5. **"끝을 재생 위치로" sets `endFrame = playhead + 1`** — the playhead's frame
-   is the last one shown. A clip's `W` does the opposite (the playhead frame
-   is the first one cut); for a subtitle that would be a fencepost nobody
-   can see.
-6. **`SUBTITLE_LIMIT_TEXT` is a full copy of `LIMIT_TEXT`**, not a spread of
-   it: `commands.ts` imports `subtitleCommands.ts` at load, so importing the
-   table back is a cycle. `subtitles.test.ts` pins the shared sentences.
-7. **Overlay = timeline dims, CSS-scaled onto the picture box.** Right for
-   the file; slightly off on screen only when the footage's aspect differs
-   from the timeline's (tech debt).
+1. **A fade is an edge of a clip, and the partner is derived.** Do not add a
+   transition object at a cut, and do not centre a fade on the cut: edge-
+   anchored needs one file's overhang, centred needs both (ADR-0012).
+2. **Both edges softening one cut = a dip through black.** `fadePartner`
+   returns black when the neighbour fades the same cut. Otherwise a's
+   picture would go dark on its last frame and come back at full strength
+   as the overhang under b.
+3. **The neighbour's picture beyond its edge is held, never invented.**
+   `blendAt` clamps to the file's last frame (or the clip's own last frame
+   when the file is unmeasured). Two whole files butted together dissolve
+   from a held frame, on purpose.
+4. **Fades are clamped when read; only `clip.split` writes a clamped value.**
+   A trim never rewrites a fade — lengthen the clip again and it is back.
+5. **The audio pre-roll ramp runs over the pre-roll the file HAS**, not the
+   picture's full fade, and there is no ramp at all when the file has none —
+   a ramp anchored at the picture's fade start put the first audible sample
+   at 70% (QA finding).
+6. **The preview never draws black in place of a neighbour's picture that
+   has not arrived**; it leaves the blend out for those frames. Black as the
+   partner (the plan asked for it) is drawn. Export waits instead.
+7. **`Command.done(before, after, args)`** — the third argument exists
+   because "asked 2초, got 1초" is only knowable from the panel's call.
+8. **The "shortened" sentence blames the right thing.** When the other
+   edge's fade took the room it says so (`뒷부분의 서서히 사라지기와 겹치지
+않게 1초로 줄였어요`); only a genuinely short clip gets `클립이 짧아`.
 
 ### What the persona round found, and what was done
 
-Four reviewers (guardrail, QA, a11y, novice). **Four blockers, all fixed**:
-
-1. **Ripple edits left every subtitle where it was** (QA) → decision 2, with
-   unit and e2e coverage.
-2. **Words typed and abandoned by clicking elsewhere were lost** (QA) →
-   decision 3, e2e "words typed and then abandoned…".
-3. **Deleting a subtitle stranded focus on `<body>`** (a11y) → focus moves to
-   the neighbouring chip, or the ruler when none is left; e2e.
-4. **No keyboard way to move a subtitle without changing its length**
-   (a11y) → `subtitle.moveToPlayhead` ("자막 전체를 재생 위치로"), unit tests.
-
-Majors fixed: the drag readout said 옆 클립 for a subtitle wall (now
-옆 자막); typed words did not reach the picture until committed (now drawn
-live); Escape discarded the draft silently (now announced); Enter-commits was
-unexplained (a help line under the field); Delete-on-chip undocumented (track
-hint + `aria-keyshortcuts`); `.subtitle.empty` contrast (now `--muted`).
-Minors fixed: the chip's name carries `N프레임` like a clip's; `subtitleAt`
-stops at the first later subtitle; the overlay draws in a layout effect.
-Everything not fixed is in `CLAUDE.md` "Known tech debt".
+Four reviewers (guardrail, QA, a11y, novice). **One blocker, fixed**: a
+split inside a fade silently steepened the ramp (QA) → each piece is written
+at what it holds and the split's sentence says so; unit test. **Majors, all
+fixed**: preview flashed black at the start of every dissolve (QA); audio
+popped in at 70% when the pre-roll was shorter than the fade (QA);
+`missingFrames` ignored a missing blend picture (QA); the `<select>` let
+Delete/c/q/w through to the editor (a11y); the panel's note was not tied to
+any control (a11y); "클립이 짧아" blamed the clip when the other fade took
+the room (novice). Minors fixed: exporter drew after `pool.end()` (now
+before, like the preview); the "into" sentence lived in two files (now
+`fadeIntoText`); a same-feed-twice-per-frame test was missing. Everything
+not fixed is in `CLAUDE.md` "Known tech debt".
 
 ### What the browser found
 
-Visual QA ran in the owner's Chrome (approved by deviceId, `netstat` showed
-the loopback pair). The whole flow was driven by hand: import, split at 45,
-`T` at 30, "걸침", copy clip 1, paste at 45, then frames 60 and 105 read off
-the burnt-in frame number — the paste-straddling behaviour reproduced exactly
-as decision 2 describes (frame 60 shows the pasted clip's 15 with the words;
-frame 105 shows the original 60 without them). Undo, a two-line subtitle
-typed live, and a chip drag all behaved. No console errors.
-
-Two things only the eye caught, both fixed and both now asserted:
-
-- **The panel's time range wrapped inside a word** — "00:03:00까 / 지" — at
-  the sidebar's 260px. `.subtitle-when` is now one fact per line,
-  `white-space: nowrap`; e2e "the panel says when the subtitle runs without
-  breaking a word in two" measures each line's height and overflow.
-- **The textarea scrolled its first line out of sight** while a two-line
-  subtitle was typed (`rows={2}` with a wrapping second line). Now `rows={3}`.
-
-Left as seen: the panel pushes 이전 상태 below the fold of the sidebar (it
-scrolls), and the help line under the field wraps once. Not defects.
+Visual QA ran in the owner's Chrome (deviceId `da2a0786-…`, approved
+2026-09-09) on the project the browser had kept (three clips of the fixture,
+two subtitles). The tab was `visibility: hidden` for most of the pass — the
+owner's window was behind another — so playback (which pauses on hidden, by
+design) could not be watched and screenshots timed out intermittently;
+everything static was checked: the panel, the toggles' pressed state, the
+length select, the notes, the marks' widths (199px for 15 frames at the
+strip's scale), frame 0 fully black (brightness 0), frame 5 dimmed (0.157),
+the status sentences including the clamp sentence, undo ×3 restoring the
+document exactly. **One thing only the eye caught, not fixed**: the fade
+mark's dark ramp reads for its first third and the teal diagonal is thin over
+the rainbow fixture — recorded as tech debt, not a defect. The owner's
+document was left as found (three undos, verified 0 marks).
 
 ## Next single step
 
-**Push (owner's call), then E7 item 2: transitions.** Before
-designing transitions, read `src/ui/ClipCanvas.tsx` (it draws pictures and the
-wave; a transition mark is the third thing on that canvas and the trigger to
-split its draw passes) and `src/engine/exportPlan.ts` (a transition is two
-source frames per timeline frame, which `ExportFrame` cannot express yet).
+**Commit (owner's call), then E7 item 3: audio volume.** Before designing
+it, read `src/engine/audioSchedule.ts` (gain points already exist per
+segment — a per-clip volume is a third source of gain to fold into the same
+ramp list) and `src/ui/ClipPanel.tsx` (the natural home for a volume control,
+next to the fades).
 
 ## Blocked / needs the owner
 
-1. **Push.** `f298f07` (harness) and `9d4ee2b` (subtitles) are local only.
-   The owner decides whether to push as they are or first tidy the
-   `CLAUDE.md` split described above. `bash.exe.stackdump` is still a crash
-   artefact in the tree, untracked, safe to delete.
-2. **Visual pass: done** (see "What the browser found"). One thing not
-   looked at: the drag READOUT in the track head mid-drag — a scripted drag
-   completes in one gesture, so the live sentence was never on screen.
-3. **Product calls surfaced by this unit:** the straddling-paste question is
-   decided (split — decision 2). Still open: is one look (white on a
-   translucent pill, bottom-centred) enough for now? Should the paste's
-   status line mention the split it made? ASR is deliberately not here —
-   `docs/research/editor-pain-points.md` §7.
-4. **Unchanged and still open** from epic C: the quiet-source waveform reads
-   as a thick line; nothing explains what the wave is; thumbnail slots can be
-   twice their picture's width; the `m:ss` ruler label; `MAX_SCALE = 40`;
-   the AWS deployment direction (static hosting versus a backend — a project
-   still does not follow the user to another machine).
+1. **Commit.** Announced and waiting. Suggested message:
+   `feat(fades): let a clip's edges come and go softly` — one commit for the
+   unit, `CLAUDE.md` included this time.
+2. **Playback through a dissolve was not watched by eye** (hidden tab). The
+   e2e reads pixels frame by frame while paused, and the pool's behaviour is
+   unit-tested; the real-time look of a dissolve on real footage is still
+   the owner's to judge. Two whole files butted (a held-frame dissolve) is the
+   case worth looking at first.
+3. **Product calls surfaced by this unit:** is a dip through black the
+   right answer when both edges of a cut are softened, or should the second
+   toggle warn? Is 0.5초 the right default? Should the fade mark carry a
+   bar along its extent (tech debt entry)?
+4. **Unchanged and still open** from earlier units: the quiet-source
+   waveform reads as a thick line; nothing explains what the wave is;
+   thumbnail slots can be twice their picture's width; the `m:ss` ruler
+   label; `MAX_SCALE = 40`; the AWS deployment direction.
