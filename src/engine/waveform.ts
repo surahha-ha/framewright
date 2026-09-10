@@ -187,6 +187,34 @@ export function buildPyramid(
 }
 
 /**
+ * The loudest sample (as a magnitude) in the clip's source range, from the
+ * FINEST level — the one place the pyramid is read for a number rather than
+ * a shape, so it should be the true one. Buckets that straddle an edge are
+ * read whole: a peak a few milliseconds outside the trim counts, which errs
+ * toward a lower ceiling, never a higher one (ADR-0013). Null when the
+ * pyramid holds nothing or the range is empty.
+ */
+export function clipPeak(
+  pyramid: Pyramid,
+  inFrame: number,
+  outFrame: number,
+  fps: Rational,
+): number | null {
+  const level = pyramid.levels[0];
+  if (!level || level.max.length === 0 || outFrame <= inFrame) return null;
+  const from = Math.floor(frameToSec(inFrame, fps) * pyramid.sampleRate);
+  const to = Math.ceil(frameToSec(outFrame, fps) * pyramid.sampleRate);
+  const first = Math.max(0, Math.floor(from / level.bucket));
+  const last = Math.min(level.max.length - 1, Math.ceil(to / level.bucket) - 1);
+  if (last < first) return null;
+  let peak = 0;
+  for (let b = first; b <= last; b++) {
+    peak = Math.max(peak, Math.abs(level.max[b]), Math.abs(level.min[b]));
+  }
+  return peak;
+}
+
+/**
  * Which level to read at this many samples per pixel: the finest one whose
  * column is still at least a pixel wide.
  *

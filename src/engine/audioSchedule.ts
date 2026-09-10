@@ -8,11 +8,12 @@
 // clip's overhang under a fade-in, the next clip's pre-roll under a fade-out —
 // exactly as far as `fades.ts` lets its picture.
 
-import type { Project } from './types';
+import type { Clip, Project } from './types';
 import { clipLength, videoTrack } from './timeline';
 import { frameToSec } from './time';
 import { effectiveFades, fadePartner } from './fades';
-import { clipLevel } from './volume';
+import { clipLevel, volumeCeiling } from './volume';
+import { clipPeak, type Pyramid } from './waveform';
 
 /** Gain at a moment, seconds from playback start (may be negative: a ramp
  *  that began before playback did). Linear between points, flat outside. */
@@ -41,6 +42,10 @@ export interface AudioSegment {
 export function buildAudioSchedule(
   project: Project,
   startFrame: number,
+  /** The most a clip may be heard at, from its own peak (`volumeCeiling`).
+   *  The caller knows the peaks; this module does not. Absent means no
+   *  ceiling. */
+  ceiling?: (clip: Clip) => number,
 ): AudioSegment[] {
   const fps = project.timeline.fps;
   const segments: AudioSegment[] = [];
@@ -55,13 +60,16 @@ export function buildAudioSchedule(
     // A muted clip (or one at 0%) has no segment at all — not even an
     // overhang under a neighbour's fade, which is that neighbour's cue to
     // dissolve from silence (ADR-0013).
-    const level = clipLevel(clip);
+    const level = Math.min(clipLevel(clip), ceiling ? ceiling(clip) : Infinity);
     if (level <= 0) continue;
 
     // The segment in timeline frames, before the playback start is applied.
-    let segStart = start;
-    let segIn = clip.inFrame;
-    let segLen = len;
+    // Its source range is `audibleSourceRange` — the same numbers the
+    // ceiling is measured over, so nothing plays that was not measured.
+    const { preroll, overhang } = reach(project, clips, i);
+    const segStart = start - preroll;
+    const segIn = clip.inFrame - preroll;
+    const segLen = len + preroll + overhang;
     const points: { frame: number; value: number }[] = [];
 
     if (fadeIn > 0) {
@@ -69,46 +77,30 @@ export function buildAudioSchedule(
         { frame: start, value: 0 },
         { frame: start + fadeIn, value: 1 },
       );
-    } else {
+    } else if (preroll > 0) {
       // The previous clip fades out INTO this one: its picture pre-rolls
       // under that fade, and so does its sound — as much of it as the file
-      // has before the in-point. The ramp is on the picture's frames either
-      // way, so a short pre-roll starts mid-ramp rather than late.
-      const prev = clips[i - 1];
-      const n = prev ? effectiveFades(prev).fadeOut : 0;
-      const theirs = n > 0 ? fadePartner(project, prev.id, 'out') : null;
-      if (theirs?.kind === 'clip' && theirs.clipId === clip.id) {
-        const preroll = Math.min(n, clip.inFrame);
-        segStart -= preroll;
-        segIn -= preroll;
-        segLen += preroll;
-        // The ramp runs over the frames the sound actually has, not the
-        // picture's full fade: a ramp anchored at `start - n` would put the
-        // first audible sample at (n - preroll) / n — a pop, not a fade.
-        // With no pre-roll at all the sound starts at the cut, at full,
-        // which is what the picture shows there too.
-        if (preroll > 0) {
-          points.push(
-            { frame: start - preroll, value: 0 },
-            { frame: start, value: 1 },
-          );
-        }
-      }
+      // has before the in-point. The ramp runs over the frames the sound
+      // actually has, not the picture's full fade: a ramp anchored at
+      // `start - n` would put the first audible sample at (n - preroll) / n
+      // — a pop, not a fade. With no pre-roll at all the sound starts at
+      // the cut, at full, which is what the picture shows there too.
+      points.push(
+        { frame: start - preroll, value: 0 },
+        { frame: start, value: 1 },
+      );
     }
 
     if (fadeOut > 0) {
       points.push({ frame: end - fadeOut, value: 1 }, { frame: end, value: 0 });
-    } else {
+    } else if (overhang > 0) {
       // The next clip fades in over this one's overhang. The file may run out
       // before the fade does; the player clamps to the buffer, and the picture
       // holds its last frame the same way.
-      const next = clips[i + 1];
-      const n = next ? effectiveFades(next).fadeIn : 0;
-      const theirs = n > 0 ? fadePartner(project, next.id, 'in') : null;
-      if (theirs?.kind === 'clip' && theirs.clipId === clip.id) {
-        segLen += n;
-        points.push({ frame: end, value: 1 }, { frame: end + n, value: 0 });
-      }
+      points.push(
+        { frame: end, value: 1 },
+        { frame: end + overhang, value: 0 },
+      );
     }
 
     const segEnd = segStart + segLen;
@@ -148,6 +140,77 @@ export function buildAudioSchedule(
   }
 
   return segments;
+}
+
+/**
+ * How far past its own edges a clip's sound reaches, in source frames: the
+ * pre-roll it plays under the previous clip's fade-out (as much as the file
+ * has before the in-point) and the overhang it plays under the next clip's
+ * fade-in. Neither when the clip softens that edge itself — both sides
+ * fading one cut is a dip through black (ADR-0012).
+ */
+function reach(
+  project: Project,
+  clips: readonly Clip[],
+  i: number,
+): { preroll: number; overhang: number } {
+  const clip = clips[i];
+  const { fadeIn, fadeOut } = effectiveFades(clip);
+  let preroll = 0;
+  let overhang = 0;
+  if (fadeIn === 0) {
+    const prev = clips[i - 1];
+    const n = prev ? effectiveFades(prev).fadeOut : 0;
+    const theirs = n > 0 ? fadePartner(project, prev.id, 'out') : null;
+    if (theirs?.kind === 'clip' && theirs.clipId === clip.id) {
+      preroll = Math.min(n, clip.inFrame);
+    }
+  }
+  if (fadeOut === 0) {
+    const next = clips[i + 1];
+    const n = next ? effectiveFades(next).fadeIn : 0;
+    const theirs = n > 0 ? fadePartner(project, next.id, 'in') : null;
+    if (theirs?.kind === 'clip' && theirs.clipId === clip.id) overhang = n;
+  }
+  return { preroll, overhang };
+}
+
+/**
+ * The source frames a clip's sound can actually play: its own `[in, out)`
+ * plus the pre-roll and overhang a neighbour's dissolve pulls in. This is
+ * the range a ceiling has to be measured over (ADR-0013) — a transient the
+ * trim cut away is still played, at the clip's level, under a dissolve.
+ * Null when the clip is not on the video track.
+ */
+export function audibleSourceRange(
+  project: Project,
+  clipId: string,
+): { inFrame: number; outFrame: number } | null {
+  const clips = videoTrack(project).clips;
+  const i = clips.findIndex((c) => c.id === clipId);
+  if (i < 0) return null;
+  const { preroll, overhang } = reach(project, clips, i);
+  return {
+    inFrame: clips[i].inFrame - preroll,
+    outFrame: clips[i].outFrame + overhang,
+  };
+}
+
+/**
+ * The most this clip may be heard at, from its own peaks: `volumeCeiling`
+ * of the loudest sample over everything the schedule can play of it. The
+ * full range when the peaks are not known.
+ */
+export function clipCeilingFor(
+  project: Project,
+  clipId: string,
+  pyramid: Pyramid | null,
+): number {
+  const range = pyramid ? audibleSourceRange(project, clipId) : null;
+  if (!range) return volumeCeiling(null);
+  return volumeCeiling(
+    clipPeak(pyramid!, range.inFrame, range.outFrame, project.timeline.fps),
+  );
 }
 
 /** The ramp's value at `sec`. Unity when there is no ramp. */

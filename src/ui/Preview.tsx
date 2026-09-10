@@ -22,6 +22,7 @@ import { blendAt } from '../engine/fades';
 import { FeedPool } from '../engine/feeds';
 import { composeFrame, type BlendLayer } from '../engine/compose';
 import { TOGGLE_PLAY_EVENT } from './actions';
+import { clipCeiling } from './waveform';
 
 export function Preview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -260,7 +261,11 @@ export function Preview() {
     if (!ctx) return;
     await resumeAudio();
     if (!audioRef.current) audioRef.current = new AudioPlayer(ctx);
-    const schedule = buildAudioSchedule(projectRef.current, fromFrame);
+    // Each clip is held under its own peak's ceiling (ADR-0013) — the same
+    // bound the export applies, from the same peaks.
+    const schedule = buildAudioSchedule(projectRef.current, fromFrame, (clip) =>
+      clipCeiling(projectRef.current, clip),
+    );
     audioRef.current.start(schedule, getAudioBuffer);
     // Say something useful instead of playing silently for no visible reason.
     if (schedule.length > 0 && audioRef.current.scheduledCount === 0) {

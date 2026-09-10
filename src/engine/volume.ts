@@ -40,6 +40,46 @@ export function clipLevel(clip: Pick<Clip, 'volume' | 'muted'>): number {
   return clamp(clip.volume ?? 1);
 }
 
+/**
+ * How far the slider may go for a clip whose loudest sample is `peak`: the
+ * level at which that sample would reach full scale, rounded DOWN to a
+ * notch, and never below 1. Nothing else keeps an exported file from
+ * clipping — through a dissolve the two ramps sum to 1, so the combined
+ * gain never exceeds the louder clip's level, and this bound on each clip
+ * is a bound on the whole mix. Unknown (no peaks yet, no audio) means the
+ * full range; a file already past full scale is not turned down.
+ */
+export function volumeCeiling(peak: number | null): number {
+  if (peak === null || !Number.isFinite(peak) || peak <= 0) return VOLUME_MAX;
+  const step = VOLUME_STEP_PERCENT / 100;
+  const notches = Math.floor(1 / peak / step + 1e-9);
+  return Math.max(
+    1,
+    Math.min(VOLUME_MAX, Math.round(notches * step * 100) / 100),
+  );
+}
+
+/** Why the slider stops short of 200%. Empty when it does not. */
+export function ceilingText(ceiling: number): string {
+  if (ceiling >= VOLUME_MAX) return '';
+  return `이 클립은 소리가 커서 ${volumeText(ceiling)}까지만 키울 수 있어요`;
+}
+
+/**
+ * For the status line, the moment a ceiling arrives (the peaks land about a
+ * second after an import) or drops (a trim moved the clip into a louder
+ * passage). Nothing the user did caused it, so nothing else would say it —
+ * and a slider whose end moves on its own reads as broken. Says what is
+ * heard when the stored level is above the ceiling.
+ */
+export function describeCeiling(stored: number, ceiling: number): string {
+  if (ceiling >= VOLUME_MAX) return '';
+  if (stored > ceiling) {
+    return `소리를 ${volumeText(stored)}로 두었지만, 이 클립은 소리가 커서 ${volumeText(ceiling)}로 들려요.`;
+  }
+  return `${ceilingText(ceiling)}.`;
+}
+
 export function volumePercent(volume: number): number {
   return Math.round(clamp(volume) * 100);
 }
@@ -72,8 +112,11 @@ export function describeMute(muted: boolean): string {
 /** The strip's words for a clip whose sound is not as recorded: the mark
  *  is decorative, this is what a screen reader gets. Empty when there is
  *  nothing to say. */
-export function audioNoteText(clip: Pick<Clip, 'volume' | 'muted'>): string {
+export function audioNoteText(
+  clip: Pick<Clip, 'volume' | 'muted'>,
+  /** The level actually heard, when a ceiling holds the stored one down. */
+  level: number = clipLevel(clip),
+): string {
   if (clip.muted) return '소리 끔';
-  const level = clipLevel(clip);
   return level === 1 ? '' : `소리 ${volumeText(level)}`;
 }

@@ -24,6 +24,8 @@
 
 import { getAudioBuffer } from '../engine/audio';
 import { buildPyramid, type Pyramid } from '../engine/waveform';
+import { clipCeilingFor } from '../engine/audioSchedule';
+import type { Clip, Project } from '../engine/types';
 
 interface Entry {
   /** The buffer these peaks were reduced from. Compared by identity. */
@@ -102,6 +104,16 @@ export function getPeaks(assetId: string): Pyramid | null {
     return null;
   }
   return entry.pyramid;
+}
+
+/**
+ * The most this clip may be heard at (ADR-0013): its own peak over
+ * everything a dissolve can play of it, from the peaks already built for
+ * the wave. Never builds — the full range until they arrive, and
+ * `subscribeWaveforms` says when they do.
+ */
+export function clipCeiling(project: Project, clip: Clip): number {
+  return clipCeilingFor(project, clip.id, getPeaks(clip.assetId));
 }
 
 /** Ask for an asset's peaks. Cheap and idempotent — safe to call from a render. */

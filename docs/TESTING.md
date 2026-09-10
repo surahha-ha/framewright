@@ -265,44 +265,45 @@ Playwright tests reach into the DOM, so the DOM is an API. These selectors and
 attributes are a **contract**: change one and you must change the specs in the
 same commit. Anything not on this list is free to change.
 
-| Contract                     | Meaning                                                                                                                                                     |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.ruler`                     | the playhead, `role="slider"`, `aria-valuenow` = current frame                                                                                              |
-| `.track`                     | the clip strip, `role="group"`; clicking it scrubs                                                                                                          |
-| `.timeline .clip`            | one clip button, in timeline order                                                                                                                          |
-| `.gap`                       | a hole in the strip (decorative, `aria-hidden`)                                                                                                             |
-| `.clip-canvas`               | a clip's pictures AND its waveform: one canvas, `aria-hidden`                                                                                               |
-| `.clip.unlinked`             | a clip whose media is not bound; carries `aria-describedby`                                                                                                 |
-| `clip-silent-note`           | described by a clip whose FILE is known to have no audio track                                                                                              |
-| `.subtitle-lane`             | the subtitle strip under the track, `role="group"`; scrubs                                                                                                  |
-| `.subtitle`                  | one subtitle chip button, in timeline order; `.empty` = no words                                                                                            |
-| `.stage-subtitle`            | the words over the preview: a canvas, `role="img"` named by its words when showing, `aria-hidden` when blank                                                |
-| `.stage canvas`              | the picture, at the TIMELINE's size (letterboxed like the export); a fade's black shows in its pixels                                                       |
-| `.stage-picture[data-frame]` | the same canvas, and the timeline frame its picture IS. Wait for it before reading pixels: the playhead moves on the key, the picture when the decode lands |
-| `.clip-fade.in/.out`         | a softened edge's ramp inside its clip, as wide as the frames it takes (decorative, `aria-hidden`)                                                          |
-| `clip-fade-<id>`             | described by a clip with a fade: "앞 0.5초 동안 서서히 나타남 · 뒤 …" — words for the mark                                                                  |
-| heading "클립"               | the selected clip's panel; absent when no clip is selected                                                                                                  |
-| button "서서히 나타나기"     | the fade-in toggle, `aria-pressed`; "서서히 사라지기" likewise. Both in the palette, neither on the toolbar                                                 |
-| combobox "… 길이"            | the fade's length in seconds, shown only while that edge is on; its value is the frame count                                                                |
-| button "소리 끄기"           | the mute toggle in the clip panel, `aria-pressed`; in the palette and on `M`, not on the toolbar                                                            |
-| slider "소리 크기"           | the clip's level, 0–200 in steps of 5; `aria-valuetext` is the percent. The ruler is the OTHER slider                                                       |
-| `clip-sound-note`            | the one sentence under both sound controls (what the sound does now); both point at it                                                                      |
-| `.clip-sound-mark`           | a pill after the clip's name when its sound is not as recorded: 🔇 or the percent (decorative, `aria-hidden`)                                               |
-| `clip-sound-<id>`            | described by such a clip: "소리 끔" or "소리 95%" — words for the pill                                                                                      |
-| textbox "내용"               | the selected subtitle's words; Enter or blur commits, Escape reverts                                                                                        |
-| subtitle `aria-label`        | `자막 N, words (or 내용 없음), tc부터 길이 tc` — identity, never state                                                                                      |
-| subtitle `aria-pressed`      | selected or not. Never set together with a clip's.                                                                                                          |
-| `.statusbar`                 | `role="status"`; the last thing that happened, in words                                                                                                     |
-| `.transport .dim`            | `playhead / total`, in frames                                                                                                                               |
-| clip `aria-label`            | identity + position + length. **Never state.**                                                                                                              |
-| clip `aria-pressed`          | selected or not. The ONLY place selection lives.                                                                                                            |
-| `.track-hint`                | the key hints under the track, rendered FROM the keymap                                                                                                     |
-| `.toolbar button`            | `"<글리프> <라벨>"`; glyphs unique, no label inside another                                                                                                 |
-| `.overlay`                   | the modal backdrop; clicking it closes the dialog                                                                                                           |
-| dialog "명령 찾기"           | the palette: a `combobox` over a `listbox` of `option`s                                                                                                     |
-| palette `option`             | one entry; `aria-disabled` carries "cannot run now"                                                                                                         |
-| dialog "단축키"              | the keymap settings; one row per bindable action                                                                                                            |
-| row button `aria-label`      | `"<라벨> 단축키 바꾸기"` — how a spec picks a row                                                                                                           |
+| Contract                     | Meaning                                                                                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.ruler`                     | the playhead, `role="slider"`, `aria-valuenow` = current frame                                                                                                |
+| `.track`                     | the clip strip, `role="group"`; clicking it scrubs                                                                                                            |
+| `.timeline .clip`            | one clip button, in timeline order                                                                                                                            |
+| `.gap`                       | a hole in the strip (decorative, `aria-hidden`)                                                                                                               |
+| `.clip-canvas`               | a clip's pictures AND its waveform: one canvas, `aria-hidden`                                                                                                 |
+| `.clip.unlinked`             | a clip whose media is not bound; carries `aria-describedby`                                                                                                   |
+| `clip-silent-note`           | described by a clip whose FILE is known to have no audio track                                                                                                |
+| `.subtitle-lane`             | the subtitle strip under the track, `role="group"`; scrubs                                                                                                    |
+| `.subtitle`                  | one subtitle chip button, in timeline order; `.empty` = no words                                                                                              |
+| `.stage-subtitle`            | the words over the preview: a canvas, `role="img"` named by its words when showing, `aria-hidden` when blank                                                  |
+| `.stage canvas`              | the picture, at the TIMELINE's size (letterboxed like the export); a fade's black shows in its pixels                                                         |
+| `.stage-picture[data-frame]` | the same canvas, and the timeline frame its picture IS. Wait for it before reading pixels: the playhead moves on the key, the picture when the decode lands   |
+| `.clip-fade.in/.out`         | a softened edge's ramp inside its clip, as wide as the frames it takes (decorative, `aria-hidden`)                                                            |
+| `clip-fade-<id>`             | described by a clip with a fade: "앞 0.5초 동안 서서히 나타남 · 뒤 …" — words for the mark                                                                    |
+| heading "클립"               | the selected clip's panel; absent when no clip is selected                                                                                                    |
+| button "서서히 나타나기"     | the fade-in toggle, `aria-pressed`; "서서히 사라지기" likewise. Both in the palette, neither on the toolbar                                                   |
+| combobox "… 길이"            | the fade's length in seconds, shown only while that edge is on; its value is the frame count                                                                  |
+| button "소리 끄기"           | the mute toggle in the clip panel, `aria-pressed`; in the palette and on `M`, not on the toolbar                                                              |
+| slider "소리 크기"           | the clip's level in steps of 5; `max` is the clip's ceiling (200, or lower from its own peak); `aria-valuetext` is the percent. The ruler is the OTHER slider |
+| `clip-sound-note`            | the one sentence under both sound controls (what the sound does now); both point at it                                                                        |
+| `clip-sound-limit`           | present only under a ceiling: why the slider stops short of 200%; the slider alone is described by it                                                         |
+| `.clip-sound-mark`           | a pill after the clip's name when its sound is not as recorded: 🔇 or the percent (decorative, `aria-hidden`)                                                 |
+| `clip-sound-<id>`            | described by such a clip: "소리 끔" or "소리 95%" — words for the pill                                                                                        |
+| textbox "내용"               | the selected subtitle's words; Enter or blur commits, Escape reverts                                                                                          |
+| subtitle `aria-label`        | `자막 N, words (or 내용 없음), tc부터 길이 tc` — identity, never state                                                                                        |
+| subtitle `aria-pressed`      | selected or not. Never set together with a clip's.                                                                                                            |
+| `.statusbar`                 | `role="status"`; the last thing that happened, in words                                                                                                       |
+| `.transport .dim`            | `playhead / total`, in frames                                                                                                                                 |
+| clip `aria-label`            | identity + position + length. **Never state.**                                                                                                                |
+| clip `aria-pressed`          | selected or not. The ONLY place selection lives.                                                                                                              |
+| `.track-hint`                | the key hints under the track, rendered FROM the keymap                                                                                                       |
+| `.toolbar button`            | `"<글리프> <라벨>"`; glyphs unique, no label inside another                                                                                                   |
+| `.overlay`                   | the modal backdrop; clicking it closes the dialog                                                                                                             |
+| dialog "명령 찾기"           | the palette: a `combobox` over a `listbox` of `option`s                                                                                                       |
+| palette `option`             | one entry; `aria-disabled` carries "cannot run now"                                                                                                           |
+| dialog "단축키"              | the keymap settings; one row per bindable action                                                                                                              |
+| row button `aria-label`      | `"<라벨> 단축키 바꾸기"` — how a spec picks a row                                                                                                             |
 
 The keymap lives in `localStorage` under `framewright.keymap.v1` and **outlives a
 reload**. A spec that rebinds anything must clear that key first, or the previous

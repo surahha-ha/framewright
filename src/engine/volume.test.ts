@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   VOLUME_MAX,
   audioNoteText,
+  ceilingText,
   clipLevel,
+  volumeCeiling,
+  describeCeiling,
   describeMute,
   describeVolume,
   percentToVolume,
@@ -87,6 +90,48 @@ describe('what the edit says', () => {
   });
 });
 
+describe('the ceiling a clip’s own peak sets', () => {
+  it('is the full range when the peak is unknown or nothing', () => {
+    expect(volumeCeiling(null)).toBe(VOLUME_MAX);
+    expect(volumeCeiling(0)).toBe(VOLUME_MAX);
+    expect(volumeCeiling(Number.NaN)).toBe(VOLUME_MAX);
+  });
+
+  it('is the full range for a quiet source', () => {
+    expect(volumeCeiling(0.19)).toBe(VOLUME_MAX);
+    expect(volumeCeiling(0.5)).toBe(VOLUME_MAX);
+  });
+
+  it('stops where the peak would pass full scale, rounded DOWN to a notch', () => {
+    // 1 / 0.9 = 1.111… — 1.10 is safe, 1.15 is not.
+    expect(volumeCeiling(0.9)).toBe(1.1);
+    expect(volumeCeiling(0.8)).toBe(1.25);
+    expect(volumeCeiling(0.7)).toBe(1.4);
+  });
+
+  it('never goes below as recorded — a hot file is not turned down', () => {
+    expect(volumeCeiling(1)).toBe(1);
+    expect(volumeCeiling(1.3)).toBe(1);
+  });
+
+  it('says where the slider stops', () => {
+    expect(ceilingText(1.1)).toBe(
+      '이 클립은 소리가 커서 110%까지만 키울 수 있어요',
+    );
+    expect(ceilingText(VOLUME_MAX)).toBe('');
+  });
+
+  it('announces a ceiling that arrived, and what is heard under it', () => {
+    expect(describeCeiling(1, 1.1)).toBe(
+      '이 클립은 소리가 커서 110%까지만 키울 수 있어요.',
+    );
+    expect(describeCeiling(2, 1.1)).toBe(
+      '소리를 200%로 두었지만, 이 클립은 소리가 커서 110%로 들려요.',
+    );
+    expect(describeCeiling(2, VOLUME_MAX)).toBe('');
+  });
+});
+
 describe('the strip’s words for the sound', () => {
   it('says nothing for a clip as recorded', () => {
     expect(audioNoteText(clip())).toBe('');
@@ -99,5 +144,9 @@ describe('the strip’s words for the sound', () => {
 
   it('says muted, and only muted, when muted', () => {
     expect(audioNoteText(clip({ muted: true, volume: 0.5 }))).toBe('소리 끔');
+  });
+
+  it('says the level HEARD when a ceiling holds the stored one down', () => {
+    expect(audioNoteText(clip({ volume: 2 }), 1.1)).toBe('소리 110%');
   });
 });

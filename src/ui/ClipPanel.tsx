@@ -23,14 +23,18 @@ import {
   fadeShortenedText,
   type FadeEdge,
 } from '../engine/fades';
+import { useEffect, useRef, useState } from 'react';
 import {
   VOLUME_MAX,
   VOLUME_STEP_PERCENT,
+  ceilingText,
+  describeCeiling,
   percentToVolume,
   volumePercent,
 } from '../engine/volume';
 import { hasNoAudioTrack } from '../engine/audio';
 import { CommandButton } from './CommandButton';
+import { clipCeiling, subscribeWaveforms } from './waveform';
 
 /**
  * One edge of the selected clip. A component of its own, at module level:
@@ -150,12 +154,43 @@ function Sound() {
   const endGesture = useStore((s) => s.endGesture);
   // `hasNoAudioTrack` is answered out of band, when the file is decoded.
   useStore((s) => s.mediaVersion);
+  // ...and so is the ceiling: the peaks land after the file does.
+  const [, arrived] = useState(0);
+  useEffect(() => subscribeWaveforms(() => arrived((n) => n + 1)), []);
   const found = locateClip(project, selectedClipId);
-  if (!found) return null;
-  const { clip } = found;
-  const percent = volumePercent(clip.volume ?? 1);
+  const clip = found?.clip ?? null;
+  const stored = volumePercent(clip?.volume ?? 1);
+  // The slider stops where this clip's own peak would pass full scale
+  // (ADR-0013). A stored level above that — set before the peaks arrived,
+  // or before a trim moved the clip into a louder passage — is HEARD at
+  // the ceiling and shown there, never rewritten (the fade-clamp rule).
+  const ceiling = clip ? clipCeiling(project, clip) : VOLUME_MAX;
+  const ceilingPercent = volumePercent(ceiling);
+  // The ceiling can change with no gesture from the user (the peaks land,
+  // a trim moves the range). Every other change to the slider says a
+  // sentence; this one must too, or the end of the slider moving on its
+  // own reads as a bug — and a screen reader hears the note only on focus.
+  const setStatus = useStore((s) => s.setStatus);
+  const lastCeiling = useRef<{ id: string | null; percent: number }>({
+    id: null,
+    percent: 100 * VOLUME_MAX,
+  });
+  useEffect(() => {
+    const last = lastCeiling.current;
+    const id = clip?.id ?? null;
+    if (id && last.id === id && ceilingPercent < last.percent) {
+      setStatus(describeCeiling(stored / 100, ceilingPercent / 100));
+    }
+    lastCeiling.current = { id, percent: ceilingPercent };
+  }, [clip?.id, ceilingPercent, stored, setStatus]);
+  if (!clip) return null;
+  const percent = Math.min(stored, ceilingPercent);
   const muted = !!clip.muted;
   const noteId = 'clip-sound-note';
+  // The slider's own, so the mute button is not described by a limit that
+  // has nothing to do with muting.
+  const limitId = 'clip-sound-limit';
+  const limit = ceilingText(ceiling);
   const commit = (value: number) =>
     run(
       'clip.volume',
@@ -178,12 +213,12 @@ function Sound() {
         <input
           type="range"
           min={0}
-          max={VOLUME_MAX * 100}
+          max={ceilingPercent}
           step={VOLUME_STEP_PERCENT}
           value={percent}
           aria-label="소리 크기"
           aria-valuetext={`${percent}%`}
-          aria-describedby={noteId}
+          aria-describedby={limit ? `${noteId} ${limitId}` : noteId}
           onChange={(e) => commit(Number(e.target.value))}
           onPointerUp={endGesture}
           onKeyUp={endGesture}
@@ -194,6 +229,11 @@ function Sound() {
       <span className="clip-edge-note dim" id={noteId}>
         {soundNote(hasNoAudioTrack(clip.assetId), muted, percent)}
       </span>
+      {limit && (
+        <span className="clip-edge-note dim" id={limitId}>
+          {limit}
+        </span>
+      )}
     </div>
   );
 }

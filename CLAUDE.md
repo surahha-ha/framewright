@@ -231,13 +231,21 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
-- **Nothing limits the sum of two loud clips.** A clip at 200% already
-  clips on its own (ADR-0013 says so); two clips at 200% through a dissolve
-  sum to four times full scale at the crossover, and the offline render and
-  the AAC encoder get the raw floats — the distortion is silent, and unlike
-  `missingFrames` the export sentence does not count it. A limiter or a
-  soft clip before the destination is the fix; whether a first-time user
-  should be able to get there at all is the owner's call (export-qc).
+- **The ceiling reads whole buckets, so it can be a notch low at a trim.**
+  `clipPeak` takes every 128-sample bucket the clip's range touches, so a
+  peak up to 2.7ms outside the trim counts. Errs toward quieter, never
+  toward clipping; a first-time user will not notice a notch.
+- **Until the peaks arrive the ceiling is 200%.** A level set in that
+  window (the first second after an import) can exceed the ceiling; it is
+  then heard, shown and described at the ceiling, the status line says so
+  the moment the ceiling lands, and the document keeps the number. Same
+  rule as a fade under a trim. A trim INTO a quieter passage raises the
+  ceiling back and the sound gets louder with no sentence tying it to the
+  trim (novice).
+- **The ceiling's status sentence fires only while the clip is selected.**
+  A ceiling that lands for an unselected clip (peaks arriving after the
+  user moved on) is shown on the strip's pill and said in the panel when
+  the clip is next selected, never announced.
 - **A re-cue's click scales with the level.** Every edit during playback
   stops the sources and starts new ones (`AudioPlayer.stop()`, no release
   ramp); the discontinuity is the sample times the gain in effect, so a

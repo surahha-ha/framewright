@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { buildAudioSchedule, gainAt, scheduleGain } from './audioSchedule';
+import {
+  audibleSourceRange,
+  buildAudioSchedule,
+  clipCeilingFor,
+  gainAt,
+  scheduleGain,
+} from './audioSchedule';
+import { buildPyramid } from './waveform';
 import { createProject } from './project';
 import { createEditor } from './command';
 import { FPS_30 } from './time';
@@ -344,6 +351,67 @@ describe('audio schedule — volume and mute (ADR-0013)', () => {
   it('keeps a muted neighbour silent through a dissolve too', () => {
     const s = buildAudioSchedule(pair({ muted: true }, { fadeIn: 10 }), 0);
     expect(s.map((x) => x.clipId)).toEqual(['clip_b']);
+  });
+
+  it('holds the level under a ceiling the caller knows from the clip’s peak', () => {
+    const ceiling = (c: Clip) => (c.id === 'clip_a' ? 1.1 : 2);
+    const s = buildAudioSchedule(
+      pair({ volume: 2 }, { volume: 2 }),
+      0,
+      ceiling,
+    );
+    expect(s[0].gain).toEqual([{ atSec: 0, value: 1.1 }]);
+    expect(s[1].gain).toEqual([{ atSec: sec(30), value: 2 }]);
+    // A ceiling never raises a level, and never touches a mute.
+    const t = buildAudioSchedule(
+      pair({ volume: 0.5 }, { muted: true }),
+      0,
+      () => 2,
+    );
+    expect(t.map((x) => x.clipId)).toEqual(['clip_a']);
+    expect(t[0].gain).toEqual([{ atSec: 0, value: 0.5 }]);
+  });
+
+  it('measures the ceiling over everything a dissolve can play, not only the trim', () => {
+    // asset_a is quiet inside a's trim [0,30) and has a full-scale transient
+    // at frame 32 — material the trim cut away. Alone, a may go to 200%.
+    const rate = 48_000;
+    const samples = new Float32Array(rate * 3);
+    for (let i = 0; i < samples.length; i++) samples[i] = 0.1 * Math.sin(i / 7);
+    samples[Math.round(32 * (rate / 30)) + 200] = 0.95;
+    const pyramid = buildPyramid([samples], rate);
+    expect(clipCeilingFor(pair(), 'clip_a', pyramid)).toBe(2);
+    expect(audibleSourceRange(pair(), 'clip_a')).toEqual({
+      inFrame: 0,
+      outFrame: 30,
+    });
+    // b fades in over a's overhang: frames [30,40) of a's file are played,
+    // transient included, at a's level — so a's ceiling must see them.
+    const p = pair({}, { fadeIn: 10 });
+    expect(audibleSourceRange(p, 'clip_a')).toEqual({
+      inFrame: 0,
+      outFrame: 40,
+    });
+    expect(clipCeilingFor(p, 'clip_a', pyramid)).toBe(1.05);
+    // The pre-roll side: a fades out, b's file before its in-point plays.
+    const q = pair({ fadeOut: 10 });
+    expect(audibleSourceRange(q, 'clip_b')).toEqual({
+      inFrame: 10,
+      outFrame: 50,
+    });
+    // Both sides softening one cut is a dip through black: nothing reaches.
+    const r = pair({ fadeOut: 10 }, { fadeIn: 10 });
+    expect(audibleSourceRange(r, 'clip_a')).toEqual({
+      inFrame: 0,
+      outFrame: 30,
+    });
+    expect(audibleSourceRange(r, 'clip_b')).toEqual({
+      inFrame: 20,
+      outFrame: 50,
+    });
+    // Unknown peaks, unknown clip.
+    expect(clipCeilingFor(p, 'clip_a', null)).toBe(2);
+    expect(audibleSourceRange(p, 'nope')).toBeNull();
   });
 
   it('keeps the flat point at the segment’s start, in the past, like a fade’s', () => {

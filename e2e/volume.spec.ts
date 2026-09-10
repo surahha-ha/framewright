@@ -155,6 +155,108 @@ test.describe('sound', () => {
     await expect(rows.first()).toContainText('M');
   });
 
+  test('the slider stops where the clip’s own peak would clip, and a level set before that is heard at the ceiling', async ({
+    page,
+  }) => {
+    await withClip(page);
+    // The fixture peaks at 0.19: the whole range is open.
+    await expect(slider(page)).toHaveAttribute('max', '200');
+    await slider(page).focus();
+    await page.keyboard.press('End');
+    await expect(slider(page)).toHaveValue('200');
+    await expect(mark(page)).toContainText('200%');
+
+    // Swap the file's decoded sound for a loud one (peak 0.9) through the
+    // app's own module — the same seam a re-linked file goes through — and
+    // give the strip a reason to render, which is what asks for new peaks.
+    await expect
+      .poll(() =>
+        page.evaluate(() => !!localStorage.getItem('framewright:project')),
+      )
+      .toBe(true);
+    // The app's OWN instance of the module: Vite may serve it under an HMR
+    // query, and a plain `/src/engine/audio.ts` would be a second, empty one.
+    const audioModule = await page.evaluate(
+      () =>
+        performance
+          .getEntriesByType('resource')
+          .map((e) => e.name)
+          .find((n) => n.includes('/src/engine/audio.ts')) ??
+        '/src/engine/audio.ts',
+    );
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async (url) => {
+            const A = await import(/* @vite-ignore */ url);
+            const saved = JSON.parse(
+              localStorage.getItem('framewright:project')!,
+            );
+            return A.getAudioBuffer(saved.project.assets[0].id) !== null;
+          }, audioModule),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+    await page.evaluate(async (url) => {
+      const A = await import(/* @vite-ignore */ url);
+      const saved = JSON.parse(localStorage.getItem('framewright:project')!);
+      const id: string = saved.project.assets[0].id;
+      const old = A.getAudioBuffer(id)!;
+      const loud = new AudioBuffer({
+        numberOfChannels: 1,
+        length: old.length,
+        sampleRate: old.sampleRate,
+      });
+      const d = loud.getChannelData(0);
+      for (let i = 0; i < d.length; i++)
+        d[i] = 0.9 * Math.sin((2 * Math.PI * 220 * i) / old.sampleRate);
+      A.setAudioBuffer(id, loud);
+    }, audioModule);
+    // A zoom changes the strip's scale, which re-renders every clip canvas —
+    // and a clip canvas asking for its peaks is what builds the new ones. (A
+    // re-linked file gets the same render from its thumbnails arriving.)
+    await page.locator('.ruler').focus();
+    await page.keyboard.press('=');
+
+    // 1 / 0.9 = 111% → the notch below, 110%. The stored 200% is not
+    // rewritten: it is heard, shown and described at the ceiling.
+    await expect(slider(page)).toHaveAttribute('max', '110', {
+      timeout: 10_000,
+    });
+    await expect(slider(page)).toHaveValue('110');
+    await expect(mark(page)).toContainText('110%');
+    expect(await description(page, 0)).toContain('소리 110%');
+    await expect(page.locator('#clip-sound-note')).toHaveText(
+      '녹음된 것보다 크게 들려요',
+    );
+    // The limit is the slider's own description, not the mute button's.
+    await expect(page.locator('#clip-sound-limit')).toHaveText(
+      '이 클립은 소리가 커서 110%까지만 키울 수 있어요',
+    );
+    expect(await slider(page).getAttribute('aria-describedby')).toContain(
+      'clip-sound-limit',
+    );
+    expect(
+      await muteButton(page).getAttribute('aria-describedby'),
+    ).not.toContain('clip-sound-limit');
+    // Nothing the user did moved the slider's end, so the status line says it.
+    await expect(status(page)).toContainText(
+      '소리를 200%로 두었지만, 이 클립은 소리가 커서 110%로 들려요.',
+    );
+    // Undo reaches the stored 200% → 100%, proving the document kept it.
+    await page.keyboard.press('Control+z');
+    await expect(slider(page)).toHaveValue('100');
+    await expect(mark(page)).toHaveCount(0);
+    await expect(page.locator('#clip-sound-note')).toHaveText(
+      '녹음된 그대로 들려요',
+    );
+    // And the slider itself cannot pass the ceiling now.
+    await slider(page).focus();
+    await page.keyboard.press('End');
+    await expect(slider(page)).toHaveValue('110');
+    await expect(status(page)).toContainText('소리를 110%로 키웠어요.');
+  });
+
   test('an export of a muted clip has every frame and no sound', async ({
     page,
   }) => {

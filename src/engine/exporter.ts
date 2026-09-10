@@ -6,7 +6,7 @@
 // at a fixed interval, and the muxer receives the encoder's own avcC description.
 
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
-import type { Project, Rational } from './types';
+import type { Clip, Project, Rational } from './types';
 import { buildExportPlan, evenDimensions } from './exportPlan';
 import { avcCodecString, type AvcProfile } from './exportConfig';
 import { fpsToNumber, frameToSec, secToUs } from './time';
@@ -22,6 +22,9 @@ export interface ExportOptions {
   keyframeIntervalSec?: number;
   onProgress?: (done: number, total: number, phase?: string) => void;
   signal?: AbortSignal;
+  /** The most each clip may be heard at, from its peak (ADR-0013). The UI
+   *  owns the peaks; the exporter only applies the bound. */
+  levelCeiling?: (clip: Clip) => number;
 }
 
 export interface ExportResult {
@@ -146,7 +149,7 @@ export async function exportProject(
   // has an audio track, and rendering offline is fast and deterministic.
   options.onProgress?.(0, plan.length, 'audio');
   const audioBuffer = await renderTimelineAudio(
-    buildAudioSchedule(project, 0),
+    buildAudioSchedule(project, 0, options.levelCeiling),
     frameToSec(plan.length, fps),
   );
   let audioConfig: AudioEncoderConfig | null = null;

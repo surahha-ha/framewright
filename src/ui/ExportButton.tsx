@@ -4,6 +4,7 @@ import { useStore } from '../store/projectStore';
 import { getDecodeService } from '../engine/registry';
 import { exportProject, ExportUnsupportedError } from '../engine/exporter';
 import { videoDuration } from '../engine/timeline';
+import { clipCeiling } from './waveform';
 
 export function ExportButton() {
   const project = useStore((s) => s.project);
@@ -29,6 +30,8 @@ export function ExportButton() {
     try {
       const result = await exportProject(project, getDecodeService, {
         signal: controller.signal,
+        // The same bound the preview plays under, from the same peaks.
+        levelCeiling: (clip) => clipCeiling(project, clip),
         onProgress: (done, all, p) => {
           setProgress(Math.round((done / all) * 100));
           if (p)

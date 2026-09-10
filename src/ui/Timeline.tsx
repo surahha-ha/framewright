@@ -56,6 +56,7 @@ import { formatClock, formatTimecode, frameToSec } from '../engine/time';
 import { ClipCanvas } from './ClipCanvas';
 import { effectiveFades, fadeSecondsText } from '../engine/fades';
 import { audioNoteText, clipLevel, volumeText } from '../engine/volume';
+import { clipCeiling, subscribeWaveforms } from './waveform';
 import { CommandButton } from './CommandButton';
 import { SubtitleLane } from './SubtitleLane';
 import { hasNoAudioTrack } from '../engine/audio';
@@ -136,6 +137,10 @@ export function Timeline() {
   // keep saying "다시 선택 필요" after the media came back without this. Same
   // subscription, and the same reason, as the media panel's.
   useStore((s) => s.mediaVersion);
+  // The sound pill and the wave's height depend on the clip's ceiling, which
+  // depends on peaks that land after the file does (ADR-0013).
+  const [, peaksArrived] = useState(0);
+  useEffect(() => subscribeWaveforms(() => peaksArrived((n) => n + 1)), []);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [scrollPx, setScrollPx] = useState(0);
   /** The subtitle lane's own drag sentence; it shares the readout slot. */
@@ -674,7 +679,9 @@ export function Timeline() {
             const isDragging = drag?.active && drag.clipId === c.id;
             const g = drawn[i];
             const fades = effectiveFades(c);
-            const sound = audioNoteText(c);
+            // What is HEARD: the stored level under the clip's own ceiling.
+            const heard = Math.min(clipLevel(c), clipCeiling(project, c));
+            const sound = audioNoteText(c, heard);
             return (
               <button
                 key={c.id}
@@ -744,7 +751,7 @@ export function Timeline() {
                   }}
                   assetId={c.assetId}
                   fps={fps}
-                  gain={clipLevel(c)}
+                  gain={heard}
                 />
                 {/* A softened edge (ADR-0012): a ramp over the frames it
                     takes, in the clip's own scale. Decorative — the clip's
@@ -796,7 +803,7 @@ export function Timeline() {
                 {sound && (
                   <>
                     <span className="clip-sound-mark" aria-hidden="true">
-                      {c.muted ? '🔇' : `🔉 ${volumeText(clipLevel(c))}`}
+                      {c.muted ? '🔇' : `🔉 ${volumeText(heard)}`}
                     </span>
                     <span id={`clip-sound-${c.id}`} className="sr-only">
                       {sound}

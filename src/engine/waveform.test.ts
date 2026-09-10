@@ -17,6 +17,7 @@ import type { Rational } from './types';
 import {
   BASE_BUCKET,
   buildPyramid,
+  clipPeak,
   peakLevelFor,
   waveAmplitude,
   wavePlan,
@@ -372,5 +373,30 @@ describe('how loud a sample is drawn', () => {
     expect(waveAmplitude(-4)).toBe(-1);
     expect(waveAmplitude(NaN)).toBe(0);
     expect(waveAmplitude(Infinity)).toBe(0);
+  });
+});
+
+describe('the loudest sample a clip plays (ADR-0013)', () => {
+  /** Ten frames of silence with a −0.7 spike in frame 0 and a +0.9 spike in
+   *  frame 5, a bucket past the frame's first sample so a clip ending ON
+   *  frame 5 does not see it. */
+  function spiky(): Pyramid {
+    const s = silence(10 * SAMPLES_PER_FRAME);
+    s[100] = -0.7;
+    s[5 * SAMPLES_PER_FRAME + BASE_BUCKET + 4] = 0.9;
+    return buildPyramid([s], RATE);
+  }
+
+  it('reads only the buckets the clip’s source range touches', () => {
+    const p = spiky();
+    expect(clipPeak(p, 0, 5, FPS)).toBeCloseTo(0.7, 6);
+    expect(clipPeak(p, 5, 10, FPS)).toBeCloseTo(0.9, 6);
+    expect(clipPeak(p, 0, 10, FPS)).toBeCloseTo(0.9, 6);
+    expect(clipPeak(p, 7, 10, FPS)).toBe(0);
+  });
+
+  it('is unknown for a pyramid with nothing in it', () => {
+    expect(clipPeak(buildPyramid([], RATE), 0, 10, FPS)).toBeNull();
+    expect(clipPeak(spiky(), 10, 10, FPS)).toBeNull();
   });
 });

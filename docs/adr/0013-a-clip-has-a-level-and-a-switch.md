@@ -61,6 +61,30 @@ its pre-roll is not played under a neighbour's fade-out. A document with
 every clip muted renders no audio buffer, and the exporter writes a
 video-only file, which is what the export sentence already calls 무음.
 
+**The slider stops where the clip's own peak would pass full scale.** The
+only way an exported file can clip is one clip's level times its own
+loudest sample: through a dissolve the two ramps sum to 1, so the
+combined gain never exceeds the louder clip's level (a review claimed
+"four times full scale"; the ramp shapes in `audioSchedule.ts` say
+otherwise, pre-roll shorter than the fade included). So a bound per clip
+is a bound on the whole mix, and no DSP is needed. `clipPeak` reads the
+loudest sample off the finest level of the peak pyramid the waveform
+already builds — over `audibleSourceRange`, which is the clip's `[in, out)`
+PLUS the pre-roll and overhang a neighbour's dissolve pulls in, because a
+transient the trim cut away is still played, at the clip's level, under a
+dissolve (a QA reviewer's scenario; the schedule and the ceiling now share
+that one range). `volumeCeiling` turns the peak into
+`max(1, min(2, 1 / peak))` rounded down to a notch; the panel's slider
+gets it as `max`, the preview and the export apply the same bound
+through `buildAudioSchedule`'s `ceiling` callback, and the strip draws
+what is heard. A level stored above the ceiling (set before the peaks
+arrived, or before a trim moved the clip into a louder passage) is heard
+at the ceiling and never rewritten — the fade-under-a-trim rule. The
+alternatives were a limiter (browser-defined, with lookahead latency that
+would move sound against picture) and a lower fixed ceiling (which would
+not stop a hot file clipping at 150% either). Unknown peaks mean the full
+range; a file already past full scale is not turned down.
+
 **Two commands, of two kinds.** `clip.mute` is a toggle: from the `M` key,
 the panel's button or the palette it flips the selected clip (or the one
 named). `clip.volume` sets a level and needs one, so it is `requiresArgs`:
@@ -80,9 +104,10 @@ quieter clip, and for a muted one the full shape in the colour that means
 
 ## Consequences
 
-- A level above 1 can clip: two clips at 200% through a dissolve sum past
-  full scale, and nothing limits it. The ceiling is 2 for that reason; a
-  louder recording is a recording problem. Noted as debt, not prevented.
+- Nothing in the mix can pass full scale, by construction rather than by
+  processing. The cost is that the ceiling is known only once the peaks
+  are built (about a second after an import) and that it reads whole
+  128-sample buckets, so it can sit one notch low at a trim.
 - The slider's every notch is a document edit and a status sentence; a
   drag through twenty notches says twenty sentences and leaves one undo
   step. During playback each notch also schedules the debounced re-cue that

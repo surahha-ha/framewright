@@ -10,21 +10,73 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-10 01:51 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-10 07:06 UTC — `npm run verify` **GREEN**
 
-- unit 496 passed · e2e 101 passed
+- unit 507 passed · e2e 102 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
 
-**E7's third item, a clip's sound (volume and mute), is built, gate-green
-and committed as `f04858f`** (one commit, with the owner's approval on
-2026-09-10; it also carries `docs/REPO_ANALYSIS.md`, the owner's earlier
-repository analysis, and the "Repository analysis memory" section further
-down this file, both kept at the owner's request). The fades unit
-(`4f970f8`, `dafbb91`) and this one were pushed together right after, with
-the same approval. Everything below is in that commit.
+**E7's third item, a clip's sound (volume and mute), is committed as
+`f04858f` and pushed** (2026-09-10, with the owner's approval; it also
+carries `docs/REPO_ANALYSIS.md` and the "Repository analysis memory"
+section further down this file, both kept at the owner's request). **A
+follow-up is in the working tree, gate-green and NOT yet committed: the
+slider's ceiling from the clip's own peak** — see "The ceiling" below.
+Everything else below is in `f04858f`.
+
+### The ceiling (follow-up, uncommitted)
+
+The owner asked what the clipping risk was, saw it reproduced on screen
+(a demo overlay drawn into the page for that conversation only — not a
+feature), and chose the automatic bound over a limiter or a user setting.
+
+- **The claim that started it was wrong.** An export-qc reviewer said two
+  clips at 200% through a dissolve sum to four times full scale. They sum
+  to at most the louder clip's level: the two ramps add to 1 for every
+  ramp shape `audioSchedule.ts` builds, pre-roll shorter than the fade
+  included. So a bound on each clip bounds the whole mix, and no DSP is
+  needed. CLAUDE.md's debt entry and ADR-0013 were corrected.
+- **`src/engine/waveform.ts`** — `clipPeak(pyramid, inFrame, outFrame,
+fps)`: the loudest |sample| over the clip's source range, finest level,
+  whole buckets. **`src/engine/volume.ts`** — `volumeCeiling(peak)` =
+  `max(1, min(2, 1/peak))` rounded down to a notch, unknown → 2;
+  `ceilingText`; `audioNoteText(clip, heard?)`.
+- **`buildAudioSchedule(project, start, ceiling?)`** takes a per-clip
+  ceiling callback; `ExportOptions.levelCeiling` carries it into the
+  export; `src/ui/waveform.ts`'s `clipCeiling(project, clip)` (from
+  `getPeaks`, never builds) is what `Preview.tsx` and `ExportButton.tsx` pass.
+- **The ceiling is measured over `audibleSourceRange`**, not the trim: a
+  QA reviewer showed that a transient the trim cut away is still played,
+  at the clip's level, as pre-roll or overhang under a neighbour's
+  dissolve. `reach()` in `audioSchedule.ts` is now the one place that
+  says how far a clip's sound extends; the schedule and `clipCeilingFor`
+  both read it. (The reviewer's scenario is the unit test "measures the
+  ceiling over everything a dissolve can play".)
+- **`ClipPanel.tsx`** — the slider's `max` is the ceiling, its value is
+  `min(stored, ceiling)`, a second sentence `#clip-sound-limit` ("이 클립은
+  소리가 커서 110%까지만 키울 수 있어요") describes the slider alone, and
+  the panel subscribes to the peaks. When the ceiling DROPS for the
+  selected clip with no gesture (the peaks land, a trim moves the range)
+  the status line says so — `describeCeiling`: "소리를 200%로 두었지만, 이
+  클립은 소리가 커서 110%로 들려요." — because a slider whose end moves on
+  its own reads as broken (novice) and a screen reader hears the note only
+  on focus (a11y). **`Timeline.tsx`** — the pill and the wave show what is
+  HEARD (`min(clipLevel, ceiling)`) and subscribe too.
+- A stored level above the ceiling is heard, shown and described at the
+  ceiling and never rewritten (the fade-under-a-trim rule).
+- Persona round on the follow-up (QA, a11y, novice): one blocker (the
+  range, above), two majors each from novice (the silent snap-back; "이
+  구간" reading as a sub-range → "이 클립은") and a11y (the note not being
+  live; `max` narrowing silently — both answered by the status sentence),
+  one a11y minor (the limit described the mute button too → its own id).
+- Tests: unit 496 → 507, e2e 101 → 102: the new scenario swaps the fixture's decoded
+  sound for a loud one THROUGH THE APP'S OWN MODULE INSTANCE (found via
+  `performance.getEntriesByType('resource')`, because a plain
+  `import('/src/engine/audio.ts')` can be a second, empty instance under
+  Vite HMR), then zooms — a clip canvas re-render is what asks for new
+  peaks; a playhead move does not, because `ClipCanvas` is memoised.
 
 ### What is new
 
@@ -182,7 +234,8 @@ does not replace the implementation handoff or the next step below.
 
 ## Next single step
 
-**E7 item 4: transform** (position / scale / crop of the picture). Before
+**Commit the ceiling follow-up (owner's call), then E7 item 4: transform**
+(position / scale / crop of the picture). Before
 designing it, read `src/engine/compose.ts` (the one draw for preview and
 export — a transform is a matrix applied there, once) and ADR-0013's
 "one reader" shape (`clipLevel`) for how a per-clip property reaches both
@@ -196,10 +249,9 @@ surfaces.
 2. **Listen.** Playback through a 50% clip, a mute pressed mid-playback,
    a 200% clip. Unit tests cover the schedule, e2e covers the DOM and a
    muted export; nothing here has heard the result.
-3. **Product calls surfaced by this unit:** should two loud clips through
-   a dissolve be limited, or is 200% too high a ceiling for a first-time
-   user (export-qc)? Should the fade edges get a heading now that the
-   sound has one?
+3. **Product call surfaced by this unit:** should the fade edges get a
+   heading now that the sound has one? (The limiter question is answered:
+   the per-clip ceiling, chosen by the owner on 2026-09-10.)
 4. **Unchanged and still open** from earlier units: the fade mark over
    bright footage, the dip through black when both edges of a cut fade,
    the quiet-source waveform, the AWS deployment direction.
