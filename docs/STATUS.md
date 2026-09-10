@@ -18,14 +18,13 @@ repo does not.
 
 ## Where we are
 
-**E7's third item, a clip's sound (volume and mute), is built and
-gate-green, and NOT committed.** The working tree holds the whole unit
-(17 modified files, 6 new ones, listed below); `main` is at `dafbb91` and
-`origin/main` at `8ff129d`, so the fades unit (`4f970f8`) is still
-unpushed as well. Two things in the tree are the owner's and not part of
-this unit: `docs/REPO_ANALYSIS.md` (untracked, an earlier repository
-analysis the owner asked to keep) and the "Repository analysis memory"
-section further down this file.
+**E7's third item, a clip's sound (volume and mute), is built, gate-green
+and committed as `f04858f`** (one commit, with the owner's approval on
+2026-09-10; it also carries `docs/REPO_ANALYSIS.md`, the owner's earlier
+repository analysis, and the "Repository analysis memory" section further
+down this file, both kept at the owner's request). The fades unit
+(`4f970f8`, `dafbb91`) and this one were pushed together right after, with
+the same approval. Everything below is in that commit.
 
 ### What is new
 
@@ -183,8 +182,7 @@ does not replace the implementation handoff or the next step below.
 
 ## Next single step
 
-**Commit this unit (owner's call), push both units (owner's call), then
-E7 item 4: transform** (position / scale / crop of the picture). Before
+**E7 item 4: transform** (position / scale / crop of the picture). Before
 designing it, read `src/engine/compose.ts` (the one draw for preview and
 export — a transform is a matrix applied there, once) and ADR-0013's
 "one reader" shape (`clipLevel`) for how a per-clip property reaches both
@@ -192,10 +190,9 @@ surfaces.
 
 ## Blocked / needs the owner
 
-1. **Commit and push.** The sound unit is uncommitted; the fades unit
-   (`4f970f8`, `dafbb91`) is committed and unpushed. `docs/REPO_ANALYSIS.md`
-   and the memory section above are the owner's — say whether they go in
-   the same commit.
+1. **Two auto snapshots from the visual pass** (2026-09-10 15:25 and
+   15:29, in the browser's "이전 상태" list) hold a muted / 50% document.
+   Delete them or keep them; nothing in the repo depends on it.
 2. **Listen.** Playback through a 50% clip, a mute pressed mid-playback,
    a 200% clip. Unit tests cover the schedule, e2e covers the DOM and a
    muted export; nothing here has heard the result.
