@@ -33,6 +33,18 @@ import {
   volumePercent,
 } from '../engine/volume';
 import { hasNoAudioTrack } from '../engine/audio';
+import {
+  ZOOM_MAX,
+  ZOOM_STEP_PERCENT,
+  PAN_LIMIT,
+  PAN_STEP_PERCENT,
+  clipPanLimits,
+  coversBox,
+  panLimitText,
+  panText,
+  pictureNoteText,
+  pictureTransform,
+} from '../engine/picture';
 import { CommandButton } from './CommandButton';
 import { clipCeiling, subscribeWaveforms } from './waveform';
 
@@ -151,7 +163,6 @@ function Sound() {
   const project = useStore((s) => s.project);
   const selectedClipId = useStore((s) => s.selectedClipId);
   const run = useStore((s) => s.run);
-  const endGesture = useStore((s) => s.endGesture);
   // `hasNoAudioTrack` is answered out of band, when the file is decoded.
   useStore((s) => s.mediaVersion);
   // ...and so is the ceiling: the peaks land after the file does.
@@ -208,30 +219,172 @@ function Sound() {
         pressed={muted}
         describedBy={noteId}
       />
-      <label className="clip-volume">
-        <span>소리 크기</span>
-        <input
-          type="range"
-          min={0}
-          max={ceilingPercent}
-          step={VOLUME_STEP_PERCENT}
-          value={percent}
-          aria-label="소리 크기"
-          aria-valuetext={`${percent}%`}
-          aria-describedby={limit ? `${noteId} ${limitId}` : noteId}
-          onChange={(e) => commit(Number(e.target.value))}
-          onPointerUp={endGesture}
-          onKeyUp={endGesture}
-          onBlur={endGesture}
-        />
-        <output aria-hidden="true">{percent}%</output>
-      </label>
+      <RangeRow
+        label="소리 크기"
+        min={0}
+        max={ceilingPercent}
+        step={VOLUME_STEP_PERCENT}
+        value={percent}
+        valueText={`${percent}%`}
+        describedBy={limit ? `${noteId} ${limitId}` : noteId}
+        onChange={commit}
+      />
       <span className="clip-edge-note dim" id={noteId}>
         {soundNote(hasNoAudioTrack(clip.assetId), muted, percent)}
       </span>
       {limit && (
         <span className="clip-edge-note dim" id={limitId}>
           {limit}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One labelled slider with its readout. The fourth copy of this markup
+ * (the sound's level, the picture's zoom and two pans) was the trigger to
+ * write it once. Every change is the caller's command; the gesture ends
+ * here, on the pointer lifting, the key coming up or focus leaving, so a
+ * drag or a held arrow is one undo step (ADR-0006).
+ */
+function RangeRow({
+  label,
+  min,
+  max,
+  step,
+  value,
+  valueText,
+  describedBy,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  /** What the value means, for the readout and the screen reader. */
+  valueText: string;
+  describedBy: string;
+  onChange: (value: number) => void;
+}) {
+  const endGesture = useStore((s) => s.endGesture);
+  return (
+    <label className="clip-range">
+      <span>{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-label={label}
+        aria-valuetext={valueText}
+        aria-describedby={describedBy}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onPointerUp={endGesture}
+        onKeyUp={endGesture}
+        onBlur={endGesture}
+      />
+      <output aria-hidden="true">{valueText}</output>
+    </label>
+  );
+}
+
+/**
+ * The selected clip's picture (ADR-0014): how big, where, which way up.
+ * Module-level for the same reason as `Edge`. The sliders are the
+ * keyboard's route to what a drag on the preview does; the two buttons
+ * are the commands a key or the palette can run whole. The pans stop at
+ * half a box (`PAN_LIMIT`), so the picture never leaves the box.
+ */
+function PictureBlock() {
+  const project = useStore((s) => s.project);
+  const selectedClipId = useStore((s) => s.selectedClipId);
+  const run = useStore((s) => s.run);
+  const found = locateClip(project, selectedClipId);
+  if (!found) return null;
+  const { clip } = found;
+  const t = pictureTransform(clip);
+  const zoomPercent = Math.round(t.zoom * 100);
+  // Each pan slider ends where THIS picture's edge reaches the box's
+  // centre: half a box when the picture fills that axis, less when it is
+  // narrower (stood up, 4:3 in 16:9). Half a box for every picture pushed
+  // a stood-up one clear out of the box (seen in the owner's Chrome).
+  const limits = clipPanLimits(project, clip);
+  const limitX = Math.round(limits.x * 100);
+  const limitY = Math.round(limits.y * 100);
+  const noteId = 'clip-picture-note';
+  const limitId = 'clip-picture-limit';
+  const limitNote = panLimitText(limits);
+  // Only the slider whose axis is limited is described by the limit: the
+  // sentence names that axis, and a slider that still goes the full half
+  // box must not be told it stops at 15% (a11y).
+  const describedBy = (limited: boolean) =>
+    limited && limitNote ? `${noteId} ${limitId}` : noteId;
+  const panXDescribedBy = describedBy(limits.x < PAN_LIMIT);
+  const panYDescribedBy = describedBy(limits.y < PAN_LIMIT);
+  // A stored pan past the limit (a document from before the limit, a
+  // re-linked file of another shape) is SHOWN where it is drawn — the
+  // sound slider's rule for a level above its ceiling.
+  const shownX = Math.min(limits.x, Math.max(-limits.x, t.panX));
+  const shownY = Math.min(limits.y, Math.max(-limits.y, t.panY));
+  const summary = pictureNoteText(clip);
+  // What the picture does now, and — the one thing the preview shows but
+  // does not say — that a side of the box has gone black under a pan.
+  const note = summary
+    ? `${summary}${coversBox(t) ? '' : ' · 화면 한쪽이 비어요'}`
+    : '찍은 그대로 보여요';
+  const pan = (x: number, y: number) =>
+    run('clip.pan', { clipId: clip.id, x, y }, `pan:${clip.id}`);
+  return (
+    <div className="clip-picture">
+      <RangeRow
+        label="확대"
+        min={100}
+        max={ZOOM_MAX * 100}
+        step={ZOOM_STEP_PERCENT}
+        value={zoomPercent}
+        valueText={`${zoomPercent}%`}
+        describedBy={noteId}
+        onChange={(v) =>
+          run(
+            'clip.zoom',
+            { clipId: clip.id, zoom: v / 100 },
+            `zoom:${clip.id}`,
+          )
+        }
+      />
+      <RangeRow
+        label="가로 위치"
+        min={-limitX}
+        max={limitX}
+        step={PAN_STEP_PERCENT}
+        value={Math.round(shownX * 100)}
+        valueText={panText('x', shownX)}
+        describedBy={panXDescribedBy}
+        onChange={(v) => pan(v / 100, shownY)}
+      />
+      <RangeRow
+        label="세로 위치"
+        min={-limitY}
+        max={limitY}
+        step={PAN_STEP_PERCENT}
+        value={Math.round(shownY * 100)}
+        valueText={panText('y', shownY)}
+        describedBy={panYDescribedBy}
+        onChange={(v) => pan(shownX, v / 100)}
+      />
+      <div className="clip-picture-buttons">
+        <CommandButton id="clip.rotate" label="화면 돌리기" icon="↻" />
+        <CommandButton id="clip.pictureReset" label="화면 원래대로" icon="⟲" />
+      </div>
+      <span className="clip-edge-note dim" id={noteId}>
+        {note}
+      </span>
+      {limitNote && (
+        <span className="clip-edge-note dim" id={limitId}>
+          {limitNote}
         </span>
       )}
     </div>
@@ -276,6 +429,13 @@ export function ClipPanel() {
       <p className="empty-hint">
         이 클립의 소리만 끄거나, 녹음된 것보다 크게·작게 할 수 있어요. 다른
         클립의 소리는 그대로예요.
+      </p>
+      <h3 className="panel-subtitle">화면</h3>
+      <PictureBlock />
+      <p className="empty-hint">
+        화면을 키우면 가운데가 크게 보이고, 프리뷰에서 그림을 끌어 보이는 자리를
+        옮길 수 있어요. 돌리기는 한 번에 90°씩 돌아가요. 이 클립의 화면만
+        바뀌어요.
       </p>
     </section>
   );

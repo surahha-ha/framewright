@@ -32,25 +32,51 @@ export interface ClipboardEntry {
   /** The clip's sound (ADR-0013), on the same terms. */
   volume?: number;
   muted?: true;
+  /** The clip's picture (ADR-0014), on the same terms. */
+  zoom?: number;
+  panX?: number;
+  panY?: number;
+  rotation?: 90 | 180 | 270;
 }
 
 export function entryLength(entry: ClipboardEntry): number {
   return entry.outFrame - entry.inFrame;
 }
 
-/** The optional fields a clip carries with it — its fades (ADR-0012) and
- *  its sound (ADR-0013) — copied so that a field the source lacks stays
- *  absent (never an `undefined` key). Used by copy, paste and the tail of a
- *  split: the third copy was the trigger to write it once. */
-export function carriedFields(
-  src: Pick<Clip, 'fadeIn' | 'fadeOut' | 'volume' | 'muted'>,
-): Pick<Clip, 'fadeIn' | 'fadeOut' | 'volume' | 'muted'> {
-  return {
-    ...(src.fadeIn !== undefined ? { fadeIn: src.fadeIn } : {}),
-    ...(src.fadeOut !== undefined ? { fadeOut: src.fadeOut } : {}),
-    ...(src.volume !== undefined ? { volume: src.volume } : {}),
-    ...(src.muted ? { muted: true as const } : {}),
-  };
+/** The optional fields a clip carries with it — its fades (ADR-0012), its
+ *  sound (ADR-0013) and its picture (ADR-0014) — copied so that a field the
+ *  source lacks stays absent (never an `undefined` key). Used by copy,
+ *  paste and the tail of a split: the third copy was the trigger to write
+ *  it once. */
+type Carried = Pick<
+  Clip,
+  | 'fadeIn'
+  | 'fadeOut'
+  | 'volume'
+  | 'muted'
+  | 'zoom'
+  | 'panX'
+  | 'panY'
+  | 'rotation'
+>;
+const CARRIED: readonly (keyof Carried)[] = [
+  'fadeIn',
+  'fadeOut',
+  'volume',
+  'muted',
+  'zoom',
+  'panX',
+  'panY',
+  'rotation',
+];
+
+export function carriedFields(src: Carried): Carried {
+  const out: Record<string, unknown> = {};
+  for (const key of CARRIED) {
+    const v = src[key];
+    if (v !== undefined) out[key] = v;
+  }
+  return out as Carried;
 }
 
 /** What copying a clip puts on the clipboard. Null when the clip is gone. */

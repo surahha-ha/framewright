@@ -294,14 +294,26 @@ export async function exportProject(
             abortIfRequested();
             if (got === 'missing') missingFrames++;
           }
-          blend = { frame: feed?.current ?? null, weight: entry.blend.weight };
+          blend = {
+            frame: feed?.current ?? null,
+            weight: entry.blend.weight,
+            transform: entry.blend.transform,
+          };
         }
       }
 
       // Draw, THEN drop what this frame did not ask for — the same order as
       // the preview, so a change to what `end()` closes can never leave one
       // surface drawing from a closed frame while the other is fine.
-      composeFrame(ctx, width, height, primary, blend, entry.subtitle);
+      composeFrame(
+        ctx,
+        width,
+        height,
+        primary,
+        blend,
+        entry.subtitle,
+        entry.transform,
+      );
       pool.end();
 
       // Per-sample duration must match the gap to the NEXT timestamp, otherwise

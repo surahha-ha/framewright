@@ -111,13 +111,20 @@ Done: **E0–E6.**
   slider, a pill and a scaled wave on the strip. ADR-0013 records why a
   mute is not "volume 0".
 
-Next, in order: the rest of **E7** (transform), E8 (style presets, shorts
-reframe), E9 (silence auto-cut).
+- E7, fourth item — **a clip's picture**: `Clip.zoom` / `panX` / `panY` /
+  `rotation`, one reader (`pictureTransform`) and one rectangle
+  (`pictureRect`) that `composeFrame` draws for preview and export alike,
+  the other side of a dissolve drawn where its own clip puts it, `R` to
+  turn, sliders in the panel, a drag on the preview to move. ADR-0014.
 
-Still owed regardless of epic: timeline zoom + ruler ticks + thumbnails +
-waveform, preview depth (quality toggle, loop range, fullscreen, safe area),
-proxy media, Worker-based export, rotation metadata, a project list, and a
-golden-file export QC. Post-MVP: the dashboard (progress + YouTube analytics)
+Next, in order: E8 (style presets, shorts reframe), E9 (silence auto-cut).
+
+Still owed regardless of epic: preview depth (quality toggle, loop range,
+fullscreen, safe area), proxy media, Worker-based export, rotation metadata
+(a quarter turn by hand exists since ADR-0014; reading the file's own
+rotation does not), a project list, and a golden-file export QC. (Timeline
+zoom, ruler ticks, thumbnails and the waveform are done — ADR-0010 and
+Epic C.) Post-MVP: the dashboard (progress + YouTube analytics)
 and optional YouTube account linking for archive/shorts upload, managed from a
 settings screen.
 

@@ -231,6 +231,49 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **A quarter turn's own black sides are said by nothing.** `coversBox`
+  answers only "did a PAN uncover a side"; a 16:9 clip stood up shows black
+  at both sides at zoom 100% / pan 0, the note says just "90° 회전" and the
+  status just "화면을 90° 돌렸어요." — the same "black with no explanation"
+  class the pan limit closed, on the very first press of 화면 돌리기
+  (novice). One clause on the turn's sentence would do it.
+- **Three phrasings for "the picture does not cover the frame".** "화면
+  한쪽이 비어요" (a pan uncovered a side), "더 가면 화면이 보이는 범위를
+  벗어나요" (why a slider is short), "위치는 보이는 범위 안으로 맞췄어요" (a
+  turn pulled the pan in). The last two share 보이는 범위 now; the first
+  does not (novice).
+- **The two picture notes sit under the buttons, not under the sliders**,
+  in the same 12px dim style; the one that explains a short slider is two
+  rows past the slider it explains (novice).
+- **A pan limit can round down to 0%.** `notchDown` floors to a 5% notch,
+  so a picture whose share of the box on an axis is under 2.5% (a 40:1
+  aspect mismatch) gets `min = max = 0`: an inert slider and the sentence
+  "가로로는 0%까지만 옮길 수 있어요". Correct, unpolished (QA).
+- **A preview drag past the pan limit detaches from the pointer.** The
+  drag's base is the pan at press and `clip.pan` clamps, so dragging back
+  from beyond the limit does nothing until the pointer has returned by the
+  overshoot. The sound slider behaves the same at its ceiling.
+- **The strip's pictures ignore the clip's transform.** Thumbnails are the
+  source frames as shot; a clip zoomed to 400% and turned still shows its
+  original frames on the timeline, with only the 🔍↻✥ pill to say so. The
+  thumbnail cache is keyed by source frame, so drawing them transformed is
+  a draw-time change in `ClipCanvas`, not a cache change.
+- **Zoom crops, silently.** A 400% zoom of a 720p file shows 180 real
+  pixels across the box and nothing says so. A sentence keyed on the
+  source's size is cheap; the source's size is in `asset.meta`.
+- **A focused slider swallows every plain key, `R` included.** Range inputs
+  own unmodified keys (`useShortcuts.controlOwnsKey`, from the fade-length
+  list's Delete accident), so `R` on the zoom slider does nothing and says
+  nothing. Consistent, deliberate, and a real "why did R stop working"
+  for someone who tabbed there (QA).
+- **The stage's drag has no signal for assistive tech.** `.stage` is a
+  div with pointer handlers and `cursor: move`; the two pan sliders are
+  the equal keyboard route, so nothing is unreachable, but nothing in the
+  DOM says the picture can be dragged (a11y).
+- **`Preview` resolves the clip under the playhead on every render.** One
+  O(clips) `resolveAt` per render, same class as the `subtitleAt` beside
+  it, on a component that re-renders every playhead tick. Fine for the
+  clip counts an MVP sees (guardrail).
 - **The ceiling reads whole buckets, so it can be a notch low at a trim.**
   `clipPeak` takes every 128-sample bucket the clip's range touches, so a
   peak up to 2.7ms outside the trim counts. Errs toward quieter, never

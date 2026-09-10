@@ -7,7 +7,12 @@
 //     cannot carry on (ADR-0012).
 // The playback loop reads live state through refs — a captured closure would
 // keep playing the pre-edit document and would fight the user's seeking.
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useStore } from '../store/projectStore';
 import { getDecodeService } from '../engine/registry';
 import { frameToSec, secToFrame, formatTimecode } from '../engine/time';
@@ -21,6 +26,11 @@ import { evenDimensions } from '../engine/exportPlan';
 import { blendAt } from '../engine/fades';
 import { FeedPool } from '../engine/feeds';
 import { composeFrame, type BlendLayer } from '../engine/compose';
+import {
+  AS_SHOT,
+  pictureTransform,
+  type PictureTransform,
+} from '../engine/picture';
 import { TOGGLE_PLAY_EVENT } from './actions';
 import { clipCeiling } from './waveform';
 
@@ -56,8 +66,90 @@ export function Preview() {
   // Media kept from a previous session is still being read. Without this the
   // stage tells the user to go and find the file the app is already opening.
   const restoring = useStore((s) => s.mediaRestoring);
+  const run = useStore((s) => s.run);
+  const endGesture = useStore((s) => s.endGesture);
+  const select = useStore((s) => s.select);
   const fps = project.timeline.fps;
   const total = timelineDuration(project);
+
+  // ---- MOVE THE PICTURE (ADR-0014) ----
+  // Dragging on the stage moves the picture of the clip under the playhead:
+  // pixels over the picture canvas's CSS size are fractions of the BOX,
+  // which is what `clip.pan` takes. Every move is the command with a
+  // coalesce key, so the drag is one undo step (ADR-0006).
+  const panDragRef = useRef<{
+    clipId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    panX: number;
+    panY: number;
+    zoom: number;
+    width: number;
+    height: number;
+    moved: boolean;
+  } | null>(null);
+  const underPlayhead = resolveAt(project, playhead)?.clip ?? null;
+  const selectedClipId = useStore((s) => s.selectedClipId);
+
+  function onStagePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (e.button !== 0 || !underPlayhead) return;
+    // Only the SELECTED clip's picture moves, and only while it is the one
+    // on screen. A drag that edited the clip under the playhead while the
+    // panel showed another was the novice reviewer's blocker: the first
+    // press on a different clip chooses it and says so; the next drag
+    // moves it.
+    if (underPlayhead.id !== selectedClipId) {
+      select(underPlayhead.id);
+      setStatus('지금 보이는 클립을 골랐어요 · 다시 끌면 화면이 옮겨져요.');
+      return;
+    }
+    const picture = canvasRef.current;
+    if (!picture) return;
+    const rect = picture.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const t = pictureTransform(underPlayhead);
+    panDragRef.current = {
+      clipId: underPlayhead.id,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      panX: t.panX,
+      panY: t.panY,
+      zoom: t.zoom,
+      width: rect.width,
+      height: rect.height,
+      moved: false,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onStagePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const d = panDragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (!d.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+    d.moved = true;
+    run(
+      'clip.pan',
+      // The pan scales with the zoom (ADR-0014): a pixel of drag is a
+      // pixel of the ZOOMED picture, so the picture follows the pointer.
+      {
+        clipId: d.clipId,
+        x: d.panX + dx / (d.width * d.zoom),
+        y: d.panY + dy / (d.height * d.zoom),
+      },
+      `pan:${d.clipId}`,
+    );
+  }
+
+  function onStagePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    const d = panDragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    panDragRef.current = null;
+    endGesture();
+  }
   // The document remembers clips whose media is not loaded (e.g. after reload).
   const missingMedia = project.assets.some((a) => !getDecodeService(a.id));
 
@@ -87,6 +179,7 @@ export function Preview() {
     primary: VideoFrame | null,
     blend: BlendLayer | null,
     frame: number,
+    transform: PictureTransform = AS_SHOT,
   ) {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
@@ -99,7 +192,7 @@ export function Preview() {
       canvas.width = width;
       canvas.height = height;
     }
-    composeFrame(ctx, width, height, primary, blend, null);
+    composeFrame(ctx, width, height, primary, blend, null, transform);
     canvas.dataset.frame = String(frame);
   }
 
@@ -150,8 +243,11 @@ export function Preview() {
         try {
           paint(
             frame,
-            mix ? { frame: other, weight: mix.weight } : null,
+            mix
+              ? { frame: other, weight: mix.weight, transform: mix.transform }
+              : null,
             timelineFrame,
+            pictureTransform(hit.clip),
           );
         } finally {
           frame.close();
@@ -359,11 +455,17 @@ export function Preview() {
             blend =
               other && !other.current
                 ? null
-                : { frame: other?.current ?? null, weight: mix.weight };
+                : {
+                    frame: other?.current ?? null,
+                    weight: mix.weight,
+                    transform: mix.transform,
+                  };
           }
           // Nothing decoded yet (a cold start at a cut): keep the last
           // picture on the canvas rather than flashing black for a frame.
-          if (feed.current) paint(feed.current, blend, frame);
+          if (feed.current) {
+            paint(feed.current, blend, frame, pictureTransform(hit.clip));
+          }
         }
       } else {
         drawBlank(frame);
@@ -405,7 +507,19 @@ export function Preview() {
   return (
     <div className="preview">
       <div className="panel-title">프리뷰</div>
-      <div className="stage" ref={stageRef}>
+      <div
+        className={
+          'stage' +
+          (underPlayhead && underPlayhead.id === selectedClipId
+            ? ' movable'
+            : '')
+        }
+        ref={stageRef}
+        onPointerDown={onStagePointerDown}
+        onPointerMove={onStagePointerMove}
+        onPointerUp={onStagePointerUp}
+        onPointerCancel={onStagePointerUp}
+      >
         <canvas ref={canvasRef} className="stage-picture" />
         {/* Hidden from assistive tech when blank; named by its words when not,
             so a screen reader user can ask what is on screen without being

@@ -1268,7 +1268,7 @@ button[aria-disabled='true'] {
   border-color: var(--teal);
   box-shadow: inset 0 0 0 1px var(--teal);
 }
-.clip-volume {
+.clip-range {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1276,19 +1276,67 @@ button[aria-disabled='true'] {
   flex: 1 1 140px;
   min-width: 0;
 }
-.clip-volume input[type='range'] {
+.clip-range input[type='range'] {
   flex: 1 1 60px;
   min-width: 60px;
   accent-color: var(--teal);
 }
-.clip-volume input[type='range']:focus-visible {
+.clip-range input[type='range']:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
 }
-.clip-volume output {
+.clip-range output {
   min-width: 4ch;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+/* The clip's picture (ADR-0014): three sliders and two buttons. */
+.clip-picture {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 12px 8px;
+}
+.clip-picture .clip-range {
+  flex-basis: 100%;
+}
+.clip-picture .clip-range > span:first-child {
+  min-width: 4.5em;
+}
+.clip-picture-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.clip-picture button {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.clip-picture button:hover:not([aria-disabled='true']) {
+  border-color: var(--teal);
+}
+.clip-picture button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+/* The picture can be dragged where a clip is under the playhead. */
+.stage.movable {
+  cursor: move;
+}
+.clip-picture-mark {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  background: rgba(8, 16, 22, 0.72);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 10px;
 }
 /* On the strip: the same pill as the name, after it. */
 .clip-sound-mark {

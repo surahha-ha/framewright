@@ -8,11 +8,15 @@
 // preview keeps the words on their own layer (they must change on the exact
 // frame without waiting for a picture); the export burns them in.
 
-import { containRect } from './exportConfig';
 import { drawSubtitle, type SubtitleContext } from './subtitleRender';
+import { AS_SHOT, pictureRect, type PictureTransform } from './picture';
 
-/** The 2D context — an `OffscreenCanvas`'s or a canvas's. */
-export type FrameContext = SubtitleContext;
+/** The 2D context — an `OffscreenCanvas`'s or a canvas's. The turn needs
+ *  the transform calls a subtitle never did. */
+export type FrameContext = SubtitleContext & {
+  translate(x: number, y: number): void;
+  rotate(angle: number): void;
+};
 
 export interface Picture {
   displayWidth: number;
@@ -24,12 +28,47 @@ export interface BlendLayer {
   frame: (CanvasImageSource & Picture) | null;
   /** How much of it shows, (0, 1]. */
   weight: number;
+  /** How the second picture's CLIP sits in the box (ADR-0014). As shot
+   *  when absent. */
+  transform?: PictureTransform;
+}
+
+/**
+ * One picture, where its clip puts it (ADR-0014): fitted, zoomed and moved
+ * by `pictureRect`, and turned about its own centre when the clip says so.
+ * The unturned case draws the plain rectangle, so a picture as shot goes
+ * through exactly the calls it always did.
+ */
+function drawPicture(
+  ctx: FrameContext,
+  picture: CanvasImageSource & Picture,
+  width: number,
+  height: number,
+  t: PictureTransform,
+): void {
+  const r = pictureRect(
+    picture.displayWidth,
+    picture.displayHeight,
+    width,
+    height,
+    t,
+  );
+  if (r.rotation === 0) {
+    ctx.drawImage(picture, r.x, r.y, r.width, r.height);
+    return;
+  }
+  ctx.save();
+  ctx.translate(r.x + r.width / 2, r.y + r.height / 2);
+  ctx.rotate((r.rotation * Math.PI) / 180);
+  ctx.drawImage(picture, -r.width / 2, -r.height / 2, r.width, r.height);
+  ctx.restore();
 }
 
 /**
  * Draw one timeline frame into a `width`×`height` box: black, then the
- * footage letterboxed into the box, then the blend at its weight (black or
- * another picture, letterboxed the same way), then the words.
+ * footage where its clip puts it (fitted into the box when as shot), then
+ * the blend at its weight (black, or another picture where ITS clip puts
+ * it), then the words.
  */
 export function composeFrame(
   ctx: FrameContext,
@@ -38,29 +77,16 @@ export function composeFrame(
   primary: (CanvasImageSource & Picture) | null,
   blend: BlendLayer | null,
   subtitle: string | null,
+  transform: PictureTransform = AS_SHOT,
 ): void {
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, width, height);
-  if (primary) {
-    const r = containRect(
-      primary.displayWidth,
-      primary.displayHeight,
-      width,
-      height,
-    );
-    ctx.drawImage(primary, r.x, r.y, r.width, r.height);
-  }
+  if (primary) drawPicture(ctx, primary, width, height, transform);
   if (blend && blend.weight > 0) {
     ctx.globalAlpha = Math.min(1, blend.weight);
     if (blend.frame) {
-      const r = containRect(
-        blend.frame.displayWidth,
-        blend.frame.displayHeight,
-        width,
-        height,
-      );
-      ctx.drawImage(blend.frame, r.x, r.y, r.width, r.height);
+      drawPicture(ctx, blend.frame, width, height, blend.transform ?? AS_SHOT);
     } else {
       ctx.fillRect(0, 0, width, height);
     }

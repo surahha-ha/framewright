@@ -24,6 +24,7 @@
 import type { Clip, Project, Rational } from './types';
 import { clipLength, locateClip, resolveAt, sourceFrames } from './timeline';
 import { frameToSec, secToFrame } from './time';
+import { isAsShot, pictureTransform, type PictureTransform } from './picture';
 
 export type FadeEdge = 'in' | 'out';
 
@@ -92,6 +93,10 @@ export interface Blend {
   sourceFrame: number;
   /** How much of the second picture shows, (0, 1]. */
   weight: number;
+  /** How the neighbour's picture sits in the box (ADR-0014); absent for
+   *  black. Recorded here so the export plan and the preview draw the
+   *  partner where its own clip puts it. */
+  transform?: PictureTransform;
 }
 
 /** The last frame the file can supply for this clip's asset; the clip's own
@@ -99,6 +104,13 @@ export interface Blend {
 function lastSourceFrame(project: Project, clip: Clip): number {
   const total = sourceFrames(project, clip.assetId);
   return total === null ? clip.outFrame - 1 : total - 1;
+}
+
+/** The partner's transform, only when it has one — a blend of a clip as
+ *  shot carries no key, so nothing that compares blends changes. */
+function partnerTransform(clip: Clip): { transform?: PictureTransform } {
+  const t = pictureTransform(clip);
+  return isAsShot(t) ? {} : { transform: t };
 }
 
 /** The second picture at this timeline frame, or null for a plain frame. */
@@ -121,6 +133,7 @@ export function blendAt(project: Project, frame: number): Blend | null {
       assetId: prev.assetId,
       sourceFrame: Math.min(prev.outFrame + k, lastSourceFrame(project, prev)),
       weight,
+      ...partnerTransform(prev),
     };
   }
 
@@ -136,6 +149,7 @@ export function blendAt(project: Project, frame: number): Blend | null {
       assetId: next.assetId,
       sourceFrame: Math.max(0, next.inFrame - (fadeOut - j)),
       weight,
+      ...partnerTransform(next),
     };
   }
 

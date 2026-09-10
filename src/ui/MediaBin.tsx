@@ -166,6 +166,10 @@ export function MediaBin() {
             assetId: missing.id,
             opfsKey: opfsKey ?? undefined,
             startOffsetSec: demux.startOffsetSec,
+            // The file matched by name; its shape may differ, and the
+            // picture's pan limits follow the recorded shape (ADR-0014).
+            width: demux.track.width,
+            height: demux.track.height,
           });
           sync();
           // Nothing else in the document changed, so this is the only signal the

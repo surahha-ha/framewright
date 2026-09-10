@@ -57,6 +57,7 @@ import { ClipCanvas } from './ClipCanvas';
 import { effectiveFades, fadeSecondsText } from '../engine/fades';
 import { audioNoteText, clipLevel, volumeText } from '../engine/volume';
 import { clipCeiling, subscribeWaveforms } from './waveform';
+import { pictureNoteText, pictureTransform } from '../engine/picture';
 import { CommandButton } from './CommandButton';
 import { SubtitleLane } from './SubtitleLane';
 import { hasNoAudioTrack } from '../engine/audio';
@@ -682,6 +683,8 @@ export function Timeline() {
             // What is HEARD: the stored level under the clip's own ceiling.
             const heard = Math.min(clipLevel(c), clipCeiling(project, c));
             const sound = audioNoteText(c, heard);
+            const picture = pictureNoteText(c);
+            const pt = pictureTransform(c);
             return (
               <button
                 key={c.id}
@@ -722,6 +725,7 @@ export function Timeline() {
                     silent(c.assetId) ? 'clip-silent-note' : '',
                     fades.fadeIn || fades.fadeOut ? `clip-fade-${c.id}` : '',
                     sound ? `clip-sound-${c.id}` : '',
+                    picture ? `clip-picture-${c.id}` : '',
                   ]
                     .filter(Boolean)
                     .join(' ') || undefined
@@ -807,6 +811,20 @@ export function Timeline() {
                     </span>
                     <span id={`clip-sound-${c.id}`} className="sr-only">
                       {sound}
+                    </span>
+                  </>
+                )}
+                {/* The picture when it is not as shot (ADR-0014): one glyph
+                    per kind of change, and the same in words. */}
+                {picture && (
+                  <>
+                    <span className="clip-picture-mark" aria-hidden="true">
+                      {(pt.zoom !== 1 ? '🔍' : '') +
+                        (pt.rotation !== 0 ? '↻' : '') +
+                        (pt.panX !== 0 || pt.panY !== 0 ? '✥' : '')}
+                    </span>
+                    <span id={`clip-picture-${c.id}`} className="sr-only">
+                      {picture}
                     </span>
                   </>
                 )}

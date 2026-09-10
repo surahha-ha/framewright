@@ -3,7 +3,7 @@
 // `run` that returns a Patch. Buttons, menus, shortcuts and (later) the palette
 // all derive from this — add a command here and every entry point gets it.
 
-import type { Clip, Project } from './types';
+import type { Asset, Clip, Project } from './types';
 import type { Op, Patch } from './ops';
 import {
   clipLength,
@@ -25,6 +25,7 @@ import {
 import { SUBTITLE_COMMANDS } from './subtitleCommands';
 import { FADE_COMMANDS } from './fadeCommands';
 import { VOLUME_COMMANDS } from './volumeCommands';
+import { PICTURE_COMMANDS } from './pictureCommands';
 import { effectiveFades } from './fades';
 import { rippleSubtitles, splitSubtitleAt, subtitleDiffOps } from './subtitles';
 
@@ -791,27 +792,57 @@ export interface AttachMediaArgs {
   opfsKey?: string;
   /** The presentation offset the demuxer removed on the way in (ADR-0008). */
   startOffsetSec?: number;
+  /** The file's picture size. A re-link to a same-named file of another
+   *  shape must move the picture's pan limits with it (ADR-0014): the
+   *  panel and the commands read `meta.width/height`, the draw reads the
+   *  decoded frame, and they must not disagree. */
+  width?: number;
+  height?: number;
 }
+
+type AttachMeta = {
+  startOffsetSec?: number;
+  width?: number;
+  height?: number;
+};
 
 /** What `asset.attachMedia` would actually change — empty means "nothing to do". */
 function attachChanges(
   ctx: EditorCtx,
   args: AttachMediaArgs | undefined,
-): { opfsKey?: string; meta?: { startOffsetSec?: number } } | null {
+): { opfsKey?: string; meta?: AttachMeta } | null {
   if (!args?.assetId) return null;
   const asset = ctx.project.assets.find((a) => a.id === args.assetId);
   if (!asset) return null;
-  const changes: { opfsKey?: string; meta?: { startOffsetSec?: number } } = {};
+  const changes: { opfsKey?: string; meta?: AttachMeta } = {};
   if (args.opfsKey !== undefined && args.opfsKey !== asset.opfsKey) {
     changes.opfsKey = args.opfsKey;
   }
+  const meta: AttachMeta = {};
   if (
     args.startOffsetSec !== undefined &&
     args.startOffsetSec !== asset.meta.startOffsetSec
   ) {
-    changes.meta = { startOffsetSec: args.startOffsetSec };
+    meta.startOffsetSec = args.startOffsetSec;
   }
+  if (args.width !== undefined && args.width !== asset.meta.width) {
+    meta.width = args.width;
+  }
+  if (args.height !== undefined && args.height !== asset.meta.height) {
+    meta.height = args.height;
+  }
+  if (Object.keys(meta).length) changes.meta = meta;
   return Object.keys(changes).length ? changes : null;
+}
+
+/** The inverse of a meta change: each field back to what it was, with
+ *  `undefined` meaning "remove it again" (see ops.ts). */
+function metaBefore(asset: Asset, meta: AttachMeta): AttachMeta {
+  const before: AttachMeta = {};
+  for (const key of Object.keys(meta) as (keyof AttachMeta)[]) {
+    before[key] = asset.meta[key];
+  }
+  return before;
 }
 
 /**
@@ -845,9 +876,7 @@ const attachMediaCommand: Command<AttachMediaArgs> = {
             // `undefined` here means "remove it again" — see ops.ts. An asset
             // that never had an offset must not come back from undo with one.
             ...('opfsKey' in changes ? { opfsKey: asset.opfsKey } : {}),
-            ...('meta' in changes
-              ? { meta: { startOffsetSec: asset.meta.startOffsetSec } }
-              : {}),
+            ...(changes.meta ? { meta: metaBefore(asset, changes.meta) } : {}),
           },
         },
       ],
@@ -870,6 +899,9 @@ export const BUILTIN_COMMANDS: Command<any>[] = [
   ...FADE_COMMANDS,
   // The mute is a key and a palette row; the level is the panel's (ADR-0013).
   ...VOLUME_COMMANDS,
+  // A turn and a reset are rows; zoom and pan are the panel's and the
+  // preview's (ADR-0014).
+  ...PICTURE_COMMANDS,
   trimStartCommand,
   trimEndCommand,
   moveClipCommand,

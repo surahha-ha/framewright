@@ -215,6 +215,22 @@ test.describe('sound', () => {
     // A zoom changes the strip's scale, which re-renders every clip canvas —
     // and a clip canvas asking for its peaks is what builds the new ones. (A
     // re-linked file gets the same render from its thumbnails arriving.)
+    // Every sentence the status line says from here on, in order: the zoom
+    // says one of its own after it has re-centred the playhead, and which
+    // of the two lands last is a race the assertion must not depend on.
+    await page.evaluate(() => {
+      const said: string[] = [];
+      const bar = document.querySelector('.statusbar')!;
+      new MutationObserver(() => said.push(bar.textContent ?? '')).observe(
+        bar,
+        {
+          childList: true,
+          characterData: true,
+          subtree: true,
+        },
+      );
+      (window as unknown as { __said: string[] }).__said = said;
+    });
     await page.locator('.ruler').focus();
     await page.keyboard.press('=');
 
@@ -239,10 +255,16 @@ test.describe('sound', () => {
     expect(
       await muteButton(page).getAttribute('aria-describedby'),
     ).not.toContain('clip-sound-limit');
-    // Nothing the user did moved the slider's end, so the status line says it.
-    await expect(status(page)).toContainText(
-      '소리를 200%로 두었지만, 이 클립은 소리가 커서 110%로 들려요.',
-    );
+    // Nothing the user did moved the slider's end, so the status line said it.
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (window as unknown as { __said: string[] }).__said.join('\n'),
+        ),
+      )
+      .toContain(
+        '소리를 200%로 두었지만, 이 클립은 소리가 커서 110%로 들려요.',
+      );
     // Undo reaches the stored 200% → 100%, proving the document kept it.
     await page.keyboard.press('Control+z');
     await expect(slider(page)).toHaveValue('100');

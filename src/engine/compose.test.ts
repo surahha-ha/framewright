@@ -1,6 +1,7 @@
 // framewright — the one draw order for a frame, checked with a fake context.
 import { describe, expect, it } from 'vitest';
 import { composeFrame, type FrameContext } from './compose';
+import { AS_SHOT, type PictureTransform } from './picture';
 
 function fakeCtx() {
   const calls: string[] = [];
@@ -24,8 +25,18 @@ function fakeCtx() {
       calls.push(`text ${text}`);
     },
     measureText: (text: string) => ({ width: text.length * 10 }),
-    save() {},
-    restore() {},
+    save() {
+      calls.push('save');
+    },
+    restore() {
+      calls.push('restore');
+    },
+    translate(x: number, y: number) {
+      calls.push(`translate ${x},${y}`);
+    },
+    rotate(angle: number) {
+      calls.push(`rotate ${Math.round((angle * 180) / Math.PI)}`);
+    },
     beginPath() {},
     roundRect() {},
     fill() {},
@@ -78,5 +89,64 @@ describe('composeFrame', () => {
     composeFrame(ctx, 320, 180, pic('a'), { frame: null, weight: 0.5 }, '안녕');
     expect(calls[calls.length - 1]).toBe('text 안녕');
     expect(calls.indexOf('text 안녕')).toBeGreaterThan(2);
+  });
+});
+
+describe('composeFrame — where the clip puts its picture (ADR-0014)', () => {
+  const t = (extra: Partial<PictureTransform> = {}): PictureTransform => ({
+    ...AS_SHOT,
+    ...extra,
+  });
+
+  it('draws a picture as shot through exactly the calls it always did', () => {
+    const { ctx, calls } = fakeCtx();
+    composeFrame(ctx, 320, 180, pic('a'), null, null, t());
+    expect(calls).toEqual([
+      'rect 0,0 320x180 a=1 #000',
+      'img a 0,0 320x180 a=1',
+    ]);
+  });
+
+  it('grows the picture about the centre and moves it by the pan times the zoom', () => {
+    const { ctx, calls } = fakeCtx();
+    // Half a box of pan at 200% is a whole box: the picture's own edge
+    // lands on the box's centre.
+    composeFrame(
+      ctx,
+      320,
+      180,
+      pic('a'),
+      null,
+      null,
+      t({ zoom: 2, panX: 0.5 }),
+    );
+    expect(calls[1]).toBe('img a 160,-90 640x360 a=1');
+  });
+
+  it('turns the picture about its own centre, and puts the context back', () => {
+    const { ctx, calls } = fakeCtx();
+    composeFrame(ctx, 320, 180, pic('a'), null, null, t({ rotation: 90 }));
+    expect(calls.slice(1)).toEqual([
+      'save',
+      'translate 160,90',
+      'rotate 90',
+      'img a -90,-50.625 180x101.25 a=1',
+      'restore',
+    ]);
+  });
+
+  it('draws the second picture where ITS clip puts it, not where this one does', () => {
+    const { ctx, calls } = fakeCtx();
+    composeFrame(
+      ctx,
+      320,
+      180,
+      pic('a'),
+      { frame: pic('b'), weight: 0.5, transform: t({ zoom: 2 }) },
+      null,
+      t({ panX: 0.5 }),
+    );
+    expect(calls[1]).toBe('img a 160,0 320x180 a=1');
+    expect(calls[2]).toBe('img b -160,-90 640x360 a=0.5');
   });
 });

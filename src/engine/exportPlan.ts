@@ -7,6 +7,7 @@ import type { Project } from './types';
 import { resolveAt, videoDuration } from './timeline';
 import { subtitleAt } from './subtitles';
 import { blendAt, type Blend } from './fades';
+import { isAsShot, pictureTransform, type PictureTransform } from './picture';
 
 export interface ExportFrame {
   timelineFrame: number;
@@ -23,6 +24,10 @@ export interface ExportFrame {
    *  for the same reason as the words: one answer per frame, for both
    *  surfaces. */
   blend: Blend | null;
+  /** How this frame's clip puts its picture in the box (ADR-0014). Absent
+   *  when as shot, and for a gap. In the plan for the same reason as the
+   *  words and the blend: one answer per frame, for both surfaces. */
+  transform?: PictureTransform;
 }
 
 export function buildExportPlan(project: Project): ExportFrame[] {
@@ -40,6 +45,9 @@ export function buildExportPlan(project: Project): ExportFrame[] {
           sourceFrame: hit.sourceFrame,
           subtitle,
           blend: blendAt(project, f),
+          ...(isAsShot(pictureTransform(hit.clip))
+            ? {}
+            : { transform: pictureTransform(hit.clip) }),
         }
       : {
           timelineFrame: f,

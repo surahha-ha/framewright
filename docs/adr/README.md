@@ -19,6 +19,7 @@ ones, don't delete.
 | 0011 | Subtitles are not clips; one draw      | Accepted |
 | 0012 | A fade is an edge of a clip            | Accepted |
 | 0013 | A clip's sound is a level and a switch | Accepted |
+| 0014 | A clip puts its picture in the box      | Accepted |
 
 ## Template
 

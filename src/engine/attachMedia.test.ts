@@ -52,6 +52,37 @@ describe('asset.attachMedia', () => {
     expect(asset(editor).meta.startOffsetSec).toBeCloseTo(0.0667);
   });
 
+  it('records the file’s size, so a re-link to a file of another shape moves the picture’s limits with it', () => {
+    // The panel and the pan commands read `meta.width/height` for how far
+    // the picture may move (ADR-0014); the draw reads the decoded frame.
+    // A same-named file of another shape must update the record, or the
+    // slider describes a picture that is not the one on screen.
+    const editor = withAsset();
+    editor.dispatch('asset.attachMedia', {
+      assetId: 'asset_1',
+      width: 1080,
+      height: 1920,
+    });
+    expect(asset(editor).meta).toMatchObject({ width: 1080, height: 1920 });
+    // Undo removes a size the asset never had, rather than leaving zeros.
+    expect(editor.undo()).toBe(true);
+    expect('width' in asset(editor).meta).toBe(false);
+    expect('height' in asset(editor).meta).toBe(false);
+    // The same size again is nothing to do.
+    editor.dispatch('asset.attachMedia', {
+      assetId: 'asset_1',
+      width: 1080,
+      height: 1920,
+    });
+    expect(
+      editor.canRun('asset.attachMedia', {
+        assetId: 'asset_1',
+        width: 1080,
+        height: 1920,
+      }),
+    ).toBe(false);
+  });
+
   it('is undoable, and undo puts back exactly what was there before', () => {
     const editor = withAsset({ opfsKey: 'media_old', startOffsetSec: 0.5 });
     editor.dispatch('asset.attachMedia', {

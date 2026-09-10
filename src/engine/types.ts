@@ -69,6 +69,18 @@ export interface Clip {
    * that goes both ways, and the level has to survive the trip.
    */
   muted?: true;
+  /**
+   * How the clip's picture sits in the box (ADR-0014). All absent = as
+   * shot: fitted into the box, centred, upright. `zoom` is a multiple of
+   * that fit (1–4); `panX` / `panY` are fractions of the BOX the picture is
+   * moved right / down (-1..1); `rotation` is a quarter turn clockwise.
+   * Read through `pictureTransform`, which clamps and defaults; a value
+   * outside the range is read at the edge, never rewritten.
+   */
+  zoom?: number;
+  panX?: number;
+  panY?: number;
+  rotation?: 90 | 180 | 270;
 }
 
 export interface Track {

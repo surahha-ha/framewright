@@ -161,3 +161,19 @@ describe('export plan — fades (ADR-0012)', () => {
     expect(plan[4].blend).toMatchObject({ assetId: null, weight: 1 });
   });
 });
+
+describe('export plan — the picture (ADR-0014)', () => {
+  it('records the transform per frame only when the clip is not as shot', () => {
+    const ed = createEditor(createProject());
+    ed.importAsset({ kind: 'video', name: 'a.mp4', meta: {} }, 60);
+    ed.setPlayhead(30);
+    ed.dispatch('clip.split');
+    const second = ed.project.tracks[0].clips[1];
+    ed.select(second.id);
+    ed.dispatch('clip.zoom', { zoom: 2 });
+    ed.dispatch('clip.rotate');
+    const plan = buildExportPlan(ed.project);
+    expect('transform' in plan[0]).toBe(false);
+    expect(plan[30].transform).toEqual({ zoom: 2, panX: 0, panY: 0, rotation: 90 });
+  });
+});
