@@ -19,11 +19,10 @@ repo does not.
 ## Where we are
 
 **E7's fourth item, a clip's picture (zoom, pan, quarter turns), is
-implemented in the working tree and NOT YET COMMITTED.** `main` is still
-`6e52be1` (= `origin/main`): the sound unit `f04858f`, its ceiling
-follow-up `ba74880`, and the docs commits between. Everything under
-"What is new" below is uncommitted; committing it is the next git
-operation, and it needs the owner's word first.
+committed as `fc6ff59`** (2026-09-10, with the owner's approval) and
+pushed with this file's update. **E7 is complete**: subtitles (ADR-0011),
+fades (ADR-0012), sound (ADR-0013), picture (ADR-0014). Before it on
+`main`: the sound unit `f04858f`, its ceiling follow-up `ba74880`.
 
 How it got here, because it explains the shape of this file: the session
 that built the unit ran its persona round, stamped a green gate (unit 531 ·
@@ -250,21 +249,29 @@ does not replace the implementation handoff or the next step below.
 
 ## Next single step
 
-**Commit the picture unit** (after the owner's word), then push. With that,
-E7 is complete (subtitles, fades, sound, picture) and the next epic is
-**E8: style presets and the shorts reframe** — read ADR-0014 first, because
-a 9:16 reframe is a `pictureRect` question (a crop through the same one
-rectangle), not a new draw.
+**Start E8: style presets and the shorts reframe.** Take the reframe
+first: a 9:16 output of a 16:9 project is a `pictureRect` question — the
+box changes shape and every clip's picture is placed in it through the
+same one rectangle (`panLimits` already answers how far it may move in a
+box of any shape) — so it exercises ADR-0014 while that design is fresh,
+and it settles what "the box" is when the timeline's size is not the
+first import's. Read ADR-0014 and `src/engine/picture.ts` first; the
+presets come after, on top of whatever the reframe needs.
 
 ## Blocked / needs the owner
 
-1. **Commit approval** for the picture unit (the whole working tree).
-2. **A visual pass** in a connected Chrome for this unit — none has run.
-3. **Listen and look, unchanged from the sound unit:** playback through a
-   50% clip, a mute mid-playback, a 200% clip.
-4. **Two auto snapshots from the sound unit's visual pass** (2026-09-10
-   15:25 and 15:29, in the browser's "이전 상태" list) still hold a muted /
-   50% document. Delete or keep.
+1. **Look at playback and an export with a transformed clip.** The visual
+   pass saw only stills (the tab was hidden); a dissolve between two
+   differently placed clips and an exported file with a turned clip have
+   been seen by nothing but the unit tests' arithmetic.
+2. **Listen, unchanged from the sound unit:** playback through a 50%
+   clip, a mute mid-playback, a 200% clip.
+3. **Auto snapshots from the two visual passes** (2026-09-10 15:25, 15:29,
+   17:49, 17:50 in the browser's "이전 상태" list) hold the muted / 50% and
+   the turned / zoomed / panned documents. Delete or keep.
+4. **The turn's own black sides** (a stood-up clip shows black at both
+   sides and nothing says so) — one clause on the turn's sentence; a
+   product call on wording, listed in `CLAUDE.md` debt.
 5. **Product calls still open:** should the fade edges get a heading now
    that 소리 and 화면 have one; should zoom say how many real pixels it is
    showing (the "zoom crops silently" debt); the fade mark over bright
