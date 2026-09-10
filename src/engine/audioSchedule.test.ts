@@ -261,6 +261,108 @@ describe('audio schedule — fades (ADR-0012)', () => {
   });
 });
 
+describe('audio schedule — volume and mute (ADR-0013)', () => {
+  const sec = (frames: number) => frames / 30;
+
+  /** Two 30-frame clips of two 3 s files, butted at frame 30. */
+  function pair(a: Partial<Clip> = {}, b: Partial<Clip> = {}): Project {
+    const p = createProject();
+    const first: Clip = {
+      id: 'clip_a',
+      assetId: 'asset_a',
+      startFrame: 0,
+      inFrame: 0,
+      outFrame: 30,
+      ...a,
+    };
+    const second: Clip = {
+      id: 'clip_b',
+      assetId: 'asset_b',
+      startFrame: 30,
+      inFrame: 20,
+      outFrame: 50,
+      ...b,
+    };
+    return {
+      ...p,
+      nextId: 3,
+      timeline: { ...p.timeline, fps: FPS_30 },
+      assets: ['asset_a', 'asset_b'].map((id) => ({
+        id,
+        kind: 'video' as const,
+        name: id,
+        meta: { durationSec: 3 },
+      })),
+      tracks: p.tracks.map((t) =>
+        t.type === 'video' ? { ...t, clips: [first, second] } : t,
+      ),
+    };
+  }
+
+  it('is a flat gain at the level, from the segment’s first frame', () => {
+    const s = buildAudioSchedule(pair({ volume: 0.5 }), 0);
+    expect(s[0].gain).toEqual([{ atSec: 0, value: 0.5 }]);
+    expect(s[1].gain).toBeUndefined();
+    expect(gainAt(s[0].gain, 0.7)).toBe(0.5);
+  });
+
+  it('schedules nothing at all for a muted clip', () => {
+    const s = buildAudioSchedule(pair({ muted: true }), 0);
+    expect(s).toHaveLength(1);
+    expect(s[0].clipId).toBe('clip_b');
+  });
+
+  it('treats 0% the same as muted', () => {
+    const s = buildAudioSchedule(pair({}, { volume: 0 }), 0);
+    expect(s.map((x) => x.clipId)).toEqual(['clip_a']);
+  });
+
+  it('scales a fade’s ramp by the level, so the fade still ends where it did', () => {
+    const s = buildAudioSchedule(pair({ fadeIn: 15, volume: 0.5 }), 0);
+    expect(s[0].gain).toEqual([
+      { atSec: 0, value: 0 },
+      { atSec: sec(15), value: 0.5 },
+    ]);
+  });
+
+  it('plays a neighbour’s overhang at the NEIGHBOUR’s level under a dissolve', () => {
+    // b fades in over a's overhang; a is at half, b is at full.
+    const s = buildAudioSchedule(pair({ volume: 0.5 }, { fadeIn: 10 }), 0);
+    expect(s[0].gain).toEqual([
+      { atSec: sec(30), value: 0.5 },
+      { atSec: sec(40), value: 0 },
+    ]);
+    // Before the ramp's first point the level holds — the whole clip is at half.
+    expect(gainAt(s[0].gain, 0)).toBe(0.5);
+    expect(gainAt(s[0].gain, sec(35))).toBeCloseTo(0.25, 9);
+    expect(s[1].gain).toEqual([
+      { atSec: sec(30), value: 0 },
+      { atSec: sec(40), value: 1 },
+    ]);
+  });
+
+  it('keeps a muted neighbour silent through a dissolve too', () => {
+    const s = buildAudioSchedule(pair({ muted: true }, { fadeIn: 10 }), 0);
+    expect(s.map((x) => x.clipId)).toEqual(['clip_b']);
+  });
+
+  it('keeps the flat point at the segment’s start, in the past, like a fade’s', () => {
+    const s = buildAudioSchedule(pair({ volume: 1.5 }), 10);
+    expect(s[0].gain).toEqual([{ atSec: sec(-10), value: 1.5 }]);
+    // ...and the player starts the parameter where the ramp already is.
+    const calls: [string, number, number][] = [];
+    scheduleGain(
+      {
+        setValueAtTime: (v, t) => calls.push(['set', v, t]),
+        linearRampToValueAtTime: (v, t) => calls.push(['ramp', v, t]),
+      },
+      s[0].gain,
+      100,
+    );
+    expect(calls).toEqual([['set', 1.5, 100]]);
+  });
+});
+
 describe('gain ramps', () => {
   const ramp = [
     { atSec: -1, value: 0 },

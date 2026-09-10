@@ -18,7 +18,7 @@
 // magnetic mode ADR-0006 rejected: nothing reflows unless you ask it to.
 
 import { clipLength, videoTrack } from './timeline';
-import type { Project } from './types';
+import type { Clip, Project } from './types';
 
 export interface ClipboardEntry {
   assetId: string;
@@ -29,10 +29,28 @@ export interface ClipboardEntry {
    *  Present only when the clip had them — never `undefined` keys. */
   fadeIn?: number;
   fadeOut?: number;
+  /** The clip's sound (ADR-0013), on the same terms. */
+  volume?: number;
+  muted?: true;
 }
 
 export function entryLength(entry: ClipboardEntry): number {
   return entry.outFrame - entry.inFrame;
+}
+
+/** The optional fields a clip carries with it — its fades (ADR-0012) and
+ *  its sound (ADR-0013) — copied so that a field the source lacks stays
+ *  absent (never an `undefined` key). Used by copy, paste and the tail of a
+ *  split: the third copy was the trigger to write it once. */
+export function carriedFields(
+  src: Pick<Clip, 'fadeIn' | 'fadeOut' | 'volume' | 'muted'>,
+): Pick<Clip, 'fadeIn' | 'fadeOut' | 'volume' | 'muted'> {
+  return {
+    ...(src.fadeIn !== undefined ? { fadeIn: src.fadeIn } : {}),
+    ...(src.fadeOut !== undefined ? { fadeOut: src.fadeOut } : {}),
+    ...(src.volume !== undefined ? { volume: src.volume } : {}),
+    ...(src.muted ? { muted: true as const } : {}),
+  };
 }
 
 /** What copying a clip puts on the clipboard. Null when the clip is gone. */
@@ -47,8 +65,7 @@ export function copyEntry(
     assetId: clip.assetId,
     inFrame: clip.inFrame,
     outFrame: clip.outFrame,
-    ...(clip.fadeIn !== undefined ? { fadeIn: clip.fadeIn } : {}),
-    ...(clip.fadeOut !== undefined ? { fadeOut: clip.fadeOut } : {}),
+    ...carriedFields(clip),
   };
 }
 

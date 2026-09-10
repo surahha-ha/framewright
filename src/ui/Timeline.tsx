@@ -55,6 +55,7 @@ import { formatChord } from '../engine/keymap';
 import { formatClock, formatTimecode, frameToSec } from '../engine/time';
 import { ClipCanvas } from './ClipCanvas';
 import { effectiveFades, fadeSecondsText } from '../engine/fades';
+import { audioNoteText, clipLevel, volumeText } from '../engine/volume';
 import { CommandButton } from './CommandButton';
 import { SubtitleLane } from './SubtitleLane';
 import { hasNoAudioTrack } from '../engine/audio';
@@ -673,6 +674,7 @@ export function Timeline() {
             const isDragging = drag?.active && drag.clipId === c.id;
             const g = drawn[i];
             const fades = effectiveFades(c);
+            const sound = audioNoteText(c);
             return (
               <button
                 key={c.id}
@@ -712,6 +714,7 @@ export function Timeline() {
                     unlinked(c.assetId) ? 'clip-unlinked-note' : '',
                     silent(c.assetId) ? 'clip-silent-note' : '',
                     fades.fadeIn || fades.fadeOut ? `clip-fade-${c.id}` : '',
+                    sound ? `clip-sound-${c.id}` : '',
                   ]
                     .filter(Boolean)
                     .join(' ') || undefined
@@ -741,6 +744,7 @@ export function Timeline() {
                   }}
                   assetId={c.assetId}
                   fps={fps}
+                  gain={clipLevel(c)}
                 />
                 {/* A softened edge (ADR-0012): a ramp over the frames it
                     takes, in the clip's own scale. Decorative — the clip's
@@ -787,6 +791,18 @@ export function Timeline() {
                   {selected ? '◉' : '◎'}
                 </span>
                 <span className="clip-name">{assetName(c.assetId)}</span>
+                {/* The sound when it is not as recorded (ADR-0013): a mark
+                    on screen, and the same fact in words for the description. */}
+                {sound && (
+                  <>
+                    <span className="clip-sound-mark" aria-hidden="true">
+                      {c.muted ? '🔇' : `🔉 ${volumeText(clipLevel(c))}`}
+                    </span>
+                    <span id={`clip-sound-${c.id}`} className="sr-only">
+                      {sound}
+                    </span>
+                  </>
+                )}
                 <span className="clip-handle end" aria-hidden="true" />
               </button>
             );

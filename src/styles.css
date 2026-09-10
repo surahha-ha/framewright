@@ -1234,3 +1234,70 @@ button[aria-disabled='true'] {
   flex-basis: 100%;
   font-size: 12px;
 }
+/* The clip's sound (ADR-0013): a switch and a level, same bones as an edge. */
+.panel-subtitle {
+  margin: 8px 12px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--faint);
+}
+.clip-sound {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 12px 8px;
+}
+.clip-sound button {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.clip-sound button:hover:not([aria-disabled='true']) {
+  border-color: var(--teal);
+}
+.clip-sound button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.clip-sound button[aria-pressed='true'] {
+  border-color: var(--teal);
+  box-shadow: inset 0 0 0 1px var(--teal);
+}
+.clip-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.clip-volume input[type='range'] {
+  flex: 1 1 60px;
+  min-width: 60px;
+  accent-color: var(--teal);
+}
+.clip-volume input[type='range']:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.clip-volume output {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* On the strip: the same pill as the name, after it. */
+.clip-sound-mark {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  background: rgba(8, 16, 22, 0.72);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}

@@ -35,6 +35,9 @@ interface Props {
   clip: ThumbSpan;
   assetId: string;
   fps: Rational;
+  /** What the clip is heard at (`clipLevel`): 1 as recorded, 0 muted. The
+   *  wave is drawn at this, so a quiet clip looks quiet (ADR-0013). */
+  gain: number;
 }
 
 /**
@@ -70,7 +73,7 @@ function wavePalette(): { ink: string; ground: string; quiet: string } {
   return palette;
 }
 
-function ClipCanvasView({ view, clip, assetId, fps }: Props) {
+function ClipCanvasView({ view, clip, assetId, fps, gain }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Pictures and peaks both arrive out of band, one at a time. This is the only
   // state here: something new landed, draw again.
@@ -181,17 +184,24 @@ function ClipCanvasView({ view, clip, assetId, fps }: Props) {
       const originPx = plan.offsetPx - strip.offsetPx;
       const half = bandH / 2 - 1;
       const level = peaks!.levels[plan.level];
-      ctx.fillStyle = colours.ink;
+      // A muted clip keeps its shape, in the colour that means "not sound" —
+      // the sound is still there to be turned back on, which a flat band
+      // (the silent file's picture) would deny. Any other level scales the
+      // SAMPLES, before the curve, so the wave shrinks the way the sound
+      // does and not the way a ruler does.
+      const muted = gain <= 0;
+      const scale = muted ? 1 : gain;
+      ctx.fillStyle = muted ? colours.quiet : colours.ink;
       ctx.beginPath();
       // Out along the peaks, back along the troughs: one filled path, not one
       // rectangle per bucket. At a bucket a pixel wide that is the difference
       // between a shape and nine hundred draw calls.
       for (let i = 0; i < plan.count; i++) {
-        const v = waveAmplitude(level.max[plan.firstBucket + i]);
+        const v = waveAmplitude(level.max[plan.firstBucket + i] * scale);
         ctx.lineTo(originPx + i * plan.bucketPx, mid - v * half);
       }
       for (let i = plan.count - 1; i >= 0; i--) {
-        const v = waveAmplitude(level.min[plan.firstBucket + i]);
+        const v = waveAmplitude(level.min[plan.firstBucket + i] * scale);
         ctx.lineTo(originPx + i * plan.bucketPx, mid - v * half);
       }
       ctx.closePath();
@@ -239,6 +249,7 @@ export const ClipCanvas = memo(
   ClipCanvasView,
   (a, b) =>
     a.assetId === b.assetId &&
+    a.gain === b.gain &&
     a.fps.num === b.fps.num &&
     a.fps.den === b.fps.den &&
     a.view.scale === b.view.scale &&

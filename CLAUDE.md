@@ -231,6 +231,32 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **Nothing limits the sum of two loud clips.** A clip at 200% already
+  clips on its own (ADR-0013 says so); two clips at 200% through a dissolve
+  sum to four times full scale at the crossover, and the offline render and
+  the AAC encoder get the raw floats — the distortion is silent, and unlike
+  `missingFrames` the export sentence does not count it. A limiter or a
+  soft clip before the destination is the fix; whether a first-time user
+  should be able to get there at all is the owner's call (export-qc).
+- **A re-cue's click scales with the level.** Every edit during playback
+  stops the sources and starts new ones (`AudioPlayer.stop()`, no release
+  ramp); the discontinuity is the sample times the gain in effect, so a
+  clip at 200% pops twice as hard as one at 100%. Same mechanism the fades
+  accepted, reasoned about only up to gain 1 until now.
+- **`clip.mute`'s disabled reason is unreachable from the panel.** The
+  panel returns null with no clip selected, so the button never renders
+  `aria-disabled`; the reason exists for the palette and the key, like the
+  last branch of `subtitle.add`.
+- **The panel's fade edges have no heading; the sound does.** "소리" is an
+  `<h3>` under the panel's `<h2>`, the two fade toggles above it are not
+  under any. A screen-reader user navigating by headings jumps from "클립"
+  to "소리" with nothing for the fades in between.
+- **소리 끄기 and 소리 크기 are one syllable apart in one 12px row.** The
+  visible strings are the full phrases now, so UX.md's "one word, one
+  meaning" holds, but a person scanning rather than reading can still
+  conflate them before the "소리" heading registers (novice).
+- **The sound pill inherits `.clip-name`'s contrast** (same translucent
+  ground, see that entry): AA, not AAA, over the brightest footage.
 - **The fade mark is subtle over bright or busy footage.** `.clip-fade` is a
   dark ramp plus a 2px teal diagonal drawn over whatever the thumbnails
   contain; the ramp is legible for its first third and the diagonal is thin

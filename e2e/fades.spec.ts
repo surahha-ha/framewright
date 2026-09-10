@@ -37,7 +37,13 @@ const fadeOutButton = (page: Page) =>
   page.getByRole('button', { name: '서서히 사라지기', exact: true });
 const status = (page: Page) => page.locator('.statusbar');
 
-/** Park the playhead on an exact frame, by keyboard. */
+/** Park the playhead on an exact frame, by keyboard, and wait until the
+ *  stage has DRAWN that frame. The playhead moves on the key press; the
+ *  picture follows when the decode lands, and a scrub is "latest wins", so
+ *  between the two the canvas shows an earlier frame of the run — whose
+ *  brightness, on a fixture that changes colour every frame, is not the
+ *  target's. Under load (two workers, an export in the other) that window is
+ *  wide enough to measure the wrong frame. */
 async function goToFrame(page: Page, frame: number) {
   await page.locator('.ruler').focus();
   await page.keyboard.press('Home');
@@ -45,6 +51,11 @@ async function goToFrame(page: Page, frame: number) {
   await expect(page.locator('.ruler')).toHaveAttribute(
     'aria-valuenow',
     String(frame),
+  );
+  await expect(page.locator('.stage-picture')).toHaveAttribute(
+    'data-frame',
+    String(frame),
+    { timeout: 10_000 },
   );
 }
 
@@ -127,12 +138,15 @@ test.describe('fades', () => {
       .poll(() => brightness(page), { timeout: 10_000 })
       .toBeLessThan(0.01);
 
-    // Frame 7 of a 15-frame fade shows 8/15 of the picture.
+    // Frame 7 of a 15-frame fade shows 8/15 of the picture. Wait for the
+    // DARKER side first: the canvas still shows frame 20 (fully bright)
+    // until frame 7 is decoded and drawn, and a poll for "brighter than
+    // 35%" is satisfied by that stale picture at once.
     await goToFrame(page, 7);
     await expect
       .poll(() => brightness(page), { timeout: 10_000 })
-      .toBeGreaterThan(full * 0.35);
-    expect(await brightness(page)).toBeLessThan(full * 0.7);
+      .toBeLessThan(full * 0.7);
+    expect(await brightness(page)).toBeGreaterThan(full * 0.35);
 
     // Export renders the same plan: same frame count, nothing dropped.
     const downloadPromise = page.waitForEvent('download', { timeout: 120_000 });

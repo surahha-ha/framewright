@@ -16,6 +16,7 @@ import {
 import { dragBounds, limitHit, type DragLimit, type DragMode } from './drag';
 import { formatTimecode } from './time';
 import {
+  carriedFields,
   entryLength,
   pasteIndex,
   pastePlan,
@@ -23,6 +24,7 @@ import {
 } from './clipboard';
 import { SUBTITLE_COMMANDS } from './subtitleCommands';
 import { FADE_COMMANDS } from './fadeCommands';
+import { VOLUME_COMMANDS } from './volumeCommands';
 import { effectiveFades } from './fades';
 import { rippleSubtitles, splitSubtitleAt, subtitleDiffOps } from './subtitles';
 
@@ -152,7 +154,11 @@ export const splitCommand: Command = {
       startFrame: ctx.playhead,
       inFrame: sourceFrame, // left ends exactly where right begins
       outFrame: clip.outFrame,
-      ...(fadeOut !== undefined ? { fadeOut } : {}),
+      // The sound is a property of the whole clip, so both pieces keep it
+      // (ADR-0013); the fades belong to edges, so the tail gets only the
+      // fade-out, at what it can hold. The head keeps its own through the
+      // `updateClip` below.
+      ...carriedFields({ ...clip, fadeIn: undefined, fadeOut }),
     };
 
     const forward: Op[] = [
@@ -728,8 +734,7 @@ export const pasteCommand: Command = {
       startFrame: plan.startFrame,
       inFrame: entry.inFrame,
       outFrame: entry.outFrame,
-      ...(entry.fadeIn !== undefined ? { fadeIn: entry.fadeIn } : {}),
-      ...(entry.fadeOut !== undefined ? { fadeOut: entry.fadeOut } : {}),
+      ...carriedFields(entry),
     };
     // Pushing preserves order, so the insert index is the same before and after.
     const moved =
@@ -863,6 +868,8 @@ export const BUILTIN_COMMANDS: Command<any>[] = [
   ...SUBTITLE_COMMANDS,
   // Panel and palette only (ADR-0012).
   ...FADE_COMMANDS,
+  // The mute is a key and a palette row; the level is the panel's (ADR-0013).
+  ...VOLUME_COMMANDS,
   trimStartCommand,
   trimEndCommand,
   moveClipCommand,

@@ -23,6 +23,13 @@ import {
   fadeShortenedText,
   type FadeEdge,
 } from '../engine/fades';
+import {
+  VOLUME_MAX,
+  VOLUME_STEP_PERCENT,
+  percentToVolume,
+  volumePercent,
+} from '../engine/volume';
+import { hasNoAudioTrack } from '../engine/audio';
 import { CommandButton } from './CommandButton';
 
 /**
@@ -107,6 +114,90 @@ function Edge({ edge }: { edge: FadeEdge }) {
   );
 }
 
+/** What the sound does now, under the controls. One sentence, the same
+ *  channel as the fade notes: read after a control's name, and there to be
+ *  asked again after the status line has moved on. */
+function soundNote(
+  silentFile: boolean,
+  muted: boolean,
+  percent: number,
+): string {
+  if (silentFile) return '이 영상에는 소리가 없어요';
+  if (muted)
+    return percent === 100
+      ? '들리지 않아요'
+      : `들리지 않아요 · 다시 켜면 ${percent}%로 돌아와요`;
+  if (percent === 0) return '0%라 들리지 않아요';
+  if (percent === 100) return '녹음된 그대로 들려요';
+  return percent > 100
+    ? '녹음된 것보다 크게 들려요'
+    : '녹음된 것보다 작게 들려요';
+}
+
+/**
+ * The selected clip's sound (ADR-0013): a switch and a level. Module-level
+ * for the same reason as `Edge`.
+ *
+ * Every notch of the slider is the `clip.volume` command with a coalesce
+ * key, so a drag or a held arrow is ONE undo step (the same rule as a trim
+ * drag, ADR-0006) while the status line and the document follow each notch.
+ * The gesture ends when the pointer lifts, the key comes up or focus leaves.
+ */
+function Sound() {
+  const project = useStore((s) => s.project);
+  const selectedClipId = useStore((s) => s.selectedClipId);
+  const run = useStore((s) => s.run);
+  const endGesture = useStore((s) => s.endGesture);
+  // `hasNoAudioTrack` is answered out of band, when the file is decoded.
+  useStore((s) => s.mediaVersion);
+  const found = locateClip(project, selectedClipId);
+  if (!found) return null;
+  const { clip } = found;
+  const percent = volumePercent(clip.volume ?? 1);
+  const muted = !!clip.muted;
+  const noteId = 'clip-sound-note';
+  const commit = (value: number) =>
+    run(
+      'clip.volume',
+      { clipId: clip.id, volume: percentToVolume(value) },
+      `volume:${clip.id}`,
+    );
+  return (
+    <div className="clip-sound">
+      {/* The glyph is the STATE (what every player does), the label the
+          action: a pressed border alone is a hover's twin at a glance. */}
+      <CommandButton
+        id="clip.mute"
+        label="소리 끄기"
+        icon={muted ? '🔇' : '🔊'}
+        pressed={muted}
+        describedBy={noteId}
+      />
+      <label className="clip-volume">
+        <span>소리 크기</span>
+        <input
+          type="range"
+          min={0}
+          max={VOLUME_MAX * 100}
+          step={VOLUME_STEP_PERCENT}
+          value={percent}
+          aria-label="소리 크기"
+          aria-valuetext={`${percent}%`}
+          aria-describedby={noteId}
+          onChange={(e) => commit(Number(e.target.value))}
+          onPointerUp={endGesture}
+          onKeyUp={endGesture}
+          onBlur={endGesture}
+        />
+        <output aria-hidden="true">{percent}%</output>
+      </label>
+      <span className="clip-edge-note dim" id={noteId}>
+        {soundNote(hasNoAudioTrack(clip.assetId), muted, percent)}
+      </span>
+    </div>
+  );
+}
+
 export function ClipPanel() {
   const project = useStore((s) => s.project);
   const selectedClipId = useStore((s) => s.selectedClipId);
@@ -139,6 +230,12 @@ export function ClipPanel() {
         클립의 앞뒤를 서서히 나타나고 사라지게 할 수 있어요. 바로 앞이나 뒤에
         다른 클립이 붙어 있으면 두 장면이 겹치며 넘어가고, 없으면 검은 화면에서
         시작하거나 검은 화면으로 끝나요.
+      </p>
+      <h3 className="panel-subtitle">소리</h3>
+      <Sound />
+      <p className="empty-hint">
+        이 클립의 소리만 끄거나, 녹음된 것보다 크게·작게 할 수 있어요. 다른
+        클립의 소리는 그대로예요.
       </p>
     </section>
   );

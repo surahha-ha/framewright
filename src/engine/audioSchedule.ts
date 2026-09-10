@@ -12,6 +12,7 @@ import type { Project } from './types';
 import { clipLength, videoTrack } from './timeline';
 import { frameToSec } from './time';
 import { effectiveFades, fadePartner } from './fades';
+import { clipLevel } from './volume';
 
 /** Gain at a moment, seconds from playback start (may be negative: a ramp
  *  that began before playback did). Linear between points, flat outside. */
@@ -51,6 +52,11 @@ export function buildAudioSchedule(
     const start = clip.startFrame;
     const end = start + len;
     const { fadeIn, fadeOut } = effectiveFades(clip);
+    // A muted clip (or one at 0%) has no segment at all — not even an
+    // overhang under a neighbour's fade, which is that neighbour's cue to
+    // dissolve from silence (ADR-0013).
+    const level = clipLevel(clip);
+    if (level <= 0) continue;
 
     // The segment in timeline frames, before the playback start is applied.
     let segStart = start;
@@ -112,6 +118,17 @@ export function buildAudioSchedule(
     const skip = Math.max(0, startFrame - segStart);
     const remaining = segLen - skip;
     if (remaining <= 0) continue;
+
+    // The level scales every ramp point, so a fade on a quiet clip still
+    // ends at the clip's level, and the overhang a neighbour dissolves over
+    // runs at THIS clip's level (`gainAt` holds the first value before the
+    // first point). With no ramp, one point at the segment's start is a
+    // flat gain throughout — in the past when playback joins later, like a
+    // fade's points, and scheduled the same way.
+    if (level !== 1) {
+      if (points.length === 0) points.push({ frame: segStart, value: 1 });
+      for (const p of points) p.value *= level;
+    }
 
     segments.push({
       clipId: clip.id,

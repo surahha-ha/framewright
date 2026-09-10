@@ -78,7 +78,15 @@ export function Preview() {
    * when a source's aspect differs from the sequence's. The words are not
    * here; they have their own layer (above).
    */
-  function paint(primary: VideoFrame | null, blend: BlendLayer | null) {
+  /** Draw one timeline frame. `frame` is WHICH one, stamped on the canvas as
+   *  `data-frame`: a scrub is "latest wins", so between a key press and the
+   *  decode the canvas shows an earlier frame, and nothing else says which.
+   *  The e2e specs read it before they read pixels (docs/TESTING.md). */
+  function paint(
+    primary: VideoFrame | null,
+    blend: BlendLayer | null,
+    frame: number,
+  ) {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
@@ -91,13 +99,14 @@ export function Preview() {
       canvas.height = height;
     }
     composeFrame(ctx, width, height, primary, blend, null);
+    canvas.dataset.frame = String(frame);
   }
 
   /** A gap has no picture. Holding the previous frame is what makes a hole in
    *  the timeline look like footage — and export writes black there, so the
    *  preview would be lying about the file it is going to produce. */
-  function drawBlank() {
-    paint(null, null);
+  function drawBlank(frame: number) {
+    paint(null, null, frame);
   }
 
   // ---- SCRUB (single-flight, latest wins) ----
@@ -111,7 +120,7 @@ export function Preview() {
         const doc = projectRef.current;
         const hit = resolveAt(doc, timelineFrame);
         if (!hit) {
-          drawBlank();
+          drawBlank(timelineFrame);
           continue;
         }
         const svc = getDecodeService(hit.clip.assetId);
@@ -138,7 +147,11 @@ export function Preview() {
           }
         }
         try {
-          paint(frame, mix ? { frame: other, weight: mix.weight } : null);
+          paint(
+            frame,
+            mix ? { frame: other, weight: mix.weight } : null,
+            timelineFrame,
+          );
         } finally {
           frame.close();
           other?.close();
@@ -154,7 +167,7 @@ export function Preview() {
     if (total === 0) {
       // Deleting the last clip must clear the picture. The empty-state note is
       // absolutely positioned, so a stale frame would sit behind it.
-      drawBlank();
+      drawBlank(playhead);
       return;
     }
     pendingRef.current = playhead;
@@ -345,10 +358,10 @@ export function Preview() {
           }
           // Nothing decoded yet (a cold start at a cut): keep the last
           // picture on the canvas rather than flashing black for a frame.
-          if (feed.current) paint(feed.current, blend);
+          if (feed.current) paint(feed.current, blend, frame);
         }
       } else {
-        drawBlank();
+        drawBlank(frame);
       }
       pool.end();
 
@@ -388,7 +401,7 @@ export function Preview() {
     <div className="preview">
       <div className="panel-title">프리뷰</div>
       <div className="stage" ref={stageRef}>
-        <canvas ref={canvasRef} />
+        <canvas ref={canvasRef} className="stage-picture" />
         {/* Hidden from assistive tech when blank; named by its words when not,
             so a screen reader user can ask what is on screen without being
             read every subtitle as it flies past during playback. */}

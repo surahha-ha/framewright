@@ -104,8 +104,15 @@ Done: **E0–E6.**
   preview and export, the "클립" sidebar panel. ADR-0012 records why a fade
   is an edge of a clip and why nothing about it is stored but its length.
 
-Next, in order: the rest of **E7** (audio volume, transform), E8 (style
-presets, shorts reframe), E9 (silence auto-cut).
+- E7, third item — **a clip's sound**: `Clip.volume` (linear gain, a
+  percent to the user) and `Clip.muted` (a switch of its own), one reader
+  (`clipLevel`) feeding the same gain ramps the fades use, no segment for a
+  muted clip, `clip.mute` on `M` and `clip.volume` behind the panel's
+  slider, a pill and a scaled wave on the strip. ADR-0013 records why a
+  mute is not "volume 0".
+
+Next, in order: the rest of **E7** (transform), E8 (style presets, shorts
+reframe), E9 (silence auto-cut).
 
 Still owed regardless of epic: timeline zoom + ruler ticks + thumbnails +
 waveform, preview depth (quality toggle, loop range, fullscreen, safe area),

@@ -74,6 +74,17 @@ function controlOwnsKey(target: EventTarget | null, chord: string): boolean {
   // Ctrl+K) are not a select's, and stay the app's.
   const tag = (target as HTMLElement | null)?.tagName;
   if (tag === 'SELECT' && !chord.includes('+')) return true;
+  // A range slider is the same case (ADR-0013): a person nudging the volume
+  // with the arrows and then pressing Delete means "nothing", not "ripple-
+  // delete the clip whose volume I am setting". Its own keys are the
+  // arrows and Home/End, handled below; the rest go nowhere on purpose.
+  if (
+    target instanceof HTMLInputElement &&
+    target.type === 'range' &&
+    !chord.includes('+')
+  ) {
+    return true;
+  }
   if (chord === 'space' || chord === 'enter') return isActivatable(target);
   if (ARROWS.has(chord) || chord === 'home' || chord === 'end') {
     return isActivatable(target) || target instanceof HTMLInputElement;

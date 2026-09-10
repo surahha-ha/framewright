@@ -54,6 +54,21 @@ export interface Clip {
    */
   fadeIn?: number;
   fadeOut?: number;
+  /**
+   * How loud the clip's sound is, as a LINEAR gain: 1 is the file as
+   * recorded, and absent means 1 (ADR-0013). The panel offers 0–2 in steps
+   * of a percent; a document outside that is read at the edge, never
+   * rewritten. Multiplied into the fade ramps, so a fade on a quiet clip
+   * still ends at the clip's level.
+   */
+  volume?: number;
+  /**
+   * Whether the clip is heard at all. `true` or absent — never `false` — so
+   * a clip that was never muted and one that was muted and unmuted are the
+   * same document. Separate from `volume` on purpose: a mute is a switch
+   * that goes both ways, and the level has to survive the trip.
+   */
+  muted?: true;
 }
 
 export interface Track {
