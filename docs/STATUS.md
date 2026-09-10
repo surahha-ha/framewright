@@ -21,12 +21,12 @@ repo does not.
 **E7's third item, a clip's sound (volume and mute), is committed as
 `f04858f` and pushed** (2026-09-10, with the owner's approval; it also
 carries `docs/REPO_ANALYSIS.md` and the "Repository analysis memory"
-section further down this file, both kept at the owner's request). **A
-follow-up is in the working tree, gate-green and NOT yet committed: the
-slider's ceiling from the clip's own peak** — see "The ceiling" below.
-Everything else below is in `f04858f`.
+section further down this file, both kept at the owner's request). **Its
+follow-up, the slider's ceiling from the clip's own peak, is committed as
+`ba74880`** (2026-09-10, owner's approval) and pushed with this file's
+update — see "The ceiling" below. Everything else below is in `f04858f`.
 
-### The ceiling (follow-up, uncommitted)
+### The ceiling (follow-up, `ba74880`)
 
 The owner asked what the clipping risk was, saw it reproduced on screen
 (a demo overlay drawn into the page for that conversation only — not a
@@ -234,8 +234,7 @@ does not replace the implementation handoff or the next step below.
 
 ## Next single step
 
-**Commit the ceiling follow-up (owner's call), then E7 item 4: transform**
-(position / scale / crop of the picture). Before
+**E7 item 4: transform** (position / scale / crop of the picture). Before
 designing it, read `src/engine/compose.ts` (the one draw for preview and
 export — a transform is a matrix applied there, once) and ADR-0013's
 "one reader" shape (`clipLevel`) for how a per-clip property reaches both
