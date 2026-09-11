@@ -258,7 +258,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  /* NOT black. The box draws its own black — a fade, a gap, the sides a
+     picture does not reach — and that black is in the file. The room
+     around the box is not, so it must not look the same: with a portrait
+     box in a landscape stage, a stage of #000 made the box's black bars and
+     the stage's own margins one undifferentiated frame, and 화면 채우기
+     looked as if it had done nothing (novice reviewer, ADR-0015). The
+     picture canvas also carries a hairline so the box's edge is a line. */
+  background: var(--bg);
   overflow: hidden;
   min-height: 0;
   padding: 8px;
@@ -286,6 +293,11 @@ body {
   height: auto;
   object-fit: contain;
   display: block;
+}
+/* Where the box ends: a hairline, so black inside the box (in the file)
+   and the stage outside it (not) are told apart by an edge, not a hue. */
+.stage canvas.stage-picture {
+  box-shadow: 0 0 0 1px var(--line);
 }
 /* The words over the picture. Placed by script exactly over the picture
    canvas (see Preview.tsx), so `left/top/width/height` are set there and this
@@ -1328,6 +1340,49 @@ button[aria-disabled='true'] {
 /* The picture can be dragged where a clip is under the playhead. */
 .stage.movable {
   cursor: move;
+}
+/* The box's shape over the preview (ADR-0015): three small buttons and the
+   size, on the title row. The title is uppercase 11px; the buttons are not
+   a title, so they take the panel's ordinary text. */
+.preview-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.frame-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+.frame-picker button {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.frame-picker button:hover:not([aria-disabled='true']) {
+  border-color: var(--teal);
+}
+.frame-picker button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+/* The current shape: the same look as an on switch elsewhere. */
+.frame-picker button[aria-checked='true'] {
+  border-color: var(--teal);
+  box-shadow: inset 0 0 0 1px var(--teal);
+  cursor: default;
+}
+.frame-size {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
 }
 .clip-picture-mark {
   position: relative;

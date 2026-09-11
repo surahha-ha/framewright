@@ -13,16 +13,21 @@ import type { Op } from './ops';
 import { locateClip } from './timeline';
 import type { Clip } from './types';
 import {
+  ZOOM_MAX,
+  clipEmptySides,
+  clipFillZoom,
   clipPanLimits,
   describePan,
   describeRotation,
   describeZoom,
+  emptySidesText,
   isAsShot,
   isRotation,
   nextRotation,
   pictureTransform,
   roundPan,
   roundZoom,
+  zoomText,
   type PanLimits,
   type Rotation,
 } from './picture';
@@ -224,8 +229,77 @@ export const pictureResetCommand: Command = {
   },
 };
 
+function decideFill(ctx: EditorCtx) {
+  const found = pick(ctx, undefined);
+  if (!found) return null;
+  const t = pictureTransform(found.clip);
+  const next = clipFillZoom(ctx.project, found.clip);
+  if (next <= t.zoom) return null;
+  // What is still black after the fill: the pan is kept (it is the user's
+  // framing), so a picture moved off centre can leave a side empty at any
+  // zoom, and a very wide one runs out of slider before it covers the box.
+  const after = clipEmptySides(ctx.project, { ...found.clip, zoom: next });
+  const capped = next === ZOOM_MAX && after.length > 0;
+  return { ...found, next, after, capped };
+}
+
+/** The fill's sentence: the zoom it chose, and the honest rest. */
+export function describeFill(
+  zoom: number,
+  after: ReturnType<typeof emptySidesText>,
+  capped: boolean,
+): string {
+  if (!after) return `화면을 ${zoomText(zoom)}로 확대해 꽉 채웠어요.`;
+  return capped
+    ? `화면을 ${zoomText(zoom)}까지 확대했어요 · 더는 키울 수 없어 ${after}`
+    : `화면을 ${zoomText(zoom)}로 확대했어요 · 옮겨 둔 위치 때문에 ${after}`;
+}
+
+/**
+ * Grow the picture until it covers the box (ADR-0015): the zoom
+ * `fillZoom` finds, nothing else. One press after the box changed shape,
+ * instead of finding 320% on a slider. The pan stays — the fill is not a
+ * reset — and the sentence says what that leaves.
+ */
+export const pictureFillCommand: Command = {
+  id: 'clip.pictureFill',
+  label: '화면 채우기',
+  icon: '⛶',
+  hidden: true,
+  done(before) {
+    const d = decideFill(before);
+    return d ? describeFill(d.next, emptySidesText(d.after), d.capped) : '';
+  },
+  disabledReason(ctx) {
+    const found = pick(ctx, undefined);
+    if (!found) return PICK_FIRST;
+    const sides = clipEmptySides(ctx.project, found.clip);
+    if (sides.length === 0) return '화면이 이미 꽉 차 있어요.';
+    // Black remains, and the zoom cannot help. Two reasons, told apart by
+    // asking whether the same zoom CENTRED would cover the box: if so the
+    // fix is the position; if not, the picture is too wide for the slider
+    // (a 21:9 in 9:16 at 400%), and "move it to the centre" would be a
+    // lie about footage that is already centred (QA reviewer).
+    const centred = clipEmptySides(ctx.project, {
+      ...found.clip,
+      panX: undefined,
+      panY: undefined,
+    });
+    return centred.length === 0
+      ? '확대는 충분해요 · 위치를 가운데로 옮기면 꽉 차요.'
+      : `더는 키울 수 없어요 · ${emptySidesText(centred)}`;
+  },
+  canRun: (ctx) => decideFill(ctx) !== null,
+  run(ctx) {
+    const d = decideFill(ctx);
+    if (!d) throw new Error('clip.pictureFill: nothing to change');
+    return patch(d.track.id, d.clip, { zoom: d.next });
+  },
+};
+
 export const PICTURE_COMMANDS: Command<any>[] = [
   rotateCommand,
+  pictureFillCommand,
   pictureResetCommand,
   zoomCommand,
   panCommand,

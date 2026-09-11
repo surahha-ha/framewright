@@ -168,13 +168,138 @@ export function roundPan(pan: number): number {
   return r === 0 ? 0 : r; // no -0
 }
 
-/** Whether the picture still covers the whole box after the pan — when it
- *  does not, a side of the box shows black, and the panel says so. */
-export function coversBox(t: PictureTransform): boolean {
-  // The picture overhangs the box by (zoom - 1) / 2 of a box on each side,
-  // and a pan moves it by pan * zoom boxes.
-  const room = (t.zoom - 1) / (2 * t.zoom) + 1e-9;
-  return Math.abs(t.panX) <= room && Math.abs(t.panY) <= room;
+/**
+ * The zoom at which this picture covers the box — the smallest slider notch
+ * at or above the exact ratio, so a hairline of black never survives the
+ * rounding — capped at `ZOOM_MAX`. 1 when the fitted picture already covers
+ * it (the same shape as the box). A 16:9 picture in a 9:16 box needs 320%;
+ * a 21:9 one needs more than the slider offers and gets the cap.
+ */
+export function fillZoom(
+  srcWidth: number,
+  srcHeight: number,
+  boxWidth: number,
+  boxHeight: number,
+  rotation: Rotation,
+): number {
+  if (srcWidth <= 0 || srcHeight <= 0 || boxWidth <= 0 || boxHeight <= 0) {
+    return 1;
+  }
+  const fit = fitted(srcWidth, srcHeight, boxWidth, boxHeight, rotation);
+  const need = Math.max(boxWidth / fit.width, boxHeight / fit.height);
+  const notch = ZOOM_STEP_PERCENT / 100;
+  const notches = Math.ceil(need / notch - 1e-9);
+  return roundZoom(Math.min(ZOOM_MAX, Math.max(1, notches * notch)));
+}
+
+export function clipFillZoom(
+  project: Project,
+  clip: Pick<Clip, 'assetId' | 'zoom' | 'panX' | 'panY' | 'rotation'>,
+): number {
+  const asset = project.assets.find((a) => a.id === clip.assetId);
+  return fillZoom(
+    asset?.meta.width ?? 0,
+    asset?.meta.height ?? 0,
+    project.timeline.width,
+    project.timeline.height,
+    pictureTransform(clip).rotation,
+  );
+}
+
+export type BoxSide = 'top' | 'bottom' | 'left' | 'right';
+
+/** Black at the edge of the box narrower than this is the draw's own
+ *  rounding, not an empty side. */
+const SIDE_EPSILON_PX = 1;
+
+/**
+ * Which sides of the box show black under this picture: none when the
+ * picture covers it. Answered from `pictureRect` — the turned footprint,
+ * the zoom, the pan as drawn — so the sentence under the sliders and the
+ * pixels on the stage cannot disagree. The first version reasoned from the
+ * zoom and the pan alone, as if every picture filled the box at the fit;
+ * a stood-up clip, or any clip in a box of another shape, showed black at
+ * two sides under a note that said nothing (the quarter turn's own black
+ * sides, listed as debt after the picture unit).
+ */
+export function emptySides(
+  srcWidth: number,
+  srcHeight: number,
+  boxWidth: number,
+  boxHeight: number,
+  t: PictureTransform,
+): BoxSide[] {
+  if (srcWidth <= 0 || srcHeight <= 0) return []; // drawn box-sized
+  const r = pictureRect(srcWidth, srcHeight, boxWidth, boxHeight, t);
+  const turned = r.rotation === 90 || r.rotation === 270;
+  const w = turned ? r.height : r.width;
+  const h = turned ? r.width : r.height;
+  const cx = r.x + r.width / 2;
+  const cy = r.y + r.height / 2;
+  const sides: BoxSide[] = [];
+  if (cy - h / 2 > SIDE_EPSILON_PX) sides.push('top');
+  if (cy + h / 2 < boxHeight - SIDE_EPSILON_PX) sides.push('bottom');
+  if (cx - w / 2 > SIDE_EPSILON_PX) sides.push('left');
+  if (cx + w / 2 < boxWidth - SIDE_EPSILON_PX) sides.push('right');
+  return sides;
+}
+
+export function clipEmptySides(
+  project: Project,
+  clip: Pick<Clip, 'assetId' | 'zoom' | 'panX' | 'panY' | 'rotation'>,
+): BoxSide[] {
+  const asset = project.assets.find((a) => a.id === clip.assetId);
+  return emptySides(
+    asset?.meta.width ?? 0,
+    asset?.meta.height ?? 0,
+    project.timeline.width,
+    project.timeline.height,
+    pictureTransform(clip),
+  );
+}
+
+/** Whether the picture covers the whole box — when it does not, a side of
+ *  the box shows black, and the panel says which (`emptySidesText`). */
+export function coversBox(
+  srcWidth: number,
+  srcHeight: number,
+  boxWidth: number,
+  boxHeight: number,
+  t: PictureTransform,
+): boolean {
+  return emptySides(srcWidth, srcHeight, boxWidth, boxHeight, t).length === 0;
+}
+
+/** 이/가 and 과/와 follow the last syllable's final consonant. */
+function hasFinalConsonant(word: string): boolean {
+  const code = word.charCodeAt(word.length - 1);
+  if (code < 0xac00 || code > 0xd7a3) return false;
+  return (code - 0xac00) % 28 !== 0;
+}
+
+/**
+ * The empty sides in words, or '' when there are none: "화면 위아래가
+ * 비어요", "화면 양옆이 비어요", "화면 왼쪽이 비어요", "화면 위아래와
+ * 오른쪽이 비어요". One sentence shape for every case, so a first-time
+ * user meets the same phrase whether a pan, a turn or the box's own shape
+ * left the black.
+ */
+export function emptySidesText(sides: BoxSide[]): string {
+  const has = (s: BoxSide) => sides.includes(s);
+  const parts: string[] = [];
+  if (has('top') && has('bottom')) parts.push('위아래');
+  else if (has('top')) parts.push('위');
+  else if (has('bottom')) parts.push('아래');
+  if (has('left') && has('right')) parts.push('양옆');
+  else if (has('left')) parts.push('왼쪽');
+  else if (has('right')) parts.push('오른쪽');
+  if (parts.length === 0) return '';
+  const joined =
+    parts.length === 1
+      ? parts[0]
+      : `${parts[0]}${hasFinalConsonant(parts[0]) ? '과' : '와'} ${parts[1]}`;
+  const last = parts[parts.length - 1];
+  return `화면 ${joined}${hasFinalConsonant(last) ? '이' : '가'} 비어요`;
 }
 
 export function isRotation(value: unknown): value is Rotation {

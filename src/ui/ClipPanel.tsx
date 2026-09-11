@@ -38,8 +38,9 @@ import {
   ZOOM_STEP_PERCENT,
   PAN_LIMIT,
   PAN_STEP_PERCENT,
+  clipEmptySides,
   clipPanLimits,
-  coversBox,
+  emptySidesText,
   panLimitText,
   panText,
   pictureNoteText,
@@ -331,10 +332,11 @@ function PictureBlock() {
   const shownY = Math.min(limits.y, Math.max(-limits.y, t.panY));
   const summary = pictureNoteText(clip);
   // What the picture does now, and — the one thing the preview shows but
-  // does not say — that a side of the box has gone black under a pan.
-  const note = summary
-    ? `${summary}${coversBox(t) ? '' : ' · 화면 한쪽이 비어요'}`
-    : '찍은 그대로 보여요';
+  // does not say — which sides of the box are black: under a pan, after a
+  // turn, or because the box is another shape than the footage (ADR-0015),
+  // in which case the picture is as shot AND the sides are empty.
+  const empty = emptySidesText(clipEmptySides(project, clip));
+  const note = `${summary || '찍은 그대로 보여요'}${empty ? ` · ${empty}` : ''}`;
   const pan = (x: number, y: number) =>
     run('clip.pan', { clipId: clip.id, x, y }, `pan:${clip.id}`);
   return (
@@ -377,6 +379,7 @@ function PictureBlock() {
       />
       <div className="clip-picture-buttons">
         <CommandButton id="clip.rotate" label="화면 돌리기" icon="↻" />
+        <CommandButton id="clip.pictureFill" label="화면 채우기" icon="⛶" />
         <CommandButton id="clip.pictureReset" label="화면 원래대로" icon="⟲" />
       </div>
       <span className="clip-edge-note dim" id={noteId}>
@@ -434,8 +437,8 @@ export function ClipPanel() {
       <PictureBlock />
       <p className="empty-hint">
         화면을 키우면 가운데가 크게 보이고, 프리뷰에서 그림을 끌어 보이는 자리를
-        옮길 수 있어요. 돌리기는 한 번에 90°씩 돌아가요. 이 클립의 화면만
-        바뀌어요.
+        옮길 수 있어요. 돌리기는 한 번에 90°씩 돌아가요. 채우기는 비는 곳이
+        없어질 만큼만 키워요. 이 클립의 화면만 바뀌어요.
       </p>
     </section>
   );

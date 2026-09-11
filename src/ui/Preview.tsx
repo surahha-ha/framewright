@@ -33,6 +33,7 @@ import {
 } from '../engine/picture';
 import { TOGGLE_PLAY_EVENT } from './actions';
 import { clipCeiling } from './waveform';
+import { FramePicker } from './FramePicker';
 
 export function Preview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -506,7 +507,10 @@ export function Preview() {
 
   return (
     <div className="preview">
-      <div className="panel-title">프리뷰</div>
+      <div className="panel-title preview-title">
+        <span>프리뷰</span>
+        <FramePicker />
+      </div>
       <div
         className={
           'stage' +

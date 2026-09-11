@@ -26,6 +26,7 @@ import { SUBTITLE_COMMANDS } from './subtitleCommands';
 import { FADE_COMMANDS } from './fadeCommands';
 import { VOLUME_COMMANDS } from './volumeCommands';
 import { PICTURE_COMMANDS } from './pictureCommands';
+import { FRAME_COMMANDS } from './frameCommands';
 import { effectiveFades } from './fades';
 import { rippleSubtitles, splitSubtitleAt, subtitleDiffOps } from './subtitles';
 
@@ -902,6 +903,7 @@ export const BUILTIN_COMMANDS: Command<any>[] = [
   // A turn and a reset are rows; zoom and pan are the panel's and the
   // preview's (ADR-0014).
   ...PICTURE_COMMANDS,
+  ...FRAME_COMMANDS,
   trimStartCommand,
   trimEndCommand,
   moveClipCommand,

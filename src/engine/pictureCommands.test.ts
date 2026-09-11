@@ -213,6 +213,81 @@ describe('clip.pictureReset', () => {
   });
 });
 
+describe('clip.pictureFill', () => {
+  const sized = { durationSec: 3, width: 320, height: 180 };
+
+  it('wants a clip, and has nothing to do for a picture the shape of the box', () => {
+    const ed = createEditor(seed([clip('a', 0, 0, 60)], sized));
+    const cmd = ed.commands().find((c) => c.id === 'clip.pictureFill')!;
+    expect(cmd.hidden).toBe(true);
+    expect(ed.canRun('clip.pictureFill')).toBe(false);
+    expect(cmd.disabledReason!(ed.context())).toBe('클립을 먼저 골라 주세요.');
+    ed.select('a');
+    expect(ed.canRun('clip.pictureFill')).toBe(false);
+    expect(cmd.disabledReason!(ed.context())).toBe('화면이 이미 꽉 차 있어요.');
+  });
+
+  it('grows the picture to the notch that covers a box of another shape, once', () => {
+    const ed = createEditor(seed([clip('a', 0, 0, 60)], sized));
+    ed.select('a');
+    expect(ed.dispatch('frame.portrait')).toBe(true);
+    expect(sentence(ed, 'clip.pictureFill')).toBe(
+      '화면을 320%로 확대해 꽉 채웠어요.',
+    );
+    expect(clips(ed)[0].zoom).toBe(3.2);
+    expect(ed.canRun('clip.pictureFill')).toBe(false);
+    ed.undo();
+    expect('zoom' in clips(ed)[0]).toBe(false);
+    ed.redo();
+    expect(clips(ed)[0].zoom).toBe(3.2);
+  });
+
+  it('blames the position, not the zoom, when that is what leaves the black', () => {
+    const ed = createEditor(seed([clip('a', 0, 0, 60, { panX: 0.5 })], sized));
+    ed.select('a');
+    const cmd = ed.commands().find((c) => c.id === 'clip.pictureFill')!;
+    expect(ed.canRun('clip.pictureFill')).toBe(false);
+    expect(cmd.disabledReason!(ed.context())).toBe(
+      '확대는 충분해요 · 위치를 가운데로 옮기면 꽉 차요.',
+    );
+  });
+
+  it('keeps the pan and says what it leaves empty', () => {
+    const ed = createEditor(seed([clip('a', 0, 0, 60, { panX: 0.5 })], sized));
+    ed.select('a');
+    ed.dispatch('frame.portrait');
+    expect(sentence(ed, 'clip.pictureFill')).toBe(
+      '화면을 320%로 확대했어요 · 옮겨 둔 위치 때문에 화면 왼쪽이 비어요',
+    );
+    expect(clips(ed)[0]).toMatchObject({ zoom: 3.2, panX: 0.5 });
+  });
+
+  it('stops at the slider’s end for a picture too wide to fill the box, and says so', () => {
+    const ed = createEditor(
+      seed([clip('a', 0, 0, 60)], { durationSec: 3, width: 2100, height: 900 }),
+    );
+    ed.select('a');
+    ed.dispatch('frame.portrait');
+    expect(sentence(ed, 'clip.pictureFill')).toBe(
+      '화면을 400%까지 확대했어요 · 더는 키울 수 없어 화면 위아래가 비어요',
+    );
+    expect(clips(ed)[0].zoom).toBe(4);
+    // Pressed again: the picture is centred and at the slider's end, so
+    // neither "already full" nor "move it to the centre" is true (QA).
+    const cmd = ed.commands().find((c) => c.id === 'clip.pictureFill')!;
+    expect(ed.canRun('clip.pictureFill')).toBe(false);
+    expect(cmd.disabledReason!(ed.context())).toBe(
+      '더는 키울 수 없어요 · 화면 위아래가 비어요',
+    );
+    // Moved off centre at the cap, the black is the cap's, not the pan's:
+    // centred it would STILL not cover, so the reason stays the cap's.
+    ed.dispatch('clip.pan', { clipId: 'a', x: 0.3, y: 0 });
+    expect(cmd.disabledReason!(ed.context())).toBe(
+      '더는 키울 수 없어요 · 화면 위아래가 비어요',
+    );
+  });
+});
+
 describe('the picture travels with the clip', () => {
   it('survives a split on both pieces, a copy and a paste, and a save', () => {
     const fields = { zoom: 2, panX: 0.5, panY: -0.25, rotation: 90 as const };

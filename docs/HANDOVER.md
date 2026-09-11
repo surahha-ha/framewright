@@ -117,7 +117,15 @@ Done: **E0–E6.**
   the other side of a dissolve drawn where its own clip puts it, `R` to
   turn, sliders in the panel, a drag on the preview to move. ADR-0014.
 
-Next, in order: E8 (style presets, shorts reframe), E9 (silence auto-cut).
+- E8, first item — **the shorts reframe**: the box (`timeline.width ×
+height`) takes another shape through three commands (가로 16:9 / 세로
+  9:16 / 정사각 1:1, buttons over the preview and palette rows), the
+  short side keeps its pixels, nothing on a clip is rewritten;
+  `clip.pictureFill` grows a clip's picture to the slider notch that
+  covers the box; the panel's "empty sides" note is geometric. ADR-0015.
+
+Next, in order: E8's second item (style presets), then E9 (silence
+auto-cut).
 
 Still owed regardless of epic: preview depth (quality toggle, loop range,
 fullscreen, safe area), proxy media, Worker-based export, rotation metadata

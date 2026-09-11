@@ -231,17 +231,42 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
-- **A quarter turn's own black sides are said by nothing.** `coversBox`
-  answers only "did a PAN uncover a side"; a 16:9 clip stood up shows black
-  at both sides at zoom 100% / pan 0, the note says just "90° 회전" and the
-  status just "화면을 90° 돌렸어요." — the same "black with no explanation"
-  class the pan limit closed, on the very first press of 화면 돌리기
-  (novice). One clause on the turn's sentence would do it.
-- **Three phrasings for "the picture does not cover the frame".** "화면
-  한쪽이 비어요" (a pan uncovered a side), "더 가면 화면이 보이는 범위를
-  벗어나요" (why a slider is short), "위치는 보이는 범위 안으로 맞췄어요" (a
-  turn pulled the pan in). The last two share 보이는 범위 now; the first
-  does not (novice).
+- **A quarter turn's own black sides are said by the panel, not by the
+  turn.** The note under the sliders is geometric now (`emptySides`,
+  ADR-0015: "90° 회전 · 화면 양옆이 비어요"), but the status sentence is
+  still just "화면을 90° 돌렸어요." — a screen-reader user hears the black
+  only on the next focus of the panel. One clause on the turn's sentence
+  would do it (novice).
+- **Two phrasings for "the picture does not cover the frame".** "화면
+  양옆이 비어요" (which sides are black, from the drawn rectangle) and
+  "보이는 범위" (why a slider is short; a turn pulled the pan in). Down
+  from three: "화면 한쪽이 비어요" is gone (novice).
+- **Filling is per clip.** A project of seven clips stood up needs seven
+  presses of 화면 채우기; the box change rewrites nothing on purpose
+  (ADR-0015). A "fill every clip" command, or 세로 implying 채우기 for a
+  first-time user, is the owner's call.
+- **A 4:3 project has no preset of its own.** `frameShapeOf` names only
+  16:9 / 9:16 / 1:1, so the picker shows "1440×1080" with nothing pressed
+  and every preset offered; there is no way back to 4:3 but undo.
+- **The box change's hint does not name the clip.** "비는 클립을 고르고
+  화면 채우기를 누르면 꽉 차요" is project-wide (`frameHints`); with ten
+  clips and one uncovered, a screen-reader user has to hunt for it (a11y).
+- **A box change re-announces nothing per clip.** The sound ceiling has
+  its own `useEffect` + `setStatus` for a slider end that moves on its
+  own; a frame change that narrows the selected clip's pan slider (50% →
+  15%) says only the one project-wide sentence (a11y).
+- **화면 원래대로 puts the clip back, not the box.** It sits three
+  buttons from 화면 채우기, and someone undoing an experiment may reach
+  for it expecting 가로 too; the box's own way back is the radio or
+  Ctrl+Z, and nothing says so (novice).
+- **A preview drag can park the pan between slider notches.** The drag
+  stores a whole percent (18%), the slider's step is 5, so the handle
+  sits at 20 while the readout beside it says 오른쪽으로 18% (seen in the
+  owner's Chrome, 2026-09-11). Pre-existing since the picture unit; the
+  next notch pressed on the slider snaps it.
+- **The export sentence says "90 frames" and "3.00s".** `ExportButton`'s
+  "내보내기 완료 · 90 frames · 3.00s" is the one English-and-jargon line a
+  first-time user reaches in the reframe flow; pre-existing (novice).
 - **The two picture notes sit under the buttons, not under the sliders**,
   in the same 12px dim style; the one that explains a short slider is two
   rows past the slider it explains (novice).

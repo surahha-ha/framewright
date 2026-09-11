@@ -102,7 +102,11 @@ test.describe('picture', () => {
     await expect(status(page)).toContainText('화면을 90° 돌렸어요.');
     await expect(mark(page)).toContainText('↻');
     expect(await description(page, 0)).toContain('90° 회전');
-    await expect(page.locator('#clip-picture-note')).toHaveText('90° 회전');
+    // The turn's own black sides are said now (ADR-0015 made the note
+    // geometric); before, the note read just "90° 회전" over two black bands.
+    await expect(page.locator('#clip-picture-note')).toHaveText(
+      '90° 회전 · 화면 양옆이 비어요',
+    );
     // Standing up inside the box: the sides are black, the middle is not.
     await expect
       .poll(() => bandBrightness(page, 0, 0.25), { timeout: 10_000 })
@@ -174,9 +178,10 @@ test.describe('picture', () => {
     const dialog = page.getByRole('dialog', { name: '명령 찾기' });
     await dialog.getByRole('combobox').fill('화면');
     const rows = dialog.getByRole('option');
-    await expect(rows).toHaveCount(2);
+    await expect(rows).toHaveCount(3);
     await expect(rows.nth(0)).toContainText('화면 돌리기');
-    await expect(rows.nth(1)).toContainText('화면 원래대로');
+    await expect(rows.nth(1)).toContainText('화면 채우기');
+    await expect(rows.nth(2)).toContainText('화면 원래대로');
   });
 
   test('the zoom slider grows the picture, the pan slider moves it, and the reset puts all back in one step', async ({

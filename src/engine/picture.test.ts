@@ -4,6 +4,9 @@ import {
   ZOOM_MAX,
   PAN_LIMIT,
   coversBox,
+  emptySides,
+  emptySidesText,
+  fillZoom,
   panText,
   describePan,
   describeRotation,
@@ -15,6 +18,8 @@ import {
   pictureRect,
   pictureTransform,
   nextRotation,
+  type PictureTransform,
+  type Rotation,
 } from './picture';
 import type { Clip } from './types';
 
@@ -227,18 +232,94 @@ describe('what an edit says', () => {
   });
 
   it('knows when a side of the box shows black', () => {
-    const t = (z: number, x: number, y = 0) => ({
+    const t = (z: number, x: number, y = 0, rotation: Rotation = 0) => ({
       zoom: z,
       panX: x,
       panY: y,
-      rotation: 0 as const,
+      rotation,
     });
-    expect(coversBox(t(1, 0))).toBe(true);
-    expect(coversBox(t(1, 0.1))).toBe(false);
+    const box = (t: PictureTransform) => coversBox(320, 180, 320, 180, t);
+    expect(box(t(1, 0))).toBe(true);
+    expect(box(t(1, 0.1))).toBe(false);
     // At 200% the overhang is half a box each side; a pan of 0.25 moves it
     // by 0.25 × 2 = half a box — exactly to the edge.
-    expect(coversBox(t(2, 0.25))).toBe(true);
-    expect(coversBox(t(2, 0.3))).toBe(false);
+    expect(box(t(2, 0.25))).toBe(true);
+    expect(box(t(2, 0.3))).toBe(false);
+    // The answer is geometric now, so a turn's own black sides count too —
+    // the picture unit's note said nothing for these (listed as debt).
+    expect(box(t(1, 0, 0, 90))).toBe(false);
+    // ...and a picture in a box of another shape, as shot.
+    expect(coversBox(320, 180, 180, 320, t(1, 0))).toBe(false);
+    expect(coversBox(320, 180, 180, 320, t(3.2, 0))).toBe(true);
+    // An unknown size is drawn box-sized, so nothing is empty.
+    expect(coversBox(0, 0, 180, 320, t(1, 0.3))).toBe(true);
+  });
+
+  it('names the empty sides, from the drawn rectangle', () => {
+    const as = (z: number, x: number, y: number, rotation: Rotation = 0) => ({
+      zoom: z,
+      panX: x,
+      panY: y,
+      rotation,
+    });
+    // A 16:9 picture in a 9:16 box: a strip across the middle.
+    expect(emptySides(320, 180, 180, 320, as(1, 0, 0))).toEqual([
+      'top',
+      'bottom',
+    ]);
+    // Stood up in a 16:9 box: black at both sides.
+    expect(emptySides(320, 180, 320, 180, as(1, 0, 0, 90))).toEqual([
+      'left',
+      'right',
+    ]);
+    // A pan to the right at the fit uncovers the left.
+    expect(emptySides(320, 180, 320, 180, as(1, 0.2, 0))).toEqual(['left']);
+    // Down and to the left, zoomed: the top and the right.
+    expect(emptySides(320, 180, 320, 180, as(2, -0.4, 0.4))).toEqual([
+      'top',
+      'right',
+    ]);
+    expect(emptySides(320, 180, 320, 180, as(1, 0, 0))).toEqual([]);
+    // Filled: nothing empty, even though 320% overshoots by a few pixels.
+    expect(emptySides(320, 180, 180, 320, as(3.2, 0, 0))).toEqual([]);
+  });
+
+  it('says the empty sides in one sentence shape', () => {
+    expect(emptySidesText([])).toBe('');
+    expect(emptySidesText(['top', 'bottom'])).toBe('화면 위아래가 비어요');
+    expect(emptySidesText(['left', 'right'])).toBe('화면 양옆이 비어요');
+    expect(emptySidesText(['left'])).toBe('화면 왼쪽이 비어요');
+    expect(emptySidesText(['right'])).toBe('화면 오른쪽이 비어요');
+    expect(emptySidesText(['top'])).toBe('화면 위가 비어요');
+    expect(emptySidesText(['bottom'])).toBe('화면 아래가 비어요');
+    expect(emptySidesText(['top', 'bottom', 'right'])).toBe(
+      '화면 위아래와 오른쪽이 비어요',
+    );
+    expect(emptySidesText(['top', 'left', 'right'])).toBe(
+      '화면 위와 양옆이 비어요',
+    );
+    expect(emptySidesText(['bottom', 'left'])).toBe(
+      '화면 아래와 왼쪽이 비어요',
+    );
+  });
+
+  it('finds the zoom that fills the box, a notch up, capped', () => {
+    // The same shape already fills it.
+    expect(fillZoom(320, 180, 320, 180, 0)).toBe(1);
+    expect(fillZoom(1920, 1080, 1280, 720, 0)).toBe(1);
+    // 16:9 in 9:16 needs (16/9)/(9/16) = 3.16, so the next notch: 320%.
+    expect(fillZoom(320, 180, 180, 320, 0)).toBe(3.2);
+    // Stood up in a 16:9 box, the same ratio the other way round.
+    expect(fillZoom(320, 180, 320, 180, 90)).toBe(3.2);
+    // 4:3 in 9:16: (4/3)/(9/16) = 2.37 → 240%.
+    expect(fillZoom(640, 480, 180, 320, 0)).toBe(2.4);
+    // 16:9 in 1:1: 1.78 → 180%.
+    expect(fillZoom(320, 180, 180, 180, 0)).toBe(1.8);
+    // 21:9 in 9:16 needs 4.15 — more than the slider offers.
+    expect(fillZoom(2100, 900, 180, 320, 0)).toBe(ZOOM_MAX);
+    // Exactly on a notch stays on it (no ceiling past 2.0 from float noise).
+    expect(fillZoom(400, 100, 200, 100, 0)).toBe(2);
+    expect(fillZoom(0, 0, 180, 320, 0)).toBe(1);
   });
 
   it('gives the strip words only when the picture is not as shot', () => {
