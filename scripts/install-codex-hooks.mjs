@@ -4,7 +4,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { root } from './codex-hooks.mjs';
 
-const command = `node -e "const p=require('node:path');const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();import(require('node:url').pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main())"`;
+// The launcher fails closed: if git, the repository root or the handler cannot
+// be found, it exits 2 (block) rather than 1 (non-blocking error).
+const command = `node -e "const p=require('node:path'),u=require('node:url');const fail=e=>{console.error('Framewright hook launcher: '+e.message);process.exitCode=2};try{const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();import(u.pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main()).catch(fail)}catch(e){fail(e)}"`;
 const handler = (timeout, statusMessage) => ({
   type: 'command',
   command,
@@ -28,7 +30,7 @@ export const config = {
     ],
     PreToolUse: [
       {
-        matcher: '^(apply_patch|Edit|Write)$',
+        matcher: '^(apply_patch|Edit|Write|Bash)$',
         hooks: [handler(10, 'Checking protected files')],
       },
     ],

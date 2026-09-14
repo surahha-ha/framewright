@@ -1,66 +1,19 @@
 #!/usr/bin/env node
-// Codex lifecycle adapter. Claude's existing hooks remain independent.
+// Agent lifecycle handler. Codex calls it through .codex/hooks.json; the Claude
+// hooks (hook-protect, hook-format) call the same handle() so both agents run
+// one rule set in one order. The path rule itself lives in protected-paths.mjs.
 import { spawnSync } from 'node:child_process';
-import {
-  readFileSync,
-  writeFileSync,
-  realpathSync,
-  existsSync,
-  statSync,
-} from 'node:fs';
-import { dirname, resolve, relative, isAbsolute, join } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
+import { resolve, relative, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  root,
+  editPaths,
+  checkedPath,
+  shellDenial,
+} from './protected-paths.mjs';
 
-export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-// apply_patch uses command, including multiple files and rename destinations.
-export function editPaths(payload) {
-  if (payload.tool_name === 'apply_patch') {
-    const patch = payload.tool_input?.command;
-    if (typeof patch !== 'string' || !patch.startsWith('*** Begin Patch')) {
-      throw new Error(
-        'Unrecognized apply_patch input; expected tool_input.command.',
-      );
-    }
-    return [
-      ...patch.matchAll(
-        /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)\r?$/gm,
-      ),
-    ].map((match) => match[1].trim());
-  }
-  const file = payload.tool_input?.file_path;
-  if (typeof file !== 'string' || !file)
-    throw new Error('Missing edit file_path.');
-  return [file];
-}
-
-// Resolve existing parents too: a new file may be inside a symlink/junction.
-function physicalPath(file) {
-  if (existsSync(file)) return realpathSync(file);
-  const parent = dirname(file);
-  return parent === file
-    ? file
-    : join(physicalPath(parent), relative(parent, file));
-}
-
-export function checkedPath(file, cwd, workspace = root) {
-  const base = realpathSync(workspace);
-  const absolute = resolve(cwd, file);
-  for (const candidate of [absolute, physicalPath(absolute)]) {
-    const rel = relative(base, candidate).replace(/\\/g, '/');
-    if (isAbsolute(rel) || rel === '..' || rel.startsWith('../')) {
-      throw new Error('Edit target is outside this repository.');
-    }
-    if (
-      /(^|\/)(?:package-lock\.json|pnpm-lock\.yaml|\.env(?:\.[^/]*)?|\.git)(?:\/|$)/i.test(
-        rel,
-      )
-    ) {
-      throw new Error('Protected edit target: lockfile, .env, or .git.');
-    }
-  }
-  return absolute;
-}
+export { root, editPaths, checkedPath, shellDenial };
 
 export function runNode(args, cwd = root) {
   const result = spawnSync(process.execPath, args, {
@@ -111,7 +64,7 @@ export function stopOutput(payload, failure) {
     : { decision: 'block', reason };
 }
 
-export async function handle(payload) {
+export async function handle(payload, { confine = true } = {}) {
   const event = payload.hook_event_name;
   if (event === 'SessionStart') {
     return {
@@ -121,9 +74,23 @@ export async function handle(payload) {
       },
     };
   }
+  // Codex names its shell tool Bash in hook payloads; a shell command must not
+  // be the way around the edit rule.
+  if (event === 'PreToolUse' && payload.tool_name === 'Bash') {
+    const reason = shellDenial(payload);
+    return reason
+      ? {
+          hookSpecificOutput: {
+            hookEventName: event,
+            permissionDecision: 'deny',
+            permissionDecisionReason: reason,
+          },
+        }
+      : {};
+  }
   if (event === 'PreToolUse' || event === 'PostToolUse') {
     const files = editPaths(payload).map((file) =>
-      checkedPath(file, payload.cwd || root),
+      checkedPath(file, payload.cwd || root, root, { confine }),
     );
     if (event === 'PreToolUse') return {};
     const changed = await formatFiles(files);
@@ -157,10 +124,17 @@ export async function handle(payload) {
   throw new Error(`Unsupported hook event: ${event}`);
 }
 
-export async function main() {
+// Fail closed: any error, an unreadable payload included, is exit 2 so the
+// agent runtime blocks the call instead of proceeding unguarded.
+export async function main(expectedEvent, options = {}) {
   try {
     const payload = JSON.parse(readFileSync(0, 'utf8').replace(/^\uFEFF/, ''));
-    process.stdout.write(JSON.stringify(await handle(payload)) + '\n');
+    if (expectedEvent && payload.hook_event_name !== expectedEvent) {
+      throw new Error(
+        `Expected a ${expectedEvent} payload, got ${payload.hook_event_name}.`,
+      );
+    }
+    process.stdout.write(JSON.stringify(await handle(payload, options)) + '\n');
   } catch (error) {
     process.stderr.write(`Framewright hook: ${error.message}\n`);
     process.exitCode = 2;

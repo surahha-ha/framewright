@@ -1,23 +1,8 @@
-// PreToolUse hook — block edits to protected files.
-// Reads the hook payload JSON on stdin; exit 2 blocks the edit with feedback.
-let input = '';
-process.stdin.on('data', (d) => (input += d));
-process.stdin.on('end', () => {
-  try {
-    const payload = JSON.parse(input || '{}');
-    const file = (payload?.tool_input?.file_path || '').replace(/\\/g, '/');
-    const PROTECTED = [
-      /(^|\/)package-lock\.json$/,
-      /(^|\/)pnpm-lock\.yaml$/,
-      /(^|\/)\.env(\.|$)/,
-      /(^|\/)\.git\//,
-    ];
-    if (file && PROTECTED.some((re) => re.test(file))) {
-      process.stderr.write(`Blocked: ${file} is a protected file (edit it manually).`);
-      process.exit(2);
-    }
-  } catch {
-    // fail open — never block on parse errors
-  }
-  process.exit(0);
-});
+#!/usr/bin/env node
+// Claude PreToolUse hook (Edit|Write|NotebookEdit). Same handler and rule set
+// as the Codex adapter; fails closed (exit 2) on any error. Claude may write
+// outside the repository (memory, job scratch, a paired repo), so the
+// repository boundary is not enforced here; the protected-name rule still is.
+import { main } from './codex-hooks.mjs';
+
+await main('PreToolUse', { confine: false });

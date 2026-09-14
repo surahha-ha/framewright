@@ -17,9 +17,11 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_STRIKES = 3;
 const STEPS = [
   ['refs', 'npm run check:refs'],
@@ -28,23 +30,30 @@ const STEPS = [
   ['unit tests', 'npm test'],
 ];
 
-const strikeFile = join(
-  tmpdir(),
-  'framewright-gate',
-  createHash('sha1').update(process.cwd()).digest('hex').slice(0, 12),
-);
+// One counter per session: two sessions in the same checkout must not spend
+// each other's strikes.
+function strikeFile(sessionId) {
+  return join(
+    tmpdir(),
+    'framewright-gate',
+    createHash('sha1')
+      .update(`${root}\n${sessionId}`)
+      .digest('hex')
+      .slice(0, 12),
+  );
+}
 
-function strikes() {
+function strikes(file) {
   try {
-    return Number(readFileSync(strikeFile, 'utf8')) || 0;
+    return Number(readFileSync(file, 'utf8')) || 0;
   } catch {
     return 0;
   }
 }
-function setStrikes(n) {
+function setStrikes(file, n) {
   try {
     mkdirSync(join(tmpdir(), 'framewright-gate'), { recursive: true });
-    writeFileSync(strikeFile, String(n));
+    writeFileSync(file, String(n));
   } catch {
     // a missing counter only costs us the escape hatch; never crash the hook
   }
@@ -53,7 +62,11 @@ function setStrikes(n) {
 function run() {
   for (const [name, cmd] of STEPS) {
     try {
-      execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      execSync(cmd, {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
     } catch (e) {
       const out = `${e.stdout ?? ''}\n${e.stderr ?? ''}`.trim();
       return { name, out: out.slice(-3000) };
@@ -65,26 +78,38 @@ function run() {
 let input = '';
 process.stdin.on('data', (d) => (input += d));
 process.stdin.on('end', () => {
+  let sessionId = '';
+  try {
+    sessionId = String(JSON.parse(input || '{}').session_id ?? '');
+  } catch {
+    // an unreadable payload only loses per-session strike isolation
+  }
+  const file = strikeFile(sessionId);
   const failure = run();
 
   if (!failure) {
-    setStrikes(0);
+    setStrikes(file, 0);
     process.exit(0);
   }
 
-  const n = strikes() + 1;
+  const n = strikes(file) + 1;
   if (n >= MAX_STRIKES) {
-    setStrikes(0);
-    // Let the turn end, but make the state impossible to misreport.
+    setStrikes(file, 0);
+    // Let the turn end, but make the state impossible to misreport. Plain
+    // stdout on exit 0 is only visible in transcript view; systemMessage is
+    // shown to the owner as a warning.
     process.stdout.write(
-      `GATE STILL RED after ${MAX_STRIKES} attempts (${failure.name}).\n` +
-        `Do not describe this work as done. Record the failure in docs/STATUS.md ` +
-        `— what fails, what you already ruled out — and tell the owner you are stuck.\n`,
+      JSON.stringify({
+        systemMessage:
+          `GATE STILL RED after ${MAX_STRIKES} attempts (${failure.name}). ` +
+          `Do not describe this work as done. Record the failure in docs/STATUS.md ` +
+          `— what fails, what you already ruled out — and tell the owner you are stuck.`,
+      }) + '\n',
     );
     process.exit(0);
   }
 
-  setStrikes(n);
+  setStrikes(file, n);
   process.stderr.write(
     `Gate is red: ${failure.name} failed (attempt ${n}/${MAX_STRIKES}). ` +
       `Fix it before finishing.\n\n${failure.out}\n`,

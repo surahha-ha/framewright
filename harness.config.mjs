@@ -14,6 +14,8 @@
  *     `auditOnStop` 만 켜서 시계열(v2 검증 축)만 얻는다.
  */
 
+import { SHELL_WRITE_RULE } from './scripts/protected-paths.mjs';
+
 export default {
   project: {
     name: 'framewright — WebCodecs 기반 브라우저 비디오 편집기 (단일 저장소)',
@@ -64,6 +66,13 @@ export default {
         why: '검증 명령의 출력을 파이프로 넘기면 종료코드가 파이프 끝 명령의 것이 되어 실패가 통과로 보입니다 — 조용히 틀린 채 다음 작업의 입력이 됩니다.',
         recover:
           '파이프 없이 그대로 실행하고 결과 줄을 읽으세요. 출력이 길면 파일로 리다이렉션한 뒤 종료코드를 따로 확인합니다.',
+      },
+      {
+        // 패턴의 원천은 scripts/protected-paths.mjs — 편집 훅(hook-protect · codex-hooks)과 같은 목록이다.
+        ...SHELL_WRITE_RULE,
+        why: 'lockfile·.env·키·.git·훅 설정은 편집 훅이 막는 파일입니다 — 셸 명령이 그 우회로가 되면 안 됩니다.',
+        recover:
+          '그 파일은 소유자가 직접 바꿉니다. lockfile 은 손이 아니라 패키지 매니저가 바꿉니다.',
       },
     ],
 

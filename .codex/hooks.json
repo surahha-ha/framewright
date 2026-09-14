@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"const p=require('node:path');const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();import(require('node:url').pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main())\"",
+            "command": "node -e \"const p=require('node:path'),u=require('node:url');const fail=e=>{console.error('Framewright hook launcher: '+e.message);process.exitCode=2};try{const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();import(u.pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main()).catch(fail)}catch(e){fail(e)}\"",
             "timeout": 10,
             "statusMessage": "Loading Framewright handoff",
             "additionalContextLimit": 1500
@@ -17,11 +17,11 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "^(apply_patch|Edit|Write)$",
+        "matcher": "^(apply_patch|Edit|Write|Bash)$",
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"const p=require('node:path');const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();import(require('node:url').pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main())\"",
+            "command": "node -e \"const p=require('node:path'),u=require('node:url');const fail=e=>{console.error('Framewright hook launcher: '+e.message);process.exitCode=2};try{const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();import(u.pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main()).catch(fail)}catch(e){fail(e)}\"",
             "timeout": 10,
             "statusMessage": "Checking protected files"
           }
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"const p=require('node:path');const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();import(require('node:url').pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main())\"",
+            "command": "node -e \"const p=require('node:path'),u=require('node:url');const fail=e=>{console.error('Framewright hook launcher: '+e.message);process.exitCode=2};try{const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();import(u.pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main()).catch(fail)}catch(e){fail(e)}\"",
             "timeout": 120,
             "statusMessage": "Formatting and checking edited files"
           }
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"const p=require('node:path');const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();import(require('node:url').pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main())\"",
+            "command": "node -e \"const p=require('node:path'),u=require('node:url');const fail=e=>{console.error('Framewright hook launcher: '+e.message);process.exitCode=2};try{const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();import(u.pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main()).catch(fail)}catch(e){fail(e)}\"",
             "timeout": 240,
             "statusMessage": "Checking references, guardrails, hook tests, types and unit tests"
           }

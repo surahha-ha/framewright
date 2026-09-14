@@ -6,6 +6,11 @@
 // result and the next single step) instead of from whatever it infers.
 
 import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// The hook may run with any cwd; STATUS lives next to this script's repo root.
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 function section(md, heading) {
   const lines = md.split('\n');
@@ -17,7 +22,7 @@ function section(md, heading) {
 }
 
 try {
-  const status = readFileSync('docs/STATUS.md', 'utf8');
+  const status = readFileSync(join(root, 'docs/STATUS.md'), 'utf8');
 
   const verify = status
     .split('<!-- VERIFY:BEGIN')[1]
