@@ -8,6 +8,7 @@ import { applyOps } from './ops';
 import { clipLength, timelineDuration, videoTrack } from './timeline';
 import { BUILTIN_COMMANDS, type Command, type EditorCtx } from './commands';
 import type { ClipboardEntry } from './clipboard';
+import type { PeaksSource } from './silence';
 
 export interface Editor {
   readonly project: Project;
@@ -41,6 +42,12 @@ export interface Editor {
   select(clipId: string | null): void;
   selectSubtitle(subtitleId: string | null): void;
   setClipboard(entry: ClipboardEntry | null): void;
+  /**
+   * Where commands read the sound of each source from (ADR-0016). The app
+   * wires its waveform cache in once; a test hands over a fixture. Not
+   * document state — it is the measured file, not the edit.
+   */
+  setPeaksSource(source: PeaksSource | null): void;
 
   /** End the current coalescing gesture (key released, pointer lifted). */
   endCoalesce(): void;
@@ -71,6 +78,7 @@ export function createEditor(initial: Project): Editor {
   let selectedClipId: string | null = null;
   let selectedSubtitleId: string | null = null;
   let clipboard: ClipboardEntry | null = null;
+  let peaks: PeaksSource | null = null;
   const undoStack: Patch[] = [];
   const redoStack: Patch[] = [];
   let lastCoalesceKey: string | null = null;
@@ -81,6 +89,7 @@ export function createEditor(initial: Project): Editor {
     selectedClipId,
     selectedSubtitleId,
     clipboard,
+    peaks,
   });
 
   /** Keep the playhead inside the timeline — a shorter document would otherwise
@@ -190,6 +199,9 @@ export function createEditor(initial: Project): Editor {
     },
     setClipboard(entry) {
       clipboard = entry;
+    },
+    setPeaksSource(source) {
+      peaks = source;
     },
 
     endCoalesce() {

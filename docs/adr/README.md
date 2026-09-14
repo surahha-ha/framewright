@@ -21,6 +21,7 @@ ones, don't delete.
 | 0013 | A clip's sound is a level and a switch | Accepted |
 | 0014 | A clip puts its picture in the box     | Accepted |
 | 0015 | The box has a shape of its own         | Accepted |
+| 0016 | A pause is cut by an absolute rule     | Accepted |
 
 ## Template
 

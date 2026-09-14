@@ -23,7 +23,7 @@
 
 import type { Clip, Project, Rational } from './types';
 import { clipLength, locateClip, resolveAt, sourceFrames } from './timeline';
-import { frameToSec, secToFrame } from './time';
+import { frameToSec, secondsText, secToFrame } from './time';
 import { isAsShot, pictureTransform, type PictureTransform } from './picture';
 
 export type FadeEdge = 'in' | 'out';
@@ -156,11 +156,11 @@ export function blendAt(project: Project, frame: number): Blend | null {
   return null;
 }
 
-/** "0.5초", "1초", "0.33초" — seconds, because a first-time user reads
- *  `00:00:15` as fifteen seconds. */
+/** "0.5초", "1초", "0.33초" — the fade's length in seconds. The format is
+ *  `secondsText`'s, shared with the silence cut's sentence; this name stays
+ *  so the panel and the strip keep saying it is a fade they are timing. */
 export function fadeSecondsText(frames: number, fps: Rational): string {
-  const sec = Number(frameToSec(frames, fps).toFixed(2));
-  return `${sec}초`;
+  return secondsText(frames, fps);
 }
 
 /** What the edge goes to, in words. One source for the status line and the

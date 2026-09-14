@@ -12,6 +12,7 @@ import { useStore } from '../store/projectStore';
 import { formatChord } from '../engine/keymap';
 import { canRun, entries, perform, whyNot } from './actions';
 import { useResolvedKeymap } from './useShortcuts';
+import { subscribeWaveforms } from './waveform';
 
 interface Row {
   id: string;
@@ -33,6 +34,13 @@ export function CommandPalette() {
   useStore((s) => s.hasClipboard);
   useStore((s) => s.canUndo);
   useStore((s) => s.canRedo);
+  // ...and, for 조용한 부분 없애기, with a source's sound being read: the
+  // peaks land out of band, after the file, while the palette may already be
+  // open and showing "still reading". The rows below are recomputed on this
+  // too, or that row would stay a dead end until the query was retyped.
+  useStore((s) => s.mediaVersion);
+  const [peaksVersion, peaksArrived] = useState(0);
+  useEffect(() => subscribeWaveforms(() => peaksArrived((n) => n + 1)), []);
 
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -59,7 +67,7 @@ export function CommandPalette() {
     // What you can do now comes first; the rest stay visible underneath.
     return [...all.filter((r) => r.enabled), ...all.filter((r) => !r.enabled)];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, keymap]);
+  }, [query, keymap, peaksVersion]);
 
   // The query narrowed under the cursor — never leave it pointing past the end.
   useEffect(() => {

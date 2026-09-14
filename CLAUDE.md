@@ -233,6 +233,48 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **조용한 부분 없애기 wakes up in silence.** The toolbar button flips from
+  "소리를 아직 읽는 중이에요" to runnable when a source's peaks land, and
+  nothing announces it: `aria-disabled` and `title` change on an unfocused
+  control, which a screen reader does not read. The user learns by
+  re-tabbing to it or pressing it again. The clip panel's ceiling has a
+  `setStatus` for its own out-of-band change; the button could say one
+  sentence the first time it becomes runnable after having been blocked
+  (ADR-0016, a11y).
+- **The cut's sentence does not say what happened to the selected clip.**
+  "조용한 부분 1곳을 없앴어요 · 0.93초 짧아졌어요 · 앞뒤 0.2초씩은 남겨
+  뒀어요" counts and times; a selected clip that lay wholly inside a pause
+  is gone (selection dropped, `pruneSelection`) and one that survived is
+  now several clips, and neither is said. Focus stays on the toolbar
+  button, so the changed clip labels are not re-announced either (a11y,
+  novice).
+- **"N곳" counts cuts, not pauses.** A pause that spans a split (one the
+  user made earlier inside it) is cut once per piece and counted twice.
+  ADR-0016 accepts this as honest about the cuts; a first-time user heard
+  one pause (novice).
+- **The playhead stays on its frame NUMBER across the cut**, so after
+  removing [30, 50) a playhead at 40 is on what used to be frame 60. Same
+  as `timeline.closeGaps`; nothing repositions or announces it (QA).
+- **"잠시 뒤 다시 눌러 주세요" has no sense of how long.** The peaks of a
+  long file take a while and the button shows no progress; the thumbnail
+  strip has the same gap (novice).
+- **The palette's rows recompute on `peaksVersion` now, and on nothing
+  else out of band.** `CommandPalette.rows` is a `useMemo` on
+  `[query, keymap, peaksVersion]`; a future command whose availability
+  depends on another async signal will need its own bump, and the QA
+  persona's stale-row scenario is guarded only for this one
+  (`e2e/silence.spec.ts`, "wakes up when it lands").
+- **The fade clamp at a cut is written twice** — `splitCommand` and
+  `silencePatch`'s `fadeInOf` / `fadeOutOf` (head keeps fade-in if its
+  edge was not cut, tail keeps fade-out, each at what the piece can hold).
+  Second occurrence; a third is the trigger to share it (reviewer).
+- **`EditorCtx` carries two non-document fields**, `clipboard` and `peaks`.
+  Both are "the environment the edit is made in"; a third is the moment to
+  name that (reviewer, ADR-0016).
+- **The palette → removed-clip focus path is untested.** A clip focused
+  from the palette's opener, wholly inside a pause, removed by the cut:
+  the palette's refocus targets a detached node and `Timeline`'s recovery
+  effect takes over. Reads right; no e2e exercises it (a11y).
 - **A quarter turn's own black sides are said by the panel, not by the
   turn.** The note under the sliders is geometric now (`emptySides`,
   ADR-0015: "90° 회전 · 화면 양옆이 비어요"), but the status sentence is

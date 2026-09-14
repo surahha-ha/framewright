@@ -29,6 +29,8 @@ import { PICTURE_COMMANDS } from './pictureCommands';
 import { FRAME_COMMANDS } from './frameCommands';
 import { effectiveFades } from './fades';
 import { rippleSubtitles, splitSubtitleAt, subtitleDiffOps } from './subtitles';
+import { cutSilenceCommand } from './silenceCommand';
+import type { PeaksSource } from './silence';
 
 export interface EditorCtx {
   project: Project;
@@ -39,6 +41,14 @@ export interface EditorCtx {
   selectedSubtitleId?: string | null;
   /** What copy/cut put aside. Not document state — it outlives undo. */
   clipboard?: ClipboardEntry | null;
+  /**
+   * What the app has measured of each source's sound (ADR-0016). Not
+   * document state either: the peaks are rebuilt from the file every time it
+   * is opened, and a command that needs them (조용한 부분 없애기) has to be
+   * able to say "not yet" from a button, a palette row or a key, none of
+   * which carry arguments. Absent or null means nothing is measured.
+   */
+  peaks?: PeaksSource | null;
 }
 
 /** Why a clip stopped moving, in words. Silence here reads as a bug, and one
@@ -893,6 +903,8 @@ export const BUILTIN_COMMANDS: Command<any>[] = [
   deleteRippleCommand,
   pasteCommand,
   closeGapsCommand,
+  // Next to 빈 곳 없애기: the other one-press tidy-up (ADR-0016).
+  cutSilenceCommand,
   // The toolbar is registry order, so "자막 넣기" sits after the clip edits;
   // the rest of the subtitle commands are keyboard/panel/palette only.
   ...SUBTITLE_COMMANDS,

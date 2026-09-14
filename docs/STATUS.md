@@ -10,13 +10,25 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-14 02:14 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-14 05:55 UTC — `npm run verify` **GREEN**
 
-- unit 562 passed · e2e 110 passed
+- unit 607 passed · e2e 116 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
+
+### E9, silence auto-cut, is built and uncommitted (2026-09-14)
+
+One press, 조용한 부분 없애기, finds every pause of 0.5 s or more in the
+footage (peak under -40 dBFS on the waveform's own 128-sample buckets),
+keeps 0.2 s on each side, and removes the rest as ONE undo step; muted
+clips are skipped. The rule and the why are ADR-0016; the record of the
+work, step by step, is "E9 progress" / "E9 issues" further down; what the
+persona round left is in CLAUDE.md "Known tech debt". The unit was built
+in Claude Code after the Codex session stalled before writing code (the
+owner's call, 14:10 KST). The gate stamped above is the handoff run after
+the persona fixes. **Nothing is committed yet** — see "Next single step".
 
 ### Moving implementation to Codex (2026-09-14)
 
@@ -280,19 +292,27 @@ case), a phone-shot file rather than the colour-bar fixture.
 
 ## Next single step
 
-**Commit the tree as it stands** (`AGENTS.md`, `.codex/agents/`,
-`.codex/skills/`, `.codex/config.toml`, the five doc edits, this file) —
-the owner must approve the commit first. Then open the repo in a fresh
-Codex session: trust the project and the four hook commands in `/hooks`,
-confirm the SessionStart handoff prints and that `spawn_agent` offers the
-six roles. Install dev-browser (`npm install -g dev-browser`) if the
-visual pass is wanted in that session.
+**Commit E9 as ONE commit, with the owner's approval** — the tree holds
+the whole unit and nothing else: `src/engine/silence.ts`, `silence.test.ts`,
+`silenceCommand.ts`, `silenceCommand.test.ts`, the `EditorCtx.peaks` seam
+(`command.ts`, `commands.ts`), `time.ts` / `time.test.ts` / `fades.ts`,
+`ui/waveform.ts`, `App.tsx`, `ui/Toolbar.tsx`, `ui/CommandPalette.tsx`,
+`e2e/silence.spec.ts`, `e2e/fixtures/sample-silence.mp4`, ADR-0016,
+`docs/adr/README.md`, `docs/TESTING.md`, CLAUDE.md's debt list, this
+file. Leave `debug.log` and `e9-baseline.log` out (untracked junk).
 
-**Then E9, silence auto-cut, in Codex** — chosen over E8's second item
-(style presets) because E9 is engine-first: silence detection over
-decoded PCM is a pure function (Vitest in Node, TDD), and the cut is
-existing splits plus ripple deletes folded into one undo step. E8-2
-still waits on the product call below (does 세로 imply 채우기).
+**Then the driver question, as its own small unit:** the owner asked
+whether Claude Code's visual pass could move from Claude in Chrome to
+dev-browser (attach mode) so both tools share one driver. Deferred until
+after this commit so a driver problem cannot be mistaken for an E9 one.
+It needs: the install, the "home directory for the embedded daemon
+runtime" failure Codex hit on this PC diagnosed, attach to the owner's
+Chrome confirmed, H.264 checked in whatever Chrome it drives, and the
+driver table in `docs/TESTING.md` + this file's decision 2 + CLAUDE.md +
+HANDOVER updated together.
+
+**Then E8-2 (style presets)**, still waiting on the product call below
+(does 세로 imply 채우기).
 
 ### E9 execution plan — silence auto-cut
 
@@ -371,10 +391,94 @@ Codex session's chat is not the record; this file is. So:
   owner's approval of the commit. Findings from that review are fixed in
   the same unit; the commit is one commit.
 
+### E9 progress
+
+**Done in Claude Code, not Codex (2026-09-14, afternoon KST).** The Codex
+session got as far as reading the plan and restarting the baseline gate
+(its notes: PowerShell refuses `npm.ps1`, use `npm.cmd`; `dev-browser`
+fails on this PC with "Could not determine the home directory for the
+embedded daemon runtime"); it wrote no code. The owner stopped it and had
+the unit implemented here, with Claude in Chrome for the visual pass. The
+plan's steps, in order, with the gate at each point:
+
+1. **Engine** — `src/engine/silence.ts` (`silentRuns` / `silencePlan` /
+   `silencePatch`, four constants), test-first in `silence.test.ts`
+   (29 specs: edges of the file, a partial last bucket, a run a clip is
+   trimmed into, a run across a split, 29.97, the threshold as float32,
+   a whole clip inside a run, subtitles, the exact inverse). `time.ts`
+   gained `sampleToFrame` (integer arithmetic, `'ceil' | 'floor'`) and
+   `secondsText` (which `fadeSecondsText` now delegates to). Gate at this
+   point: refs · typecheck · unit 607 green, e2e not run.
+2. **Command** — `timeline.cutSilence` in `silenceCommand.ts` (label
+   조용한 부분 없애기, icon ⏭, no key, registered after
+   `timeline.closeGaps` so the toolbar shows it there). The peaks reach it
+   through `EditorCtx.peaks` (`editor.setPeaksSource`, wired once in
+   `App.tsx` from `ui/waveform.peaksFor`); `Toolbar` and `CommandPalette`
+   re-render when peaks land (`subscribeWaveforms`, `mediaVersion`).
+   `silenceCommand.test.ts`: 12 specs (three reasons + the all-muted one,
+   the sentence, one undo step, playhead clamp, selection pruning).
+3. **e2e** — `e2e/silence.spec.ts`, 6 cases, on a NEW fixture
+   `e2e/fixtures/sample-silence.mp4` (see issues). Full gate after this
+   step: **unit 607 · e2e 115 · exit 0** (14:35 KST).
+4. **ADR-0016** written; `docs/adr/README.md` and `docs/TESTING.md` (a
+   contract row for the button, the fixture note) updated.
+5. **Persona round** (tester-qa, tester-a11y, tester-novice,
+   framewright-reviewer, in parallel, after the green gate): no blocker.
+   Fixed in this unit: the QA major (stale palette row, below), two
+   wording majors from the novice (the sentence now says 앞뒤 0.2초씩은
+   남겨 뒀어요; the all-muted reason now says what to do). Everything
+   else is in CLAUDE.md "Known tech debt" under the ADR-0016 entries.
+   **Visual pass in the owner's Chrome** (`da2a0786-…`, confirmed by the
+   owner): the button sits after 빈 곳 없애기 without wrapping at 1512px,
+   flips to enabled once the peaks land, the cut of the fixture made two
+   clips (181 → 153 frames, 0.93초), the strip's wave shows the pause
+   gone, the sentence reads correctly, and two Ctrl+Z put the owner's own
+   7-clip project back exactly. No new visual defect. The gate below is
+   the `npm run handoff` run after the persona fixes.
+
+### E9 issues
+
+- **The fixture had to be made.** `sample-h264.mp4` is a steady tone
+  (peak 0.13 for its whole 3 s — measured through the app's own decode),
+  so it has no pause. There is no ffmpeg on this PC. `sample-silence.mp4`
+  is that file's pictures with tone · 1.4 s of digital silence (0.9–2.3
+  s) · tone, produced by swapping the decoded audio through
+  `setAudioBuffer` and running the app's export. Decoded back, the pause
+  measures 0.901–2.299 s and the cut is [34, 62) = 28 frames; the e2e
+  allows ±1 frame per edge for another decoder.
+- **Mute decision (ADR-0016):** a muted clip is skipped, not judged;
+  `volume` and the fades are ignored — the rule is about the file as
+  recorded. Codex had proposed the same.
+- **The palette's rows went stale** (QA persona, major): `CommandPalette`
+  computed its rows on `[query, keymap]` only, so a palette opened before
+  the peaks landed showed 조용한 부분 없애기 as a dead end until the query
+  was retyped. Pre-existing memo shape, first observable here. Fixed with
+  a `peaksVersion` bump from `subscribeWaveforms` (+ `mediaVersion`), and
+  guarded by the e2e "a palette row opened while the sound is still being
+  read wakes up when it lands", which was run red without the fix and
+  green with it.
+- **Wording changed after the persona round**, and the tests' expected
+  strings with it (one line each, nothing else): the done sentence gained
+  " · 앞뒤 0.2초씩은 남겨 뒀어요" (novice: 없앴어요 while a beat of every
+  pause remains read as half-worked) and, when clips were skipped, " ·
+  잠시 뒤 다시 누르면 찾아요"; the all-muted reason is now "소리를 끈 클립은
+  건너뛰어요 · 소리를 다시 켜면 그 클립의 조용한 부분도 찾아요".
+- **"Before the peaks arrive" is not asserted in e2e.** The window
+  between the file landing and its peaks is a few hundred ms in the gate
+  browser, so the reason "소리를 아직 읽는 중이에요" is pinned in the unit
+  spec only; the e2e asserts the two deterministic reasons (nothing
+  imported, no pause) and the enabled state.
+- **The transport readout says the LAST frame, not the count** (`0 / 89`
+  for 90 frames). The e2e helper adds one; worth knowing before the next
+  spec reads it.
+- **Stray files** at the root, untracked and not part of this unit:
+  `debug.log` (Chrome audio warnings) and `e9-baseline.log` (Codex's
+  UTF-16 verify output). Delete or ignore; not committed.
+
 ## Blocked / needs the owner
 
-1. **Commit approval** for the uncommitted tree (see "Next single step").
-   `10050d3`, `845bfa4` and `f5f2512` are pushed.
+1. **Commit approval** for the E9 tree (see "Next single step"). Everything
+   before it is pushed through `2aa94b9`.
 2. **Two auto snapshots and one file** from the visual pass: 자동 저장
    10:26 / 10:29 (2026-09-11) in the browser's 이전 상태, and
    `Downloads/Untitled.mp4`. Delete or keep.

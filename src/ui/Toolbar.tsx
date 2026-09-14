@@ -6,8 +6,10 @@
 // Unavailable buttons are `aria-disabled`, not `disabled`. A natively disabled
 // button leaves the tab order entirely, so a keyboard user never discovers the
 // control exists — and never hears why it is waiting.
+import { useEffect, useState } from 'react';
 import { useStore } from '../store/projectStore';
 import { formatChord } from '../engine/keymap';
+import { subscribeWaveforms } from './waveform';
 import { APP_ACTIONS, entries, type Entry } from './actions';
 import { useResolvedKeymap } from './useShortcuts';
 import { ExportButton } from './ExportButton';
@@ -40,6 +42,12 @@ export function Toolbar() {
   useStore((s) => s.hasClipboard);
   useStore((s) => s.canUndo);
   useStore((s) => s.canRedo);
+  // 조용한 부분 없애기 can run only once a source's peaks are built, and
+  // those land out of band — after the file, from the waveform cache. The
+  // same for a file the decoder found no sound in (`mediaVersion`).
+  useStore((s) => s.mediaVersion);
+  const [, peaksArrived] = useState(0);
+  useEffect(() => subscribeWaveforms(() => peaksArrived((n) => n + 1)), []);
 
   return (
     <div className="toolbar">

@@ -12,6 +12,8 @@ import {
   timescaleToSec,
   secToTimescale,
   formatClock,
+  sampleToFrame,
+  secondsText,
 } from './time';
 
 describe('time-model', () => {
@@ -54,6 +56,33 @@ describe('time-model', () => {
   it('secToSample cuts audio on sample boundaries', () => {
     expect(secToSample(1, 48000)).toBe(48000);
     expect(secToSample(0.5, 48000)).toBe(24000);
+  });
+
+  describe('sampleToFrame — a sample index to a whole frame, exactly', () => {
+    it('lands on the frame when the sample is on a frame boundary', () => {
+      // 1.2 s at 48 kHz is sample 57600, which is frame 36 at 30 fps —
+      // and 1.2 * 30 in floating point is not reliably 36.
+      expect(sampleToFrame(57600, 48000, FPS_30, 'ceil')).toBe(36);
+      expect(sampleToFrame(57600, 48000, FPS_30, 'floor')).toBe(36);
+    });
+    it('rounds up or down between boundaries, as asked', () => {
+      expect(sampleToFrame(57601, 48000, FPS_30, 'ceil')).toBe(37);
+      expect(sampleToFrame(57601, 48000, FPS_30, 'floor')).toBe(36);
+    });
+    it('stays exact at 29.97', () => {
+      // Frame 30 at 29.97 is 1.001 s = sample 48048.
+      expect(sampleToFrame(48048, 48000, FPS_2997, 'ceil')).toBe(30);
+      expect(sampleToFrame(48048, 48000, FPS_2997, 'floor')).toBe(30);
+      expect(sampleToFrame(48047, 48000, FPS_2997, 'ceil')).toBe(30);
+      expect(sampleToFrame(48047, 48000, FPS_2997, 'floor')).toBe(29);
+    });
+  });
+
+  it('secondsText says seconds the way a person would', () => {
+    expect(secondsText(15, FPS_30)).toBe('0.5초');
+    expect(secondsText(30, FPS_30)).toBe('1초');
+    expect(secondsText(72, FPS_30)).toBe('2.4초');
+    expect(secondsText(10, FPS_30)).toBe('0.33초');
   });
 
   it('formats timecode as mm:ss:ff', () => {

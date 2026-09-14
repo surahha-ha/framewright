@@ -1,10 +1,10 @@
 // framewright — app shell / layout.
 import { useEffect } from 'react';
-import { useStore } from './store/projectStore';
+import { editor, useStore } from './store/projectStore';
 import { retainOnly } from './engine/registry';
 import { retainOnlyAudio } from './engine/audio';
 import { retainOnlyThumbnails } from './ui/thumbnails';
-import { retainOnlyPeaks } from './ui/waveform';
+import { peaksFor, retainOnlyPeaks } from './ui/waveform';
 import { CommandPalette } from './ui/CommandPalette';
 import { MediaBin } from './ui/MediaBin';
 import { ShortcutsPanel } from './ui/ShortcutsPanel';
@@ -26,6 +26,14 @@ export default function App() {
   const assets = useStore((s) => s.project.assets);
   const overlay = useStore((s) => s.overlay);
   useShortcuts();
+
+  // The commands read each source's sound through the editor (ADR-0016), and
+  // the peaks live in the waveform cache — wired here, once, where the two
+  // meet. The engine never imports the UI.
+  useEffect(() => {
+    editor.setPeaksSource(peaksFor);
+    return () => editor.setPeaksSource(null);
+  }, []);
 
   // Free decode services (they pin the whole source in memory) for assets that
   // are no longer in the document — e.g. after undoing an import.

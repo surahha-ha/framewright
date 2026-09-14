@@ -94,6 +94,37 @@ export function secToSample(sec: number, sampleRate: number): number {
 }
 
 /**
+ * audio sample index -> timeline frame, in integers all the way.
+ *
+ * `secToFrame(sample / sampleRate)` would pass through a floating-point
+ * second first, and 1.2 × 30 is not reliably 36 there — which matters when
+ * the caller asks for the frame ABOVE or BELOW a boundary, because a
+ * boundary that lands a hair past the integer rounds the wrong way. Sample
+ * counts, sample rates and the two halves of a rational fps are all
+ * integers, so the quotient's remainder says exactly whether the sample is
+ * on a frame or between two.
+ */
+export function sampleToFrame(
+  sample: number,
+  sampleRate: number,
+  fps: Rational,
+  rounding: 'floor' | 'ceil',
+): number {
+  const numer = sample * fps.num;
+  const denom = sampleRate * fps.den;
+  const whole = Math.floor(numer / denom);
+  if (rounding === 'floor') return whole;
+  return numer % denom === 0 ? whole : whole + 1;
+}
+
+/** "0.5초", "1초", "0.33초" — seconds, because a first-time user reads
+ *  `00:00:15` as fifteen seconds. */
+export function secondsText(frames: number, fps: Rational): string {
+  const sec = Number(frameToSec(frames, fps).toFixed(2));
+  return `${sec}초`;
+}
+
+/**
  * Format a frame count as m:ss (h:mm:ss past an hour) — how far along, not
  * which frame.
  *

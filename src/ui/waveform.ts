@@ -22,7 +22,7 @@
 //      which is how a file on its way OUT is kept from being reduced during the
 //      moment when it is still, technically, the current one.
 
-import { getAudioBuffer } from '../engine/audio';
+import { getAudioBuffer, hasNoAudioTrack } from '../engine/audio';
 import { buildPyramid, type Pyramid } from '../engine/waveform';
 import { clipCeilingFor } from '../engine/audioSchedule';
 import type { Clip, Project } from '../engine/types';
@@ -104,6 +104,21 @@ export function getPeaks(assetId: string): Pyramid | null {
     return null;
   }
   return entry.pyramid;
+}
+
+/** A source measured and found to have no sound at all: the shape `buildPyramid`
+ *  gives an empty input, so a reader sees "nothing" rather than "not yet". */
+const NO_SOUND: Pyramid = { sampleRate: 0, length: 0, levels: [] };
+
+/**
+ * The peaks as a command sees them (`EditorCtx.peaks`, ADR-0016): what is
+ * built, or — for a file the decoder found no audio track in — a pyramid
+ * with nothing in it, so 조용한 부분 없애기 can tell "this file has no sound"
+ * from "the sound is still being read" and not wait for ever on the first.
+ * Never builds, like `getPeaks`.
+ */
+export function peaksFor(assetId: string): Pyramid | null {
+  return getPeaks(assetId) ?? (hasNoAudioTrack(assetId) ? NO_SOUND : null);
 }
 
 /**
