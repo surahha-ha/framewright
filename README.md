@@ -23,10 +23,12 @@ Epic numbers follow `docs/HANDOVER.md`, which is the record of what is done.
 - [x] Epic C — clip thumbnails and the audio waveform on the timeline
 - [x] E7 — subtitles, fades, a clip's sound, a clip's picture (zoom / pan / turn)
 - [x] E8, first item — the shorts reframe (가로 / 세로 / 정사각 box, 화면 채우기)
-- [x] e2e — Playwright across import, editing, subtitles, sound, picture, export
-- [ ] next — E9 silence auto-cut, then E8's second item (style presets); owed
-      regardless: proxy media, Worker-based export, rotation metadata, a
-      project list, golden-file export QC
+- [x] E9 — silence auto-cut (조용한 부분 없애기, one press, one undo step)
+- [x] e2e — Playwright across import, editing, subtitles, sound, picture,
+      silence, export
+- [ ] next — E8's second item (style presets); owed regardless: proxy media,
+      Worker-based export, rotation metadata, a project list, golden-file
+      export QC
 
 ## Architecture (key decisions)
 

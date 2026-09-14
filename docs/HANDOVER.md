@@ -124,13 +124,17 @@ height`) takes another shape through three commands (가로 16:9 / 세로
   `clip.pictureFill` grows a clip's picture to the slider notch that
   covers the box; the panel's "empty sides" note is geometric. ADR-0015.
 
-Next, in order: E9 (silence auto-cut), then E8's second item (style
-presets). The owner swapped them on 2026-09-14: E9 is engine-first
-(silence detection over decoded PCM is a pure function, testable in Node,
-and the cut is existing splits and ripple deletes in one undo step), while
-the presets still wait on a product call — whether 세로 should imply 화면
-채우기 for every clip. E9 is also the first unit built in Codex rather
-than Claude Code (`AGENTS.md`, `docs/CODEX_HOOKS.md`).
+- E9 — **silence auto-cut** (`a313567`, 2026-09-14): 조용한 부분 없애기,
+  one command over the waveform's own peak buckets (peak under -40 dBFS
+  for 0.5 s or more, 0.2 s kept each side, muted clips skipped), every
+  split and ripple delete folded into ONE patch and one undo step; the
+  peaks reach commands through `EditorCtx.peaks`. ADR-0016. Built in
+  Claude Code after the Codex session stalled before writing code; the
+  Codex tooling (`AGENTS.md`, `docs/CODEX_HOOKS.md`) is in place for the
+  next unit that goes there.
+
+Next: E8's second item (style presets), which still waits on a product
+call — whether 세로 should imply 화면 채우기 for every clip.
 
 Still owed regardless of epic: preview depth (quality toggle, loop range,
 fullscreen, safe area), proxy media, Worker-based export, rotation metadata
@@ -156,11 +160,13 @@ assistant's per-machine storage rather than the repo:
   `docs/TESTING.md`'s "Operational facts") were moved into these files
 - MCP servers and the Claude in Chrome extension — reconnect them, then check
   `list_connected_browsers`; without one, the visual pass is skipped, not faked
-- for a Codex session: the dev-browser daemon (`npm install -g dev-browser`)
-  and a Chrome it can attach to — the Codex side of the visual pass
-  (`docs/TESTING.md` "Visual QA"); `.codex/` itself (hooks, persona roles,
-  skills, `AGENTS.md`) is in git, but the hooks must be trusted in `/hooks`
-  on each machine
+- for a Codex session: the dev-browser daemon (`npm install -g dev-browser`;
+  it needs the user profile folder, which the Codex sandbox may not expose —
+  run it from a shell outside the sandbox if it cannot find a home directory)
+  — the Codex side of the visual pass, in launch mode; attaching to a real
+  Chrome hung on 2026-09-14 (`docs/TESTING.md` "Visual QA"); `.codex/` itself
+  (hooks, persona roles, skills, `AGENTS.md`) is in git, but the hooks must
+  be trusted in `/hooks` on each machine
 
 So the sequence on a new machine is: clone → `npm ci` → read `docs/STATUS.md`,
 this file, `CLAUDE.md` → `npm run verify`. Nothing else is carried in anyone's

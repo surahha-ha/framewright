@@ -10,7 +10,7 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-14 05:55 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-14 06:26 UTC — `npm run verify` **GREEN**
 
 - unit 607 passed · e2e 116 passed
 
@@ -18,7 +18,7 @@ repo does not.
 
 ## Where we are
 
-### E9, silence auto-cut, is built and uncommitted (2026-09-14)
+### E9, silence auto-cut, is committed and pushed (`a313567`, 2026-09-14)
 
 One press, 조용한 부분 없애기, finds every pause of 0.5 s or more in the
 footage (peak under -40 dBFS on the waveform's own 128-sample buckets),
@@ -27,8 +27,16 @@ clips are skipped. The rule and the why are ADR-0016; the record of the
 work, step by step, is "E9 progress" / "E9 issues" further down; what the
 persona round left is in CLAUDE.md "Known tech debt". The unit was built
 in Claude Code after the Codex session stalled before writing code (the
-owner's call, 14:10 KST). The gate stamped above is the handoff run after
-the persona fixes. **Nothing is committed yet** — see "Next single step".
+owner's call, 14:10 KST), committed with the owner's approval and pushed
+(`origin/main` = `a313567`, 15:10 KST).
+
+**After it, one docs-only unit (this tree): the driver question.** The
+owner asked whether Claude Code's visual pass could move to dev-browser.
+Measured and answered no — decision 2 below and `docs/TESTING.md`
+"Visual QA" hold the evidence. The gate stamped above is that unit's
+handoff run (no code changed). Also in the tree, NOT part of this unit:
+the owner's own edits to `AGENTS.md`, `CLAUDE.md` and `docs/UX.md`
+(the ui-ux-guide skill mapping), left uncommitted for them to commit.
 
 ### Moving implementation to Codex (2026-09-14)
 
@@ -87,10 +95,18 @@ then no hook runs there.
 
 1. The gate is Playwright in both tools and is never replaced by a
    browser driver.
-2. Visual QA in Codex is dev-browser (Puppeteer underneath) in **attach
-   mode** on the owner's real Chrome; not its isolated launch profile.
-   Claude Code keeps Claude in Chrome; dev-browser is not added there —
-   it would be a second driver on the same Chrome for nothing new.
+2. Visual QA in Codex is dev-browser (Playwright underneath). The
+   intended **attach mode** on the owner's real Chrome was tried on
+   2026-09-14 afternoon and hung (details in `docs/TESTING.md` "Visual
+   QA"): raw CDP attaches to that Chrome instantly, dev-browser's
+   `connectOverCDP` never returns. Until that is fixed upstream or
+   worked around, the Codex pass runs in **launch mode** (dev-browser's
+   own Chrome 145, H.264 OK, fresh profile) and says so. **Claude Code
+   keeps Claude in Chrome** — the owner asked whether dev-browser could
+   replace it there; the answer after measuring is no for now, because
+   Claude in Chrome is the only driver that reaches the owner's real
+   profile (the whole point of the layer), and dev-browser's launch mode
+   would be a second, weaker driver.
 3. E9 (silence auto-cut) goes before E8-2 (style presets): E9 is
    engine-first and testable in Node, E8-2 still waits on a product call.
 
@@ -301,18 +317,19 @@ the whole unit and nothing else: `src/engine/silence.ts`, `silence.test.ts`,
 `docs/adr/README.md`, `docs/TESTING.md`, CLAUDE.md's debt list, this
 file. Leave `debug.log` and `e9-baseline.log` out (untracked junk).
 
-**Then the driver question, as its own small unit:** the owner asked
-whether Claude Code's visual pass could move from Claude in Chrome to
-dev-browser (attach mode) so both tools share one driver. Deferred until
-after this commit so a driver problem cannot be mistaken for an E9 one.
-It needs: the install, the "home directory for the embedded daemon
-runtime" failure Codex hit on this PC diagnosed, attach to the owner's
-Chrome confirmed, H.264 checked in whatever Chrome it drives, and the
-driver table in `docs/TESTING.md` + this file's decision 2 + CLAUDE.md +
-HANDOVER updated together.
+**The driver question is answered (2026-09-14, after the E9 push):**
+Claude Code keeps Claude in Chrome; see decision 2 above and
+`docs/TESTING.md` "Visual QA" for what was measured (dev-browser 0.2.9
+installed and working in launch mode — Chrome 145, H.264 OK, screenshots
+readable; attach to the owner's real Chrome hangs in `connectOverCDP`
+while raw CDP works; the Codex-sandbox "home directory" error does not
+reproduce outside the sandbox). One doc unit, no code. **Ask the owner to
+turn the chrome://inspect remote-debugging toggle back OFF** — it was
+switched on for the attach test and exposes port 9222 to anything local.
 
-**Then E8-2 (style presets)**, still waiting on the product call below
-(does 세로 imply 채우기).
+**Next: E8-2 (style presets)** — still waiting on the product call below
+(does 세로 imply 채우기); if the owner has not decided, build it per clip
+like 화면 채우기 (ADR-0015 "Consequences") and say so in the ADR.
 
 ### E9 execution plan — silence auto-cut
 

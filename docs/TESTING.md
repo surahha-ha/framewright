@@ -144,10 +144,10 @@ A driver attached to the owner's real Chrome closes that gap: it drives the
 real UI and takes screenshots that get _read_. **Which driver depends on the
 session, the rules do not:**
 
-| Session     | Driver                                                      |
-| ----------- | ----------------------------------------------------------- |
-| Claude Code | Claude in Chrome (the extension, `list_connected_browsers`) |
-| Codex       | dev-browser (`sawyerhood/dev-browser`), attach mode         |
+| Session     | Driver                                                                                                                                       |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code | Claude in Chrome (the extension, `list_connected_browsers`)                                                                                  |
+| Codex       | dev-browser (`sawyerhood/dev-browser`) — launch mode in practice; attach mode hung against the owner's real Chrome on 2026-09-14 (see below) |
 
 The gate (`npm run verify`, Playwright) is the same in both and is never
 replaced by either driver. Two things follow from "real Chrome":
@@ -209,17 +209,33 @@ with site permission granted for the dev server host (`127.0.0.1:9990`). Check
 with `list_connected_browsers` first; an empty list means it is not available
 and the visual pass is simply skipped — say so rather than guessing.
 
-**Codex.** dev-browser (`npm install -g dev-browser`, Puppeteer underneath) runs
-as a daemon that keeps named pages open between scripts, so a pass is a series
-of short scripts against one page rather than one long one. Use **attach
-mode** — connect to a Chrome the owner already has open with remote debugging
-on — so the browser is the real one (H.264, the owner's fonts and zoom) and
-the owner sees what you do. Do not use its isolated launch profile for the
-visual pass; that is a fresh Chromium-like state and hides exactly what this
-layer exists to find. Read the page through its accessibility snapshot first
-and take a screenshot only where the question is visual (a clipped label, a
-gap, contrast); screenshots are what makes a pass expensive. If no daemon or
-no attachable Chrome is available, say so and skip the pass.
+**Codex.** dev-browser (`npm install -g dev-browser`, Playwright underneath;
+0.2.9 is on this PC) runs as a daemon that keeps named pages open between
+scripts, so a pass is a series of short scripts against one page rather than
+one long one; scripts run in a QuickJS sandbox with a `browser` global whose
+pages are Playwright `Page`s, and `saveScreenshot` writes to
+`~/.dev-browser/tmp/`. **Attach mode** — connecting to a Chrome the owner
+already has open — is what the rules above want, and on 2026-09-14 it did
+not work against the owner's real Chrome: with Chrome's own toggle
+(chrome://inspect/#remote-debugging, Chrome ≥ 144; writes
+`DevToolsActivePort`, no `/json` HTTP endpoints) raw CDP attaches instantly,
+but dev-browser's `connectOverCDP` never returns against that profile (16
+tabs, extensions) — three attempts, daemon restarted between them, 60–120 s
+each. The classic `--remote-debugging-port` route needs a NON-default
+`--user-data-dir` on current Chrome, which is not the owner's profile either.
+So in practice the Codex pass runs in dev-browser's **launch mode** (its
+own Chrome, 145 here, H.264 confirmed, no extensions, a fresh profile): it
+shows layout, wording and the strip, and it does NOT show the owner's zoom,
+fonts or saved project. Say which mode the pass ran in. Read the page through
+its accessibility snapshot first and take a screenshot only where the
+question is visual (a clipped label, a gap, contrast); screenshots are what
+makes a pass expensive. If no daemon is available, say so and skip the pass.
+Two operational facts: the daemon needs the user profile folder
+(`~/.dev-browser`) — inside the Codex sandbox it failed with "Could not
+determine the home directory for the embedded daemon runtime", which does
+not reproduce outside the sandbox even with HOME/USERPROFILE unset; and a
+script that hangs holds the daemon's browser lock, so the next script waits
+too — `dev-browser stop` clears it.
 
 Save the screenshots and send them. The owner's own pass should start from
 evidence, not from a blank page.
