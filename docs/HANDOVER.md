@@ -124,8 +124,13 @@ height`) takes another shape through three commands (가로 16:9 / 세로
   `clip.pictureFill` grows a clip's picture to the slider notch that
   covers the box; the panel's "empty sides" note is geometric. ADR-0015.
 
-Next, in order: E8's second item (style presets), then E9 (silence
-auto-cut).
+Next, in order: E9 (silence auto-cut), then E8's second item (style
+presets). The owner swapped them on 2026-09-14: E9 is engine-first
+(silence detection over decoded PCM is a pure function, testable in Node,
+and the cut is existing splits and ripple deletes in one undo step), while
+the presets still wait on a product call — whether 세로 should imply 화면
+채우기 for every clip. E9 is also the first unit built in Codex rather
+than Claude Code (`AGENTS.md`, `docs/CODEX_HOOKS.md`).
 
 Still owed regardless of epic: preview depth (quality toggle, loop range,
 fullscreen, safe area), proxy media, Worker-based export, rotation metadata

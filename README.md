@@ -10,18 +10,23 @@ minimal timeline.
 
 ## Status — the loop is closed: import → cut → export
 
-- [x] E0 — Vite + React + TS setup
-- [x] E1 — media import + mp4box demux + WebCodecs decode service
-- [x] E2 — project data model + **canonical time-model** + **command registry**
-- [x] E3 — canvas render + play/scrub (streaming decode, per-clip sessions)
-- [x] E4 — timeline with multiple clips, selection, playhead
-- [x] E5 — split (`C`) and ripple delete (`Del`), undo/redo, shortcuts
-- [x] E11 — **MP4 export** (H.264 + AAC)
-- [x] audio — decode, timeline-accurate playback (audio is the master clock),
-      and AAC export rendered offline so it matches the cut
-- [x] e2e — Playwright covering decode sessions, import/split/delete, export
-- [ ] next — trim/move, clipboard, version history, proxy media for smooth 4K
-      scrubbing, Worker-based export
+Epic numbers follow `docs/HANDOVER.md`, which is the record of what is done.
+
+- [x] E0–E1 — time model, document, command registry + undo, persistence and
+      version history
+- [x] E2 — import, mp4box demux, WebCodecs decode, preview playback (audio is
+      the master clock)
+- [x] E3 — split (`C`) and ripple delete (`Del`)
+- [x] E4 — **MP4 export** (H.264 + AAC, rendered offline so it matches the cut)
+- [x] E5 — trim / move / snap / close gaps
+- [x] E6 — keymap as data, `Ctrl+K` command palette, clipboard
+- [x] Epic C — clip thumbnails and the audio waveform on the timeline
+- [x] E7 — subtitles, fades, a clip's sound, a clip's picture (zoom / pan / turn)
+- [x] E8, first item — the shorts reframe (가로 / 세로 / 정사각 box, 화면 채우기)
+- [x] e2e — Playwright across import, editing, subtitles, sound, picture, export
+- [ ] next — E9 silence auto-cut, then E8's second item (style presets); owed
+      regardless: proxy media, Worker-based export, rotation metadata, a
+      project list, golden-file export QC
 
 ## Architecture (key decisions)
 
