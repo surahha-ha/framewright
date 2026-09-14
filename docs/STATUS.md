@@ -292,10 +292,63 @@ visual pass is wanted in that session.
 (style presets) because E9 is engine-first: silence detection over
 decoded PCM is a pure function (Vitest in Node, TDD), and the cut is
 existing splits plus ripple deletes folded into one undo step. E8-2
-still waits on the product call below (does 세로 imply 채우기). Settle
-one rule with the owner before E9 starts: what counts as silent (a level
-threshold and a minimum length) — the same open question the waveform's
-"이 부분은 조용해요" debt entry records.
+still waits on the product call below (does 세로 imply 채우기).
+
+### E9 execution plan — silence auto-cut
+
+**What counts as silent — decided by the owner on 2026-09-14.** These are
+the rule; do not re-derive them, and do not add a relative (per-clip)
+threshold in this unit.
+
+| Rule                 | Value                                                                          |
+| -------------------- | ------------------------------------------------------------------------------ |
+| Level                | peak below **-40 dBFS** (linear 0.01), absolute, not relative to the clip      |
+| Measure              | the 128-sample **peak buckets** the waveform already builds — no RMS in v1     |
+| Minimum length       | a run of quiet buckets **≥ 0.5 s** counts; shorter runs are left alone         |
+| Padding              | keep **0.2 s** on each side of the run, rounded UP to whole frames             |
+| Nothing to cut       | if the run minus both paddings is under 0.1 s, do not cut it                   |
+| Where the rule lives | three named constants in the engine module; not exposed in the UI in this unit |
+
+Why these values, for the ADR: -40 dBFS sits below a quiet room's floor
+(-50 to -60) and below most phone footage's floor (~-45), and above what
+jump-cut tools use (-28 to -30), which clip breaths and word endings; 0.5 s
+is the minimum nearly every tool uses; 0.2 s of padding is what stops the
+most common complaint, a clipped consonant; peak instead of RMS because
+the data is already there and the 0.5 s minimum absorbs a click.
+
+**Shape of the work, in order:**
+
+1. `src/engine/silence.ts` (new, test-first): `silentRuns(peaks, sampleRate,
+fps, …)` → frame ranges `[in, out)` on the SOURCE, applying the four rules
+   above; then `silenceCuts(project, runs)` → the list of split points and
+   the ranges to ripple-delete, expressed in existing commands. Pure, no
+   DOM, no decoding. Adversarial cases: a run at the very start / end of a
+   clip, a run spanning a split, 29.97 fps rounding, a clip with no audio
+   track (nothing to cut), a muted clip (decide in the ADR whether mute
+   means "skip"), padding that meets in the middle.
+2. One command, `timeline.cutSilence` ("조용한 부분 없애기" — the same
+   shape as "빈 곳 없애기"), registered like every other command: `canRun`
+   (there is at least one clip whose peaks have arrived; until the peaks
+   land the disabled reason says so), `run` → one patch made of the splits
+   and ripple deletes, `invert` → the exact inverse, **one undo step**. The
+   status sentence says how many places were cut and how much time went
+   ("조용한 부분 3곳을 없앴어요 · 2.4초 짧아졌어요"); nothing found says so.
+   Palette row and a toolbar button; no default key.
+3. e2e: the fixture's silence (check what `e2e/fixtures/sample-h264.mp4`
+   actually contains before assuming — if it has no silent run ≥ 0.5 s, add
+   a fixture that does), the count in the status line, the total frame
+   count after the cut equals before minus the removed ranges (frame-sum
+   invariant), one Ctrl+Z restores everything, the disabled reason before
+   the peaks arrive.
+4. ADR-0016 records the rule table above and the mute decision.
+5. Persona round (tester-qa on frame accuracy and the one-undo contract,
+   tester-novice on the label and the sentence, tester-a11y on the button
+   and the announcement), fix blockers, gate, visual pass through
+   dev-browser if attached, `handoff`, commit only with approval.
+
+**Out of scope for this unit:** exposing the three constants in the UI, an
+RMS measure, a relative threshold, per-clip "이 부분은 조용해요" on the
+waveform (the debt entry stays; it now has its rule).
 
 ## Blocked / needs the owner
 
