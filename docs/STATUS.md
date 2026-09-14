@@ -10,7 +10,7 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-11 01:31 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-14 01:22 UTC — `npm run verify` **GREEN**
 
 - unit 562 passed · e2e 110 passed
 
@@ -18,12 +18,65 @@ repo does not.
 
 ## Where we are
 
+### Codex hooks integration (2026-09-14) — in the tree, not yet committed
+
+The owner is moving implementation to Codex from here. A Codex session
+adapter was added: `scripts/codex-hooks.mjs` (SessionStart, PreToolUse,
+PostToolUse, Stop), the non-overwriting installer
+`scripts/install-codex-hooks.mjs` (`npm run setup:codex`), the contract
+tests `scripts/codex-hooks.test.mjs` (`npm run test:hooks`, 9 tests, now a
+step of `verify`), the installed `.codex/hooks.json`, and
+`docs/CODEX_HOOKS.md` (behaviour, activation, limits). `.claude/` and
+`.harness/` are untouched. **Runtime activation is separate from the
+files:** the four hook commands must be reviewed and trusted in Codex's
+`/hooks` in a fresh project session, and the project itself trusted.
+Nothing has confirmed that yet.
+
+**What Codex reads and does not read (checked against the Codex source
+on 2026-09-14, CLI 0.154.0 on this PC):**
+
+- Codex loads `AGENTS.md` (or `AGENTS.override.md`) from the repo root,
+  never `CLAUDE.md`, unless `.codex/config.toml` sets
+  `project_doc_fallback_filenames = ["CLAUDE.md"]`. The budget is
+  `project_doc_max_bytes` = 32 768 by default; `CLAUDE.md` is 38 223 bytes,
+  so even as a fallback its tail (the "Known tech debt" list) would be cut.
+  **There is no `AGENTS.md` yet.**
+- The persona subagents in `.claude/agents/*.md` (Claude frontmatter:
+  `tools`, `model`) have no Codex reader. Codex roles are
+  `.codex/agents/<name>.toml` with `name`, `description`,
+  `developer_instructions`, `model`, enabled by `[agents]` in config.
+- The slash commands in `.claude/commands/*.md` (`/adr`, `/handoff`,
+  `/new-command`, `$ARGUMENTS`) have no Codex reader. The nearest Codex
+  shape is a skill: `.codex/skills/<name>/SKILL.md` with `name` and
+  `description` frontmatter (also `.agents/skills/`).
+- The docs name Claude-only tools by name: `CLAUDE.md` ("Task tool",
+  `list_connected_browsers`), `docs/TESTING.md` §Visual QA and
+  `docs/HANDOVER.md` (Claude in Chrome). Codex has no Claude in Chrome;
+  the visual pass is "skip and say so" there, as the docs already allow.
+- Codex's hook contract has no `permissionDecision: "ask"`, so the Bash
+  danger guard (force-push, pipe-into-verify, git writes) is not wired for
+  Codex. The "announce before any git operation" rule holds by text only.
+
+**The red gate of 2026-09-14 00:34 UTC is diagnosed and fixed.** The
+failure at `e2e/frame.spec.ts:110` (세로 chosen, canvas still 320×180)
+was a race in the spec, not the product: the frame command sets the status
+sentence synchronously, but the canvas is resized inside the next
+`paint()`, which `pump()` reaches only after `decodeAtSec` resolves. The
+spec read the size once, right after the sentence; on a slow run the
+decode had not landed. Reproduced once on the `chrome` project (the
+`chromium` run beside it passed), then every `canvasSize` assertion in
+that spec became `expect.poll` with a comment saying why. The whole spec
+then passed 16/16 (four cases × two projects × `--repeat-each=2`), and
+the full gate stamped GREEN above.
+
+### Product work
+
 **E8's first item, the shorts reframe, is committed as `10050d3`**
 (2026-09-11, with the owner's approval, after the persona round and a
-visual pass in the owner's Chrome) on top of `0a06c7d` (E7 complete).
-**Not pushed** — the owner said a push is a separate approval. The
-thirteen edited and seven new files are listed below; this file's own
-update is the commit after it.
+visual pass in the owner's Chrome) on top of `0a06c7d` (E7 complete),
+and **pushed on 2026-09-14** with the owner's approval: `origin/main` =
+`845bfa4` (the docs commit after it). The thirteen edited and seven new
+files are listed below.
 
 ### What is new (ADR-0015)
 
@@ -202,17 +255,28 @@ case), a phone-shot file rather than the colour-bar fixture.
 
 ## Next single step
 
-**E8's second item: style presets**, on top of the box (`frameSize`) and
-the fill (`clipFillZoom`) — a preset is a box shape plus per-clip picture
-and subtitle choices, so read ADR-0015 and `frame.ts` first, and decide
-with the owner whether 세로 should imply 채우기 (see below) before the
-presets bake that answer in.
+**Commit the tree as it stands** (the Codex hooks files, the
+`frame.spec.ts` polling fix, this file) — the owner must approve the
+commit first. Then, before the first Codex unit, give Codex what it
+reads: an `AGENTS.md` at the repo root (the rules of `CLAUDE.md`, under
+32 KiB, with the debt list left in `CLAUDE.md` and pointed at), and
+either `.codex/agents/*.toml` for the three tester personas and the
+reviewer or a decision to run persona review from Claude only. Trust the
+hooks in `/hooks` in a fresh Codex session and confirm the handoff prints.
+
+**Then E9, silence auto-cut, in Codex** — chosen over E8's second item
+(style presets) because E9 is engine-first: silence detection over
+decoded PCM is a pure function (Vitest in Node, TDD), and the cut is
+existing splits plus ripple deletes folded into one undo step. E8-2
+still waits on the product call below (does 세로 imply 채우기). Settle
+one rule with the owner before E9 starts: what counts as silent (a level
+threshold and a minimum length) — the same open question the waveform's
+"이 부분은 조용해요" debt entry records.
 
 ## Blocked / needs the owner
 
-1. **Push** — the reframe is committed on `main` (see the top of this
-   file for the hash) but not pushed; the owner said a push is a separate
-   approval.
+1. **Commit approval** for the uncommitted tree (see "Next single step").
+   The push of `10050d3` + `845bfa4` is done.
 2. **Two auto snapshots and one file** from the visual pass: 자동 저장
    10:26 / 10:29 (2026-09-11) in the browser's 이전 상태, and
    `Downloads/Untitled.mp4`. Delete or keep.

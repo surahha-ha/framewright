@@ -44,6 +44,10 @@ const picker = (page: Page) =>
   page.getByRole('radiogroup', { name: '영상 모양' });
 const shapeButton = (page: Page, name: string) =>
   picker(page).getByRole('radio', { name: `${name} 영상으로 바꾸기` });
+/** The box's size on the canvas. Polled by every caller: the command sets
+ *  the status sentence synchronously, but the canvas is resized inside the
+ *  next `paint()`, which waits for a decode — reading it once right after the
+ *  sentence lost that race on a slow run (RED 2026-09-14). */
 const canvasSize = (page: Page) =>
   page.evaluate(() => {
     const c = document.querySelector('.stage-picture') as HTMLCanvasElement;
@@ -81,7 +85,9 @@ test.describe('the box’s shape', () => {
   }) => {
     await withClip(page);
     // The first import made a 16:9 box the fixture's size.
-    expect(await canvasSize(page)).toEqual({ width: 320, height: 180 });
+    await expect
+      .poll(() => canvasSize(page))
+      .toEqual({ width: 320, height: 180 });
     // The current shape is chosen, not unavailable: checked, never
     // aria-disabled (the a11y reviewer's objection to "pressed, dimmed").
     await expect(shapeButton(page, '가로')).toHaveAttribute(
@@ -107,7 +113,9 @@ test.describe('the box’s shape', () => {
     await expect(status(page)).toContainText(
       '세로 영상(9:16 · 180×320)으로 바꿨어요 · 비는 클립을 고르고 화면 채우기를 누르면 꽉 차요.',
     );
-    expect(await canvasSize(page)).toEqual({ width: 180, height: 320 });
+    await expect
+      .poll(() => canvasSize(page))
+      .toEqual({ width: 180, height: 320 });
     // The room around a portrait box in a landscape stage is NOT the box's
     // black: a stage of pure black made the box's own bars and the stage's
     // margins one frame, and the fill looked as if it did nothing (novice
@@ -159,13 +167,17 @@ test.describe('the box’s shape', () => {
     await expect(
       page.getByRole('slider', { name: '확대', exact: true }),
     ).toHaveValue('100');
-    expect(await canvasSize(page)).toEqual({ width: 180, height: 320 });
+    await expect
+      .poll(() => canvasSize(page))
+      .toEqual({ width: 180, height: 320 });
     await page.keyboard.press('Control+z');
     await expect(shapeButton(page, '가로')).toHaveAttribute(
       'aria-checked',
       'true',
     );
-    expect(await canvasSize(page)).toEqual({ width: 320, height: 180 });
+    await expect
+      .poll(() => canvasSize(page))
+      .toEqual({ width: 320, height: 180 });
     await expect(page.locator('#clip-picture-note')).toHaveText(
       '찍은 그대로 보여요',
     );
@@ -242,7 +254,9 @@ test.describe('the box’s shape', () => {
     await expect(rows.nth(2)).toContainText('가로 영상으로 바꾸기');
     await rows.nth(1).click();
     await expect(status(page)).toContainText('정사각 영상(1:1 · 180×180)');
-    expect(await canvasSize(page)).toEqual({ width: 180, height: 180 });
+    await expect
+      .poll(() => canvasSize(page))
+      .toEqual({ width: 180, height: 180 });
   });
 
   test('the words follow the picture into a portrait box', async ({ page }) => {

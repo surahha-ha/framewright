@@ -73,6 +73,8 @@ Test-first for pure engine logic. See `docs/TESTING.md` for the pyramid
 - `.claude/agents/` — `framewright-reviewer`, `test-writer`, `export-qc`.
 - `.claude/commands/` — `/new-command`, `/adr`.
 - `.claude/settings.json` — typecheck hook on edits.
+- Codex hooks: `npm run setup:codex`, then review/trust with `/hooks`.
+  See [setup, behavior and limitations](docs/CODEX_HOOKS.md).
 
 ## Layout
 

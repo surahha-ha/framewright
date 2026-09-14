@@ -1,0 +1,57 @@
+{
+  "description": "Framewright: session context, protected edits, formatting and validation.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume|clear|compact)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('node:path');const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();import(require('node:url').pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main())\"",
+            "timeout": 10,
+            "statusMessage": "Loading Framewright handoff",
+            "additionalContextLimit": 1500
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('node:path');const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();import(require('node:url').pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main())\"",
+            "timeout": 10,
+            "statusMessage": "Checking protected files"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('node:path');const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();import(require('node:url').pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main())\"",
+            "timeout": 120,
+            "statusMessage": "Formatting and checking edited files"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('node:path');const r=require('node:child_process').execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();import(require('node:url').pathToFileURL(p.join(r,'scripts/codex-hooks.mjs')).href).then(m=>m.main())\"",
+            "timeout": 240,
+            "statusMessage": "Checking references, guardrails, hook tests, types and unit tests"
+          }
+        ]
+      }
+    ]
+  }
+}

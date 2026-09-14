@@ -12,6 +12,7 @@
     "typecheck:engine": "tsc --noEmit -p tsconfig.engine.json",
     "check:refs": "node scripts/check-references.mjs",
     "test": "vitest run",
+    "test:hooks": "node --test scripts/codex-hooks.test.mjs",
     "test:watch": "vitest",
     "e2e": "playwright test --project=chromium",
     "e2e:lowmem": "playwright test --project=chromium --workers=1",
@@ -20,9 +21,10 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:guardrails": "node scripts/check-guardrails.mjs",
-    "verify": "npm run check:refs && npm run check:guardrails && npm run typecheck && npm test && npm run e2e",
+    "verify": "npm run check:refs && npm run check:guardrails && npm run test:hooks && npm run typecheck && npm test && npm run e2e",
     "handoff": "node scripts/handoff.mjs",
-    "setup:claude": "node scripts/install-claude-config.mjs"
+    "setup:claude": "node scripts/install-claude-config.mjs",
+    "setup:codex": "node scripts/install-codex-hooks.mjs --install"
   },
   "dependencies": {
     "mp4-muxer": "^5.1.5",
