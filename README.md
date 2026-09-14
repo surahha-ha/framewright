@@ -75,6 +75,9 @@ Test-first for pure engine logic. See `docs/TESTING.md` for the pyramid
 - `.claude/settings.json` — typecheck hook on edits.
 - Codex hooks: `npm run setup:codex`, then review/trust with `/hooks`.
   See [setup, behavior and limitations](docs/CODEX_HOOKS.md).
+- `AGENTS.md` — the Codex twin of `CLAUDE.md` (same rules; the tech-debt list
+  stays in `CLAUDE.md`). `.codex/agents/` — the six personas as Codex roles;
+  `.codex/skills/` — `adr`, `handoff`, `new-command`.
 
 ## Layout
 

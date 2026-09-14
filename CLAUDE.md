@@ -78,7 +78,9 @@ Rules for the loop:
   (`list_connected_browsers`), drive the real UI and read the screenshots — the
   gate cannot see a clipped label or an invisible gap. Every visual finding ships
   with a new assertion so it cannot come back unseen. See docs/TESTING.md. If no
-  browser is connected, say so and skip it; do not guess at appearance.
+  browser is connected, say so and skip it; do not guess at appearance. (A
+  Codex session does the same pass through dev-browser; `AGENTS.md` is this
+  file's Codex twin and `docs/TESTING.md` names the driver per session.)
 - Final taste and judgement are the owner's, at the end. Don't ask them to be
   your test runner.
 

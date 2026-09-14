@@ -151,6 +151,11 @@ assistant's per-machine storage rather than the repo:
   `docs/TESTING.md`'s "Operational facts") were moved into these files
 - MCP servers and the Claude in Chrome extension — reconnect them, then check
   `list_connected_browsers`; without one, the visual pass is skipped, not faked
+- for a Codex session: the dev-browser daemon (`npm install -g dev-browser`)
+  and a Chrome it can attach to — the Codex side of the visual pass
+  (`docs/TESTING.md` "Visual QA"); `.codex/` itself (hooks, persona roles,
+  skills, `AGENTS.md`) is in git, but the hooks must be trusted in `/hooks`
+  on each machine
 
 So the sequence on a new machine is: clone → `npm ci` → read `docs/STATUS.md`,
 this file, `CLAUDE.md` → `npm run verify`. Nothing else is carried in anyone's

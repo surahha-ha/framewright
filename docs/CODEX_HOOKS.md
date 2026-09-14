@@ -65,6 +65,31 @@ npm.cmd run setup:codex
 포맷·검사가 실행되는지 확인한다. `/hooks`에서 해당 hook을 개별 비활성화할
 수 있다. 다른 위치나 플러그인의 hook도 함께 실행될 수 있으므로 중복도 확인한다.
 
+## Hooks 밖에서 Codex가 읽는 것
+
+Hooks는 실행 시점의 자동화일 뿐이고, 규칙과 역할은 별도 파일로 읽힌다.
+2026-09-14에 Codex 소스로 확인한 사실이다.
+
+- **`AGENTS.md`(저장소 루트)** — Codex는 `AGENTS.md`(또는
+  `AGENTS.override.md`)만 자동으로 읽고 `CLAUDE.md`는 읽지 않는다. 기본
+  예산은 32 KiB(`project_doc_max_bytes`)라 38 KiB인 `CLAUDE.md`를 fallback
+  으로 걸어도 끝부분이 잘린다. 그래서 `AGENTS.md`는 `CLAUDE.md`의 규칙
+  부분을 Codex에 맞게 옮긴 쌍둥이 파일이고, 「Known tech debt」 목록은
+  `CLAUDE.md`에만 둔다. 규칙이 바뀌면 두 파일을 함께 고친다.
+- **`.codex/agents/*.toml`** — `.claude/agents/*.md`의 여섯 페르소나를 Codex
+  역할 형식(`name`, `description`, `developer_instructions`)으로 옮긴 것.
+  Claude 쪽의 `tools: Read, Grep, Glob` 같은 도구 제한은 Codex 역할에
+  없으므로 "편집하지 말고 보고하라"를 지시문에 직접 적었다.
+- **`.codex/skills/*/SKILL.md`** — `.claude/commands/`의 `/adr`, `/handoff`,
+  `/new-command`. Codex에는 `$ARGUMENTS` 방식의 커맨드가 없어 스킬로
+  옮겼고, 인자는 사용자의 요청 문장에서 읽는다.
+- **`.codex/config.toml`** — `[agents]` 블록만 있다. hooks는 여기 넣지
+  않는다(설치기가 inline hooks가 있으면 중단한다).
+
+시각 QA는 Claude in Chrome이 아니라 dev-browser로 한다. 규칙은
+`docs/TESTING.md` 「Visual QA」에 있고 게이트(`npm run verify`)는 바뀌지
+않는다.
+
 ## 검증과 한계
 
 ```powershell

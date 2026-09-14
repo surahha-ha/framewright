@@ -140,8 +140,17 @@ invisible against the track, a label is clipped to "빈 곳 없애…", or the t
 collapses at 1280px. Nobody wrote an assertion for those, because you do not
 know to write it until you have seen it.
 
-Claude in Chrome closes that gap: it drives the user's real Chrome and takes
-screenshots that get _read_. Two things follow from "real Chrome":
+A driver attached to the owner's real Chrome closes that gap: it drives the
+real UI and takes screenshots that get _read_. **Which driver depends on the
+session, the rules do not:**
+
+| Session     | Driver                                                      |
+| ----------- | ----------------------------------------------------------- |
+| Claude Code | Claude in Chrome (the extension, `list_connected_browsers`) |
+| Codex       | dev-browser (`sawyerhood/dev-browser`), attach mode         |
+
+The gate (`npm run verify`, Playwright) is the same in both and is never
+replaced by either driver. Two things follow from "real Chrome":
 
 - **H.264 works**, so import, playback and export run on actual footage — no
   self-skipping, unlike bundled Chromium.
@@ -183,10 +192,34 @@ Assertions cover behaviour; look for what they cannot say:
 
 ### Running it
 
-The owner must have the Claude in Chrome extension connected, with site
-permission granted for the dev server host (`127.0.0.1:9990`). Check with
-`list_connected_browsers` first; an empty list means it is not available and the
-visual pass is simply skipped — say so rather than guessing.
+Three rules hold for both drivers:
+
+- **Confirm which browser before touching it.** The driver may be attached to
+  a Chrome the owner did not mean, or to one on another machine (see the
+  operational facts below). Name the browser you are about to drive and get
+  the owner's yes.
+- **Leave the document as you found it.** A visual pass edits a real project;
+  undo what you did (Ctrl+Z, or the frame radio back to 가로) and say which
+  "자동 저장" snapshots the pass left in 이전 상태, because the driver keeps
+  the profile and nothing cleans it for you.
+- **Every visual finding ships with an assertion** (the rule above).
+
+**Claude Code.** The owner must have the Claude in Chrome extension connected,
+with site permission granted for the dev server host (`127.0.0.1:9990`). Check
+with `list_connected_browsers` first; an empty list means it is not available
+and the visual pass is simply skipped — say so rather than guessing.
+
+**Codex.** dev-browser (`npm install -g dev-browser`, Puppeteer underneath) runs
+as a daemon that keeps named pages open between scripts, so a pass is a series
+of short scripts against one page rather than one long one. Use **attach
+mode** — connect to a Chrome the owner already has open with remote debugging
+on — so the browser is the real one (H.264, the owner's fonts and zoom) and
+the owner sees what you do. Do not use its isolated launch profile for the
+visual pass; that is a fresh Chromium-like state and hides exactly what this
+layer exists to find. Read the page through its accessibility snapshot first
+and take a screenshot only where the question is visual (a clipped label, a
+gap, contrast); screenshots are what makes a pass expensive. If no daemon or
+no attachable Chrome is available, say so and skip the pass.
 
 Save the screenshots and send them. The owner's own pass should start from
 evidence, not from a blank page.

@@ -10,7 +10,7 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-14 01:22 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-14 02:14 UTC — `npm run verify` **GREEN**
 
 - unit 562 passed · e2e 110 passed
 
@@ -18,44 +18,69 @@ repo does not.
 
 ## Where we are
 
-### Codex hooks integration (2026-09-14) — in the tree, not yet committed
+### Moving implementation to Codex (2026-09-14)
 
-The owner is moving implementation to Codex from here. A Codex session
-adapter was added: `scripts/codex-hooks.mjs` (SessionStart, PreToolUse,
-PostToolUse, Stop), the non-overwriting installer
-`scripts/install-codex-hooks.mjs` (`npm run setup:codex`), the contract
-tests `scripts/codex-hooks.test.mjs` (`npm run test:hooks`, 9 tests, now a
-step of `verify`), the installed `.codex/hooks.json`, and
-`docs/CODEX_HOOKS.md` (behaviour, activation, limits). `.claude/` and
-`.harness/` are untouched. **Runtime activation is separate from the
-files:** the four hook commands must be reviewed and trusted in Codex's
-`/hooks` in a fresh project session, and the project itself trusted.
-Nothing has confirmed that yet.
+The owner is implementing the next units in Codex, not Claude Code. Two
+commits and one uncommitted tree carry that move.
 
-**What Codex reads and does not read (checked against the Codex source
-on 2026-09-14, CLI 0.154.0 on this PC):**
+**Committed and pushed as `f5f2512`:** the Codex session adapter
+`scripts/codex-hooks.mjs` (SessionStart, PreToolUse, PostToolUse, Stop),
+the non-overwriting installer `scripts/install-codex-hooks.mjs`
+(`npm run setup:codex`), the contract tests `scripts/codex-hooks.test.mjs`
+(`npm run test:hooks`, 9 tests, a step of `verify`), the installed
+`.codex/hooks.json`, `docs/CODEX_HOOKS.md`, and the `frame.spec.ts`
+polling fix described below. `.claude/` and `.harness/` are untouched.
 
-- Codex loads `AGENTS.md` (or `AGENTS.override.md`) from the repo root,
-  never `CLAUDE.md`, unless `.codex/config.toml` sets
-  `project_doc_fallback_filenames = ["CLAUDE.md"]`. The budget is
-  `project_doc_max_bytes` = 32 768 by default; `CLAUDE.md` is 38 223 bytes,
-  so even as a fallback its tail (the "Known tech debt" list) would be cut.
-  **There is no `AGENTS.md` yet.**
-- The persona subagents in `.claude/agents/*.md` (Claude frontmatter:
-  `tools`, `model`) have no Codex reader. Codex roles are
-  `.codex/agents/<name>.toml` with `name`, `description`,
-  `developer_instructions`, `model`, enabled by `[agents]` in config.
-- The slash commands in `.claude/commands/*.md` (`/adr`, `/handoff`,
-  `/new-command`, `$ARGUMENTS`) have no Codex reader. The nearest Codex
-  shape is a skill: `.codex/skills/<name>/SKILL.md` with `name` and
-  `description` frontmatter (also `.agents/skills/`).
-- The docs name Claude-only tools by name: `CLAUDE.md` ("Task tool",
-  `list_connected_browsers`), `docs/TESTING.md` §Visual QA and
-  `docs/HANDOVER.md` (Claude in Chrome). Codex has no Claude in Chrome;
-  the visual pass is "skip and say so" there, as the docs already allow.
-- Codex's hook contract has no `permissionDecision: "ask"`, so the Bash
-  danger guard (force-push, pipe-into-verify, git writes) is not wired for
-  Codex. The "announce before any git operation" rule holds by text only.
+**In the tree, not yet committed — what Codex reads (this unit):**
+
+- **`AGENTS.md`** (new, 12.9 KB, budget 32 KiB) — the Codex twin of
+  `CLAUDE.md`: the same golden rules, loop, handoff and definition of done,
+  with the Claude-only parts rewritten (hooks → `.codex/hooks.json`, "Task
+  tool" → `spawn_agent` with the roles below, Claude in Chrome →
+  dev-browser, the Bash guard's three rules stated as discipline because
+  Codex hooks cannot "ask"). The **"Known tech debt" list stays only in
+  `CLAUDE.md`** and `AGENTS.md` points at it. Rule: when a rule changes,
+  change both files.
+- **`.codex/agents/*.toml`** (6 new) — `tester-qa`, `tester-a11y`,
+  `tester-novice`, `framewright-reviewer`, `test-writer`, `export-qc`, the
+  same text as `.claude/agents/*.md` in Codex's role format (`name`,
+  `description`, `developer_instructions`). Claude's `tools:` restriction
+  has no equivalent, so "you review; you do not edit" is in each
+  instruction, and the reviewers are told to read the debt list first.
+- **`.codex/skills/{adr,handoff,new-command}/SKILL.md`** (3 new) — the
+  three slash commands as skills; the argument comes from the request
+  sentence (no `$ARGUMENTS` in Codex).
+- **`.codex/config.toml`** (new) — `[agents] enabled = true` and comments;
+  no hooks in it (the installer refuses inline hooks).
+- **Docs:** `docs/TESTING.md` "Visual QA" now names the driver per
+  session (Claude Code → Claude in Chrome, Codex → dev-browser attach
+  mode) with three rules common to both (confirm which browser, leave the
+  document as found and name the 자동 저장 snapshots, every finding ships
+  an assertion); `docs/HANDOVER.md` "different machine" adds the
+  dev-browser daemon and the `/hooks` trust step; `docs/CODEX_HOOKS.md`
+  gains "Hooks 밖에서 Codex가 읽는 것"; `README.md` and `CLAUDE.md` point
+  at `AGENTS.md`.
+
+**Verified with the Codex CLI (0.154.0), not only by reading:** `codex
+debug prompt-input` in this repo shows `AGENTS.md`'s text in the
+model-visible prompt and the three skills listed under skill root `r0 =
+.codex/skills`; `codex doctor` loads config without error; no agent-role
+warning is emitted. **Not verified:** that the six roles are offered by
+`spawn_agent` — that is visible only in a live Codex session (the
+`prompt-input` dump does not include tool schemas). **Also not yet done:**
+trusting the four hook commands in `/hooks` in a fresh Codex session; until
+then no hook runs there.
+
+**Decisions made with the owner on 2026-09-14:**
+
+1. The gate is Playwright in both tools and is never replaced by a
+   browser driver.
+2. Visual QA in Codex is dev-browser (Puppeteer underneath) in **attach
+   mode** on the owner's real Chrome; not its isolated launch profile.
+   Claude Code keeps Claude in Chrome; dev-browser is not added there —
+   it would be a second driver on the same Chrome for nothing new.
+3. E9 (silence auto-cut) goes before E8-2 (style presets): E9 is
+   engine-first and testable in Node, E8-2 still waits on a product call.
 
 **The red gate of 2026-09-14 00:34 UTC is diagnosed and fixed.** The
 failure at `e2e/frame.spec.ts:110` (세로 chosen, canvas still 320×180)
@@ -255,14 +280,13 @@ case), a phone-shot file rather than the colour-bar fixture.
 
 ## Next single step
 
-**Commit the tree as it stands** (the Codex hooks files, the
-`frame.spec.ts` polling fix, this file) — the owner must approve the
-commit first. Then, before the first Codex unit, give Codex what it
-reads: an `AGENTS.md` at the repo root (the rules of `CLAUDE.md`, under
-32 KiB, with the debt list left in `CLAUDE.md` and pointed at), and
-either `.codex/agents/*.toml` for the three tester personas and the
-reviewer or a decision to run persona review from Claude only. Trust the
-hooks in `/hooks` in a fresh Codex session and confirm the handoff prints.
+**Commit the tree as it stands** (`AGENTS.md`, `.codex/agents/`,
+`.codex/skills/`, `.codex/config.toml`, the five doc edits, this file) —
+the owner must approve the commit first. Then open the repo in a fresh
+Codex session: trust the project and the four hook commands in `/hooks`,
+confirm the SessionStart handoff prints and that `spawn_agent` offers the
+six roles. Install dev-browser (`npm install -g dev-browser`) if the
+visual pass is wanted in that session.
 
 **Then E9, silence auto-cut, in Codex** — chosen over E8's second item
 (style presets) because E9 is engine-first: silence detection over
@@ -276,7 +300,7 @@ threshold and a minimum length) — the same open question the waveform's
 ## Blocked / needs the owner
 
 1. **Commit approval** for the uncommitted tree (see "Next single step").
-   The push of `10050d3` + `845bfa4` is done.
+   `10050d3`, `845bfa4` and `f5f2512` are pushed.
 2. **Two auto snapshots and one file** from the visual pass: 자동 저장
    10:26 / 10:29 (2026-09-11) in the browser's 이전 상태, and
    `Downloads/Untitled.mp4`. Delete or keep.

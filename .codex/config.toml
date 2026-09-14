@@ -1,0 +1,11 @@
+# framewright — project-level Codex configuration.
+#
+# Hooks live in hooks.json (installed by `npm run setup:codex`, see
+# docs/CODEX_HOOKS.md). Persona roles for subagents are the *.toml files in
+# agents/; skills are the SKILL.md files under skills/. Both are discovered
+# from this folder; nothing here needs to list them.
+
+[agents]
+# Multi-agent spawning is on by default; stated so a future reader does not
+# wonder where the persona roles are switched on.
+enabled = true
