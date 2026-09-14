@@ -350,6 +350,27 @@ fps, …)` → frame ranges `[in, out)` on the SOURCE, applying the four rules
 RMS measure, a relative threshold, per-clip "이 부분은 조용해요" on the
 waveform (the debt entry stays; it now has its rule).
 
+**How progress and issues are reported (the owner asked for this).** The
+Codex session's chat is not the record; this file is. So:
+
+- Keep a section **"### E9 progress"** in this file, directly under this
+  plan, and append one line per step as it finishes: the step number, the
+  gate result at that point (`unit N · e2e M` or "not run"), and anything
+  that did not go to plan. Write it BEFORE moving to the next step, so a
+  session that dies mid-unit leaves the truth behind.
+- Under it, **"### E9 issues"**: every decision made that the plan did not
+  settle (the mute question, a fixture that had to be added, a rule that
+  had to bend), every persona finding by tier with what was done about it,
+  and every test that had to change with why. A red gate is written here
+  as red, with what was ruled out.
+- **Stop before the commit.** After `npm run handoff`, this file rewritten
+  and the commit message shown, the unit pauses for two things in this
+  order: a **review from a Claude Code session** (it reads this file and
+  the diff, runs the gate, spawns the persona subagents in `.claude/agents/`
+  and, if a Chrome is connected, does its own visual pass), then the
+  owner's approval of the commit. Findings from that review are fixed in
+  the same unit; the commit is one commit.
+
 ## Blocked / needs the owner
 
 1. **Commit approval** for the uncommitted tree (see "Next single step").
