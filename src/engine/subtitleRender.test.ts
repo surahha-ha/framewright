@@ -12,6 +12,7 @@ import {
   subtitleFontPx,
   wrapSubtitle,
 } from './subtitleRender';
+import type { SubtitleLook } from './types';
 
 /** A fake measurer: every character is `perChar` px wide. */
 const measure =
@@ -109,6 +110,16 @@ describe('layoutSubtitle — looks', () => {
     expect(lookFontPx(720, 'bold')).toBe(52); // 37 × 1.4 = 51.8
     expect(lookFontPx(720, 'shout')).toBe(67); // 37 × 1.8 = 66.6
     expect(layoutSubtitle('안녕', box, measure(20), 'bold')!.fontPx).toBe(52);
+  });
+
+  it('draws a look this build does not know as the plain look — never throws', () => {
+    // A document from a build with a fourth look, opened by this one: the
+    // words still draw, as plain (the preview has no error boundary).
+    const unknown = 'neon' as unknown as SubtitleLook;
+    expect(lookFontPx(720, unknown)).toBe(37);
+    expect(layoutSubtitle('안녕', box, measure(20), unknown)).toEqual(
+      layoutSubtitle('안녕', box, measure(20)),
+    );
   });
 
   it('gives 강조 and 외침 an outline and no pill', () => {

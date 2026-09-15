@@ -540,3 +540,63 @@ describe('a styled subtitle through the other edits', () => {
     expect(ed.project.subtitles).toStrictEqual([styled]);
   });
 });
+
+describe('subtitle.setFont (ADR-0018)', () => {
+  it('writes the face, is one undo step, and puts the field back to absent', () => {
+    const ed = editorWith(seed(300, [sub('sub_1', 10, 50)]));
+    expect(
+      ed.dispatch('subtitle.setFont', { subtitleId: 'sub_1', font: 'brush' }),
+    ).toBe(true);
+    expect(ed.project.subtitles[0].font).toBe('brush');
+    expect(
+      ed.dispatch('subtitle.setFont', { subtitleId: 'sub_1', font: 'brush' }),
+    ).toBe(false);
+    expect(ed.undo()).toBe(true);
+    expect(ed.project.subtitles[0]).toStrictEqual(sub('sub_1', 10, 50));
+    expect(ed.undo()).toBe(false);
+  });
+
+  it('puts 기본 back as an absent field and says so', () => {
+    const ed = editorWith(
+      seed(300, [{ ...sub('sub_1', 10, 50), font: 'pen' }]),
+    );
+    const before = ed.context();
+    expect(
+      ed.dispatch('subtitle.setFont', { subtitleId: 'sub_1', font: 'system' }),
+    ).toBe(true);
+    expect(ed.project.subtitles[0]).toStrictEqual(sub('sub_1', 10, 50));
+    const done = byId('subtitle.setFont').done;
+    expect(
+      typeof done === 'function'
+        ? done(before, ed.context(), { subtitleId: 'sub_1', font: 'system' })
+        : done,
+    ).toBe('자막 글꼴을 기본으로 되돌렸어요.');
+  });
+
+  it('says, on a bold look, that the face keeps its own weight', () => {
+    const ed = editorWith(
+      seed(300, [{ ...sub('sub_1', 10, 50), look: 'shout' }]),
+    );
+    const before = ed.context();
+    expect(
+      ed.dispatch('subtitle.setFont', { subtitleId: 'sub_1', font: 'brush' }),
+    ).toBe(true);
+    const done = byId('subtitle.setFont').done;
+    expect(
+      typeof done === 'function'
+        ? done(before, ed.context(), { subtitleId: 'sub_1', font: 'brush' })
+        : done,
+    ).toBe(
+      '자막 글꼴을 붓글씨로 바꿨어요 · 외침의 굵은 글씨는 붓글씨 본래 굵기로 보여요.',
+    );
+  });
+
+  it('rides through a paste that splits the subtitle, like the other fields', () => {
+    const styled: Subtitle = { ...sub('straddle', 180, 230), font: 'black' };
+    const ed = editorWith({ ...threeClips(), subtitles: [styled] });
+    ed.setClipboard({ assetId: 'asset_1', inFrame: 0, outFrame: 50 });
+    ed.setPlayhead(200);
+    expect(ed.dispatch('clip.paste')).toBe(true);
+    expect(ed.project.subtitles.map((s) => s.font)).toEqual(['black', 'black']);
+  });
+});

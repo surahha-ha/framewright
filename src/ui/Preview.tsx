@@ -12,6 +12,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useStore } from '../store/projectStore';
@@ -24,6 +25,13 @@ import { audioContext, getAudioBuffer, resumeAudio } from '../engine/audio';
 import { subtitleAt } from '../engine/subtitles';
 import { subtitleFrameOf } from '../engine/subtitleStyle';
 import { drawSubtitle, type SubtitleFrame } from '../engine/subtitleRender';
+import { browserFonts, fontState, subscribeFonts } from './fonts';
+import {
+  FONT_ARRIVED,
+  FONT_FAILED,
+  FONT_FETCHING,
+  knownFont,
+} from '../engine/fonts';
 import { evenDimensions } from '../engine/exportPlan';
 import { blendAt } from '../engine/fades';
 import { FeedPool } from '../engine/feeds';
@@ -312,6 +320,29 @@ export function Preview() {
     [frameKey],
   );
   const words = frame?.text ?? '';
+  // A face (ADR-0018) is fetched the first time a frame under the playhead
+  // names one that is not on the page yet — a document reopened from
+  // storage — and the overlay redraws when any face lands.
+  const [fontsVersion, fontArrived] = useState(0);
+  useEffect(() => subscribeFonts(() => fontArrived((n) => n + 1)), []);
+  const wantedFont = knownFont(frame?.font);
+  const wantedRef = useRef(wantedFont);
+  wantedRef.current = wantedFont;
+  useEffect(() => {
+    if (!wantedFont || browserFonts.ready(wantedFont)) return;
+    // Only a face nobody has asked for yet: the panel's choice asks first
+    // and says its own sentences. What is left is the reopened document,
+    // and it says the same — the swap from the system face is otherwise a
+    // silent change of shape mid-subtitle.
+    if (fontState(wantedFont) !== undefined) return;
+    setStatus(FONT_FETCHING(wantedFont));
+    void browserFonts.load(wantedFont).then((ok) => {
+      // Said only while the words under the playhead still want the face,
+      // so it never buries a newer sentence about something else.
+      if (wantedRef.current !== wantedFont) return;
+      setStatus(ok ? FONT_ARRIVED(wantedFont) : FONT_FAILED(wantedFont));
+    });
+  }, [wantedFont, setStatus]);
   // A LAYOUT effect: the picture is painted inside the rAF tick and the
   // playhead update that changes the frame is committed right after, so
   // drawing the words before that commit reaches the screen keeps both on
@@ -331,7 +362,7 @@ export function Preview() {
     }
     ctx.clearRect(0, 0, width, height);
     if (frame && frame.text) drawSubtitle(ctx, frame, width, height);
-  }, [frame, project.timeline.width, project.timeline.height]);
+  }, [frame, fontsVersion, project.timeline.width, project.timeline.height]);
 
   // The picture is centred and letterboxed by CSS, so the overlay finds out
   // where it landed and sits exactly on top of it. Re-measured whenever the

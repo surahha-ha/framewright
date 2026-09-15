@@ -34,6 +34,7 @@ import {
   type LookId,
   type PlaceId,
 } from './subtitleStyle';
+import { describeFont, fontField, fontOf, type FontId } from './fonts';
 
 export interface SubtitleTextArgs {
   subtitleId: string;
@@ -452,6 +453,11 @@ export interface SubtitleEffectArgs {
   effect: EffectId;
 }
 
+export interface SubtitleFontArgs {
+  subtitleId: string;
+  font: FontId;
+}
+
 /** One field, before and after, as forward and inverse ops. A field going
  *  back to "absent" is written as `undefined`, which `updateSubtitle`'s
  *  spread applies and JSON then drops — the document reads as it did. */
@@ -537,6 +543,34 @@ export const setSubtitleEffectCommand: Command<SubtitleEffectArgs> = {
   },
 };
 
+/** The face the words are set in (ADR-0018). The same shape as the look:
+ *  one field, an exact inverse, the face already set refused. Loading the
+ *  file is the panel's and the preview's business, not the document's. */
+export const setSubtitleFontCommand: Command<SubtitleFontArgs> = {
+  id: 'subtitle.setFont',
+  label: '자막 글꼴 고르기',
+  hidden: true,
+  requiresArgs: true,
+  done: (_before, after, args) => {
+    const { subtitleId, font } = args as SubtitleFontArgs;
+    const found = locateSubtitle(after.project, subtitleId);
+    return describeFont(font, found ? lookOf(found.subtitle) : 'plain');
+  },
+  canRun(ctx, args) {
+    if (!args) return false;
+    const found = locateSubtitle(ctx.project, args.subtitleId);
+    return !!found && fontOf(found.subtitle) !== args.font;
+  },
+  run(ctx, args) {
+    const found = locateSubtitle(ctx.project, args.subtitleId);
+    if (!found) throw new Error('subtitle.setFont: no such subtitle');
+    if (fontOf(found.subtitle) === args.font) {
+      throw new Error('subtitle.setFont: no change');
+    }
+    return fieldOps(found.subtitle, { font: fontField(args.font) });
+  },
+};
+
 export const SUBTITLE_COMMANDS: Command<any>[] = [
   addSubtitleCommand,
   removeSubtitleCommand,
@@ -550,4 +584,5 @@ export const SUBTITLE_COMMANDS: Command<any>[] = [
   setSubtitleLookCommand,
   setSubtitlePlaceCommand,
   setSubtitleEffectCommand,
+  setSubtitleFontCommand,
 ];

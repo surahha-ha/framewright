@@ -108,6 +108,11 @@ export type SubtitleLook = 'bold' | 'shout';
 /** How a subtitle comes and goes (ADR-0017). Absent = it is simply there. */
 export type SubtitleEffect = 'fade' | 'pop' | 'rise';
 
+/** The face a subtitle is set in (ADR-0018): a bundled OFL font, by id.
+ *  Absent = the system stack every subtitle had. The files and family
+ *  names are `engine/fonts.ts`. */
+export type SubtitleFont = 'brush' | 'pen' | 'black';
+
 export interface Subtitle {
   id: string;
   text: string;
@@ -125,6 +130,8 @@ export interface Subtitle {
   posY?: number;
   /** 바로 (no effect) when absent. */
   effect?: SubtitleEffect;
+  /** 기본 (the system stack) when absent. */
+  font?: SubtitleFont;
 }
 
 export interface Project {

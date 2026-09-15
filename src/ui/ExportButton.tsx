@@ -3,6 +3,8 @@ import { useRef, useState } from 'react';
 import { useStore } from '../store/projectStore';
 import { getDecodeService } from '../engine/registry';
 import { exportProject, ExportUnsupportedError } from '../engine/exporter';
+import { missingFontsText } from '../engine/fonts';
+import { browserFonts } from './fonts';
 import { videoDuration } from '../engine/timeline';
 import { clipCeiling } from './waveform';
 
@@ -32,6 +34,8 @@ export function ExportButton() {
         signal: controller.signal,
         // The same bound the preview plays under, from the same peaks.
         levelCeiling: (clip) => clipCeiling(project, clip),
+        // The same faces the preview draws with (ADR-0018).
+        fonts: browserFonts,
         onProgress: (done, all, p) => {
           setProgress(Math.round((done / all) * 100));
           if (p)
@@ -40,7 +44,9 @@ export function ExportButton() {
                 ? '마무리 중'
                 : p === 'audio'
                   ? '오디오 처리 중'
-                  : '',
+                  : p === 'fonts'
+                    ? '글꼴 받는 중'
+                    : '',
             );
         },
       });
@@ -61,7 +67,8 @@ export function ExportButton() {
       setStatus(
         `내보내기 완료 · ${result.frames} frames · ${result.durationSec.toFixed(2)}s` +
           (result.hasAudio ? ' · 오디오 포함' : ' · 무음') +
-          warn,
+          warn +
+          missingFontsText(result.missingFonts),
       );
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {

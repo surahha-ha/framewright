@@ -233,6 +233,32 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **`subtitle.setFont` is the fourth copy of the set-one-field command
+  shape** (`setLook`, `setPlace`, `setEffect` are the others): locate,
+  refuse the same value, one `fieldOps`, a `done` from the arg. `fieldOps`
+  is shared; the ~20-line wrapper around it is not. Past the rule of three;
+  a factory taking the field and the sentences is the fold (reviewer,
+  ADR-0018).
+- **The export's progress bar reads 0% through the whole fonts phase, then
+  0% again at audio.** One `onProgress(0, n, 'fonts')` before the loop,
+  nothing per face, and the audio phase starts from 0 too; with three
+  faces on a cold cache the bar sits still for seconds with only the
+  phase word. Same family as "잠시 뒤 다시 눌러 주세요 has no sense of how
+  long" (reviewer, QA, a11y, novice).
+- **What a face looks like is hover-only for a sighted mouse user.**
+  `FONT_HINT` ("나눔붓 · 붓으로 쓴 글씨") is the radio's `title` and its
+  `aria-describedby`, so a screen reader hears it and a hover shows it; a
+  click-only user picks 붓글씨 / 손글씨 / 굵은고딕 sight unseen, and the
+  hint leads with the product name before the words that explain it. A
+  sample of the face in its own radio is out of scope by the plan (novice,
+  a11y).
+- **The preview never re-asks for a face that failed once.** `Preview`'s
+  lazy load skips a face whose state is `failed`, so a reopened document
+  whose face did not come (offline at the time) shows the system face for
+  the rest of the session unless the user presses that face's radio again
+  (the retry). `FONT_FAILED` does not say that the radio is the retry.
+- **The 글꼴 radios inherit the colour-only checked state** of the shared
+  `Choices` rule — see the `FramePicker` entry below; one fix there (a11y).
 - **An effect shows only on the frames where the subtitle comes and goes.**
   With the playhead mid-subtitle (where it usually is after typing), pressing
   톡 or 올라오기 changes nothing on the preview; the status sentence now

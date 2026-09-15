@@ -29,6 +29,21 @@ import {
   lookOf,
   placeOf,
 } from '../engine/subtitleStyle';
+import {
+  FONT_ARRIVED,
+  FONT_FAILED,
+  FONT_HINT,
+  FONT_IDS,
+  FONT_LABEL,
+  FONT_RETRYING,
+  SAME_FONT,
+  describeFont,
+  fontField,
+  fontOf,
+  type FontId,
+} from '../engine/fonts';
+import type { SubtitleFont } from '../engine/types';
+import { browserFonts, fontState } from './fonts';
 import { CommandButton } from './CommandButton';
 
 const NEXT: Record<string, 1 | -1> = {
@@ -173,6 +188,41 @@ export function SubtitlePanel() {
     run('subtitle.setText', { subtitleId: id, text: draft });
   }
 
+  /** A face is fetched the first time it is chosen (ADR-0018): the command
+   *  writes the field, then the loader is asked, and the sentence says the
+   *  words will change when the file lands — the preview draws the
+   *  fallback until then and redraws on arrival. */
+  function chooseFont(font: FontId) {
+    if (!id || !run('subtitle.setFont', { subtitleId: id, font })) return;
+    const face = fontField(font);
+    if (!face || browserFonts.ready(face)) return;
+    setStatus(describeFont(font, lookOf(subtitle), true));
+    void fetchFace(id, face);
+  }
+
+  /** Says how the fetch ended — unless the subtitle no longer wants that
+   *  face by then (a second choice, an undo, a delete), when the sentence
+   *  would be about nothing on screen and would bury a newer one. */
+  function fetchFace(subtitleId: string, face: SubtitleFont) {
+    return browserFonts.load(face).then((ok) => {
+      const now = locateSubtitle(useStore.getState().project, subtitleId);
+      if (!now || now.subtitle.font !== face) return;
+      setStatus(ok ? FONT_ARRIVED(face) : FONT_FAILED(face));
+    });
+  }
+
+  /** Pressing the face already chosen changes nothing — unless its file
+   *  never came, when the press is the retry (the document already says
+   *  that face; only the fetch is owed). */
+  function sameFont(font: FontId): string {
+    const face = fontField(font);
+    if (id && face && fontState(face) === 'failed') {
+      void fetchFace(id, face);
+      return FONT_RETRYING(face);
+    }
+    return SAME_FONT(font);
+  }
+
   function revert() {
     setSubtitleDraft(null);
     if (draft === text) return;
@@ -240,6 +290,16 @@ export function SubtitlePanel() {
           current={lookOf(subtitle)}
           choose={(look) => run('subtitle.setLook', { subtitleId: id, look })}
           same={SAME_LOOK}
+        />
+        <Choices
+          id="subtitle-font"
+          title="글꼴"
+          ids={FONT_IDS}
+          label={FONT_LABEL}
+          hint={FONT_HINT}
+          current={fontOf(subtitle)}
+          choose={chooseFont}
+          same={sameFont}
         />
         <Choices
           id="subtitle-place"

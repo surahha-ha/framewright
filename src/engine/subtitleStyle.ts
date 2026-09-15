@@ -158,6 +158,7 @@ export function subtitleFrameOf(
     ...(s.posX !== undefined ? { posX: s.posX } : {}),
     ...(s.posY !== undefined ? { posY: s.posY } : {}),
     ...(s.effect !== undefined ? { effect: s.effect } : {}),
+    ...(s.font !== undefined ? { font: s.font } : {}),
     t: subtitlePhase(s, frame, fps),
   };
 }

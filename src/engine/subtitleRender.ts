@@ -16,7 +16,8 @@
 // and out). Each is optional and each absent field draws exactly what every
 // subtitle drew before: the plain look, the bottom stack, no motion.
 
-import type { SubtitleEffect, SubtitleLook } from './types';
+import type { SubtitleEffect, SubtitleFont, SubtitleLook } from './types';
+import { fontFamilyStack, knownFont } from './fonts';
 
 /** How tall the words are, as a share of the picture's height. About 5% is
  *  where broadcast captions sit: readable on a phone, not a banner on a TV. */
@@ -98,6 +99,8 @@ export interface SubtitleFrame extends SubtitlePlace {
   text: string;
   look?: SubtitleLook;
   effect?: SubtitleEffect;
+  /** The face (ADR-0018). Absent = the system stack. */
+  font?: SubtitleFont;
   /** 0 → 1; 1 is fully shown. Always 1 without an effect. */
   t: number;
 }
@@ -129,10 +132,14 @@ export function subtitleFontPx(pictureHeight: number): number {
   return Math.max(MIN_FONT_PX, Math.round(pictureHeight * FONT_SHARE));
 }
 
+/** The look's spec, the plain one for a look this build does not know (a
+ *  document from a later build, or a hand edit): the words must still draw. */
+export function lookSpec(look?: SubtitleLook): SubtitleLookSpec {
+  return (look && SUBTITLE_LOOKS[look]) || SUBTITLE_LOOKS.plain;
+}
+
 export function lookFontPx(pictureHeight: number, look?: SubtitleLook): number {
-  return Math.round(
-    subtitleFontPx(pictureHeight) * SUBTITLE_LOOKS[look ?? 'plain'].fontScale,
-  );
+  return Math.round(subtitleFontPx(pictureHeight) * lookSpec(look).fontScale);
 }
 
 /**
@@ -203,7 +210,7 @@ export function layoutSubtitle(
   look?: SubtitleLook,
   place: SubtitlePlace = {},
 ): SubtitleLayout | null {
-  const spec = SUBTITLE_LOOKS[look ?? 'plain'];
+  const spec = lookSpec(look);
   const fontPx = lookFontPx(box.height, look);
   const lineHeightPx = Math.round(fontPx * LINE_HEIGHT);
   const padX = Math.round(fontPx * 0.4);
@@ -323,8 +330,19 @@ export function effectState(
 export type SubtitleContext =
   CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
-export function subtitleFont(fontPx: number, weight = 600): string {
-  return `${weight} ${fontPx}px ${SUBTITLE_FONT_FAMILY}`;
+/**
+ * The canvas font string. A face (ADR-0018) goes before the system stack,
+ * and is always drawn at weight 400: the look's weight is for the system
+ * stack, and a brush face thickened by a synthetic bold is not the face.
+ * A face this build does not know is the system stack at the look's weight.
+ */
+export function subtitleFont(
+  fontPx: number,
+  weight = 600,
+  font?: SubtitleFont,
+): string {
+  const face = knownFont(font);
+  return `${face ? 400 : weight} ${fontPx}px ${fontFamilyStack(face, SUBTITLE_FONT_FAMILY)}`;
 }
 
 /**
@@ -340,9 +358,9 @@ export function drawSubtitle(
   width: number,
   height: number,
 ): void {
-  const spec = SUBTITLE_LOOKS[frame.look ?? 'plain'];
+  const spec = lookSpec(frame.look);
   const fontPx = lookFontPx(height, frame.look);
-  ctx.font = subtitleFont(fontPx, spec.weight);
+  ctx.font = subtitleFont(fontPx, spec.weight, frame.font);
   const layout = layoutSubtitle(
     frame.text,
     { width, height },

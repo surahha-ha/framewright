@@ -10,9 +10,9 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-15 04:11 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-15 05:44 UTC — `npm run verify` **GREEN**
 
-- unit 646 passed · e2e 124 passed
+- unit 668 passed · e2e 130 passed
 
 <!-- VERIFY:END -->
 
@@ -39,7 +39,7 @@ yet pushed.
 **`91795d8` was pushed on 2026-09-15 with the owner's approval;
 `origin/main` = `91795d8`.**
 
-### E8-2a, 예능 자막, is BUILT and in the tree, uncommitted (2026-09-15)
+### E8-2a, 예능 자막, is committed as `f7624ac` (2026-09-15), not yet pushed
 
 "Style presets" had no definition anywhere in the repo; the owner gave
 one on 2026-09-15 (예능 자막, see "Next single step" for the layers) and
@@ -60,8 +60,12 @@ stamped above is this tree's handoff run (unit 646 · e2e 124). New files:
 CLAUDE.md's debt list, `docs/HANDOVER.md`, `README.md`, this file. The
 owner asked for the E8-2 plan docs and this build to go in ONE commit.
 The visual pass in the owner's Chrome is done (step 9 of "E8-2a
-progress"; one finding, fixed, with an assertion). **Not yet done: the
-commit itself.** Also in the tree, NOT part of this unit: the owner's own edits to `AGENTS.md`,
+progress"; one finding, fixed, with an assertion). **Committed as
+`f7624ac` with the owner's approval (2026-09-15, 13:20 KST), 1 ahead of
+`origin/main` = `91795d8`; the owner chose to push later.** This
+paragraph and the two "Next single step" / "Blocked" passages that name
+the commit were rewritten AFTER `f7624ac`, so they sit in the tree as a
+docs-only change. Also in the tree, NOT part of this unit: the owner's own edits to `AGENTS.md`,
 `CLAUDE.md` (the ui-ux-guide mapping bullet only; the debt entries are
 this unit's) and `docs/UX.md`, left for them to commit.
 
@@ -333,24 +337,310 @@ against the dev server already up on 9990.
 picker at a narrow window (`e2e/narrow-layout.spec.ts` did not gain a
 case), a phone-shot file rather than the colour-bar fixture.
 
+### E8-2b, 캘리그라피 글꼴, is built in this tree — NOT yet committed
+
+Built in Claude Code on 2026-09-15 across two sessions: a subtitle's
+face as its own field (`font?: 'brush' | 'pen' | 'black'`), three OFL
+faces as the original TTFs under `public/fonts/` (7.6 MB, licence text
+beside each), fetched from the app's own origin the first time a
+subtitle picks one and never at start, drawn with the fallback until the
+file lands, waited for by the export. ADR-0018 is the contract; "E8-2b
+progress" / "E8-2b issues" under the plan below are the record; the
+persona round's leftovers are the five newest entries in CLAUDE.md
+"Known tech debt". The gate stamped above is this tree's handoff run.
+New files: `src/engine/fonts.ts` (+test), `src/engine/abort.ts` (+test),
+`src/ui/fonts.ts`, `e2e/subtitle-font.spec.ts`, `docs/FONTS.md`,
+`docs/adr/0018-a-subtitle-has-a-face-fetched-when-chosen.md`,
+`public/fonts/*`. Changed: `types.ts`, `subtitleRender.ts`,
+`subtitleStyle.ts`, `subtitleCommands.ts` (+tests), `exporter.ts`,
+`ui/ExportButton.tsx`, `ui/Preview.tsx`, `ui/SubtitlePanel.tsx`,
+`docs/TESTING.md`, `docs/adr/README.md`, CLAUDE.md's debt list, this
+file. **The visual pass in the owner's Chrome is done** (step 11 of
+"E8-2b progress"); one finding, fixed with a unit and an e2e assertion.
+**Waiting on the owner: approval for ONE commit** (see "Blocked").
+
 ## Next single step
 
-**ONE commit of E8-2a with the owner's approval, then plan E8-2b.** The
-build is done, the gate is green, the persona round and the visual pass
-in the owner's Chrome are done (see "Where we are" and "E8-2a progress").
-The commit: the E8-2a code + ADR-0017 + the E8-2 plan docs (this file,
-`docs/HANDOVER.md`, `README.md`) as ONE commit — the owner's call on
-2026-09-15; leave `AGENTS.md`, `docs/UX.md`, CLAUDE.md's ui-ux-guide
-bullet (the owner's; stage `CLAUDE.md` by hunk) and the two stray logs
-out. After that: **E8-2b, 캘리그라피 글꼴** (plan it first, in this file,
-the E8-2a plan's shape: which two or three Korean display faces, their
-licences and sizes, how they load before an export, a fourth column in
-`SUBTITLE_LOOKS` or a separate `font` field).
+**Commit E8-2b with the owner's approval, then plan E8-2c.** The commit
+is the whole unit in one: the code, the three font files with their
+licences, the docs. `CLAUDE.md` is staged by hunk — the owner's own
+ui-ux-guide bullet (~line 226) stays out, the debt entries go in — and
+`AGENTS.md`, `docs/UX.md`, `debug.log`, `e9-baseline.log` stay out
+(theirs / junk). Then ask before pushing. **After that, E8-2c:** drag the
+words anywhere on the stage — the owner's end goal for 예능 자막; `posX` /
+`posY` box fractions are already the fields (ADR-0017), the preview
+already has a pointer drag for the picture (`.stage`), and the two
+existing drag gestures (`Timeline.tsx`, `SubtitleLane.tsx`) are the
+rule-of-three trigger to extract the DOM half. Owner decisions E8-2c
+will need: snap to the three presets or free; a keyboard route (the
+nudges); whether the 자리 radios stay when the words are dragged off
+every preset (today: nothing checked).
+
+**The E8-2b plan below is done; kept as the record.** Decided by the
+owner on 2026-09-15:
+
+- **Free faces only, original files, no subsetting.** Every font has a
+  licence; the candidates are OFL (SIL Open Font License) faces from
+  Google Fonts, which allow bundling, burning into a video and the
+  user's commercial use, on two conditions: ship the licence text and
+  do not modify the file (a subset — the font cut down to the common
+  2,350 syllables — counts as a modification and would force a rename,
+  and it also drops the rare syllables outside that set, which a
+  variety caption reaches for on purpose). So the woff2 goes in as
+  published, licence beside it.
+- **Loaded when chosen, not at start.** A face is fetched from the app's
+  own origin the first time a subtitle picks it (about 0.5–1.5 MB each,
+  ~3 MB for three, browser-cached after), never on first load and never
+  from a third-party CDN at export time. Until it lands the preview draws
+  the fallback stack and the status line says the face is on its way; the
+  export waits for `document.fonts.load` on every face its plan uses
+  before drawing frame 0.
+
+- **The three faces and the field — decided (the owner said "as
+  recommended", 2026-09-15 afternoon):** 붓글씨 = Nanum Brush Script,
+  손글씨 = Nanum Pen Script, 굵은고딕 = Black Han Sans, all OFL, the
+  original TTFs from the google/fonts repository with each face's own
+  `OFL-*.txt` beside it in `public/fonts/` (7.6 MB, tracked by git). The
+  face is its OWN field on the subtitle, `font?`, with its own row 글꼴
+  in the panel — a face and a look (colour, outline) are chosen apart. A
+  list of faces that need a licence of their own (배민, paid calligraphy
+  families) goes in `docs/FONTS.md` for a later unit.
+
+### E8-2b execution plan — 캘리그라피 글꼴
+
+**Rule table — the contract the tests assert:**
+
+| Rule                 | Value                                                                                                                                                                                                                                                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Field                | `font?: 'brush' \| 'pen' \| 'black'` on `Subtitle`; absent = 기본, the system stack every subtitle had. Schema stays 2. `splitSubtitleAt` carries it (it copies every field since ADR-0017).                                                                                                                                                     |
+| The faces            | One table `SUBTITLE_FONT_FILES` in `src/engine/fonts.ts`: id → CSS family name, file under `/fonts/`, licence. Labels 기본 / 붓글씨 / 손글씨 / 굵은고딕; hints name the face.                                                                                                                                                                    |
+| Font string          | `subtitleFont(fontPx, weight, font?)`: a face is prepended to the system stack (`"Nanum Brush Script", "Malgun Gothic", …`) so a glyph the face lacks falls back per character; **a face is always drawn at weight 400** — the look's weight (600 / 800) is for the system stack; a synthetic bold on a brush face is not the face.              |
+| One frame            | `SubtitleFrame.font?` is set by `subtitleFrameOf`; the export plan carries it like the look (ADR-0017); `drawSubtitle` sets the font string from it.                                                                                                                                                                                             |
+| Loader behind a seam | `FontLoader { ready(font): boolean; load(font): Promise<boolean> }` in the engine; the browser one (`src/ui/fonts.ts`) uses `FontFace` + `document.fonts.add`, memoises per face, never throws (resolves false on failure), notifies subscribers. Rule 8: the engine never touches `FontFace`.                                                   |
+| When it loads        | On the choice (the panel calls `load` after the command ran) and lazily by the preview when a frame under the playhead names a face that is not ready (a document reopened from storage). Never at app start.                                                                                                                                    |
+| While it loads       | The preview draws the fallback stack; the panel's sentence after the choice is "자막 글꼴을 붓글씨로 바꿨어요 · 글꼴을 받는 중이에요 · 받으면 바로 바뀌어요."; when it lands the status says "붓글씨 글꼴을 받았어요." and the overlay redraws (a `fontsVersion` in `Preview`); on failure "붓글씨 글꼴을 받지 못했어요 · 기본 글꼴로 보여요."   |
+| The export           | `exportProject` takes `options.fonts`; before rendering it collects `fontsInPlan(plan)` (unique faces in first-use order), reports phase `'fonts'`, awaits `load` on each; a face that fails is drawn with the fallback and listed in `ExportResult.missingFonts`; the button's sentence warns "⚠ 붓글씨 글꼴을 받지 못해 기본 글꼴로 그렸어요." |
+| Command              | `subtitle.setFont` 자막 글꼴 고르기 — arg-taking, hidden, one `updateSubtitle` op with the exact inverse (absent restored through `dropUndefined`), refuses the face already set. Sentence: "자막 글꼴을 붓글씨로 바꿨어요." / "자막 글꼴을 기본으로 되돌렸어요."                                                                                |
+| Panel                | A fourth `Choices` row 글꼴 between 모양 and 자리 (the two "how the words look" rows together), the same radiogroup contract as the other three.                                                                                                                                                                                                 |
+
+**Shape of the work, in order:**
+
+1. `src/engine/fonts.ts` (test-first): the vocabulary, the file table,
+   `fontOf` / `fontField`, `fontFamilyStack`, `FontLoader` and `NO_FONTS`,
+   `fontsInPlan`, the sentences. `types.ts` gains `SubtitleFont` and
+   `font?`. `subtitleRender.subtitleFont` takes the face (weight 400 rule),
+   `SubtitleFrame.font?`, `subtitleFrameOf` carries it. Cases: the stack
+   with and without a face; weight forced to 400 only with a face; a plan
+   with two faces used out of order lists them in first-use order once
+   each; a plan with none is empty.
+2. `subtitle.setFont` in `subtitleCommands.ts` with tests (undo restores
+   an ABSENT field, `toStrictEqual`; the same face refused; sentences).
+3. `src/ui/fonts.ts`: the browser loader and `subscribeFonts`.
+4. `exporter.ts`: `options.fonts`, the `'fonts'` phase, `missingFonts`;
+   `ExportButton` passes the loader, names the phase, warns.
+5. `SubtitlePanel`: the 글꼴 row; the choice starts the load and says so;
+   `Preview`: lazy load + redraw on arrival.
+6. e2e `e2e/subtitle-font.spec.ts`: the row and its default; 붓글씨 →
+   `document.fonts.check` becomes true and the overlay's ink bounds
+   change, 기본 → the bounds are exactly the system face's again; a face
+   survives a reload and is fetched again for it; an export with a face
+   has 90 frames and no font warning.
+7. `docs/FONTS.md` (the shipped faces, their licence, how to add one,
+   the faces that need a licence of their own — 배민 family, paid
+   calligraphy — listed for a later unit); ADR-0018; `docs/TESTING.md`
+   contract rows; CLAUDE.md debt after the personas.
+8. Persona round, fix blockers, `npm run verify`, visual pass in the
+   owner's Chrome (ask which by deviceId), `npm run handoff`, ONE commit
+   with approval.
+
+**Out of scope for this unit:** subsetting or woff2 conversion, 배민 or
+paid faces, a per-look default face, a font size or letter-spacing
+control, showing a face's own sample in its radio, a progress number
+while a face downloads.
+
+**How progress and issues are reported:** as E8-2a — "### E8-2b
+progress" and "### E8-2b issues" under this plan, one line per step,
+written before moving on; stop before the commit for the owner's
+approval.
 
 Housekeeping, closed on 2026-09-15: `91795d8` pushed; the chrome://inspect
 toggle is OFF (port 9222 has no listener, the dev-browser daemon is dead).
 Still open: the owner's own uncommitted edits to `AGENTS.md`, `CLAUDE.md`
 (one bullet) and `docs/UX.md`, theirs to commit.
+
+### E8-2b progress
+
+Built in Claude Code on 2026-09-15 (KST), across two sessions (the first
+ended mid-unit by the owner's `/handoff`, with steps 1–5 and the drafts of
+6–7 in the tree, uncommitted), the plan's steps in order:
+
+1. **Engine, test-first — done.** `src/engine/fonts.ts` (new: `FONT_IDS`
+   / `FONT_LABEL` / `FONT_HINT`, `SUBTITLE_FONT_FILES`, `fontOf` /
+   `fontField`, `fontFamilyStack`, the `FontLoader` seam and `NO_FONTS`,
+   `fontsInPlan`, the sentences and `missingFontsText`) with 8 tests;
+   `types.ts` gained `SubtitleFont` and `Subtitle.font?`;
+   `subtitleRender.subtitleFont(px, weight, font?)` puts the face first
+   in the stack and forces weight 400 with a face; `SubtitleFrame.font?`
+   set by `subtitleFrameOf`. `splitSubtitleAt` carries it for free (it
+   copies every field since ADR-0017).
+2. **Command — done.** `subtitle.setFont` 자막 글꼴 고르기 in
+   `subtitleCommands.ts`, 3 tests: undo restores an ABSENT field
+   (`toStrictEqual`), the same face is refused, the sentences.
+3. **Browser loader — done.** `src/ui/fonts.ts`: `browserFonts`
+   (`FontFace` + `document.fonts.add`, memoised per face, an in-flight
+   load returns the same promise, never throws), `subscribeFonts`,
+   `fontState`.
+4. **Export — done.** `exporter.ts` takes `options.fonts`, collects
+   `fontsInPlan(plan)`, reports phase `'fonts'`, awaits each load before
+   frame 0, lists a failed face in `ExportResult.missingFonts`;
+   `ExportButton` passes `browserFonts`, names the phase 글꼴 받는 중 and
+   warns "⚠ … 글꼴을 받지 못해 기본 글꼴로 그렸어요."
+5. **Panel and preview — done.** A fourth `Choices` row 글꼴 between
+   모양 and 자리; the choice runs the command, then `load`, and says the
+   loading / arrived / failed sentence; `Preview` loads a face lazily
+   when the frame under the playhead names one that is not ready, and
+   redraws on `fontsVersion` when any face lands.
+6. **e2e — done.** `e2e/subtitle-font.spec.ts`, 4 tests: the row and its
+   default with nothing fetched; 붓글씨 fetched → the overlay's ink
+   bounds change, 기본 → the system face's bounds exactly; a reopened
+   document fetches its face when the playhead reaches the words; an
+   export with a face has 90 frames and no font warning. First run on
+   real Chrome 3/4, second 3/4, third 4/4 — both failures were in the
+   spec, not the code (see "E8-2b issues").
+7. **Docs — done.** `docs/FONTS.md`, ADR-0018 and its index row,
+   `docs/TESTING.md` contract row for radiogroup "글꼴".
+8. **Full gate before the personas: GREEN** (unit 658 · e2e 128, the new
+   spec included).
+9. **Persona round — done** (tester-qa, tester-a11y, tester-novice,
+   framewright-reviewer, in parallel). One blocker and six majors, all
+   fixed the same day, test-first (`abort.test.ts` new; `fonts.test.ts`,
+   `subtitleRender.test.ts`, `subtitleCommands.test.ts` extended; the
+   e2e spec grew to 6 tests); the minors are in CLAUDE.md "Known tech
+   debt" (five new entries at the top). Engine unit after the fixes: 640.
+   Details under "E8-2b issues".
+10. **Full gate after the fixes: GREEN** (unit 667 · e2e 130).
+11. **Visual pass in the owner's Chrome — done** (the owner chose
+    `da2a0786-…`; Claude in Chrome on the live dev server at 9990, the
+    owner's own autosaved project: 7 clips, 3 subtitles). Selected 자막 1
+    ("걸침", 10–24) with Enter (playhead to 10), read the panel: four
+    radiogroups, 글꼴 between 모양 and 자리 with 기본 / 붓글씨 / 손글씨 /
+    굵은고딕, hints as `title` and `aria-describedby`. Pressed 붓글씨: the
+    status went "자막 글꼴을 붓글씨로 바꿨어요 …받는 중이에요…" → "붓글씨
+    글꼴을 받았어요." in 5.7 s (3.4 MB from Vite), `document.fonts` held
+    the face, the overlay's ink changed. 외침 then 손글씨: the ink changed
+    again (400 on the pen face vs 800 on the system one); 손글씨 pressed
+    again said "이미 손글씨 글꼴이에요."; 굵은고딕 landed within 80 ms.
+    **The tab was `document.hidden` in the owner's window, so every
+    screenshot timed out** — the pass read the DOM and the overlay
+    canvas instead; nothing was seen as pixels on a screen. **One
+    finding, fixed:** the panel glued the finished sentence and the wait
+    with " · ", so the line read "바꿨어요**. ·** 글꼴을 받는 중이에요".
+    `describeFont(id, look, loading)` now builds the whole sentence with
+    one full stop; `fonts.test.ts` pins it and `e2e/subtitle-font.spec.ts`
+    matches the entire status line. Four edits undone with Ctrl+Z; the
+    persisted project JSON equals the snapshot taken before the pass.
+    Tab closed. The gate re-ran after the fix (the stamp at the top).
+
+### E8-2b issues
+
+- **Blocker (QA): a face this build does not know blanked the whole
+  editor.** `fontFamilyStack` read `SUBTITLE_FONT_FILES[font].family` for
+  whatever the document said; a `font` written by a later build (a
+  fourth face) or a hand edit threw inside `Preview`'s draw effect, and
+  with no error boundary React unmounted the tree. Fixed with
+  `knownFont` (engine/fonts.ts): an unknown face is the system stack at
+  the look's weight, the export neither waits for nor reports it, the
+  browser loader has no file for it. The same shape existed since E8-2a
+  for an unknown LOOK (`SUBTITLE_LOOKS[look ?? 'plain']`, three sites) —
+  fixed together with `lookSpec`, unknown = plain. Unit tests for both;
+  e2e "a document naming a face this build does not know still draws
+  its words" writes `calligraphy` into the saved project, reloads, and
+  asserts the system face's ink to the pixel, nothing fetched, nothing
+  said, no `pageerror`.
+- **Major (QA, a11y, novice): a fetch that settled late said the wrong
+  thing.** `chooseFont`'s `.then` set the status whatever had happened
+  since: pick 붓글씨, pick 손글씨 before the first lands → "붓글씨 글꼴을
+  받았어요" over the newer sentence; pick, Ctrl+Z → "받았어요" for a face
+  the subtitle no longer has. Fixed: the settle reads the live document
+  and says nothing unless that subtitle still wants that face
+  (`fetchFace`).
+- **Major (QA): the export's font wait ignored Cancel.** Every other
+  stage checks the signal; the new loop awaited `fonts.load` with no way
+  in, so 취소 during 글꼴 받는 중 waited for the fetch — for ever, on a
+  fetch that neither resolves nor rejects. Fixed with `raceAbort`
+  (`engine/abort.ts`, new, 4 unit tests): the load is raced against the
+  signal, `AbortError` at once, listener removed either way.
+- **Major (novice, a11y): the reopened document's fetch said nothing.**
+  `Preview`'s lazy load redrew on arrival with no sentence — a sighted
+  user saw the letters reshape mid-subtitle, a screen-reader user heard
+  nothing, and a failure was never reported on that path. Fixed: when
+  the preview is the FIRST to ask for a face (nobody has asked yet — the
+  panel's choice asks first and speaks for itself) it says "손글씨 글꼴을
+  받는 중이에요 · 받으면 바로 바뀌어요." and then the arrived / failed
+  sentence, the latter only while the words under the playhead still
+  want the face. The e2e asserts the sentences (from the cache the file
+  can land before the first is read, so the spec accepts either, then
+  requires the second).
+- **Major (novice): a failed face had no retry.** The command had
+  already written the field, so the radio stayed checked and a second
+  press said "이미 붓글씨 글꼴이에요"; the only way was 기본 then 붓글씨
+  again, said nowhere. Fixed: the font row's `same` handler retries the
+  fetch when the face's state is `failed` and says "붓글씨 글꼴을 다시
+  받는 중이에요 · 받으면 바로 바뀌어요." E2e: the font route aborted,
+  붓글씨 → the failed sentence, the system ink, the radio still checked;
+  route restored, the same radio → the retry sentence, the face lands,
+  the ink changes.
+- **Major (novice): a face silently dropped a bold look's weight.** 외침
+  is 800 on the system face; a face is always 400, and nothing said the
+  two choices meet. Fixed in the sentence: `describeFont(id, look)` adds
+  "· 외침의 굵은 글씨는 붓글씨 본래 굵기로 보여요." on 강조 / 외침, and the
+  command's `done` passes the subtitle's look. Unit-tested in
+  `fonts.test.ts` and `subtitleCommands.test.ts`.
+- **Major (reviewer): `docs/TESTING.md`'s new row described the probe the
+  spec had just stopped using** (`document.fonts.check`, written before
+  the probe was fixed). Descriptive doc, code is right: the row now
+  describes the `document.fonts` enumeration and why `check()` cannot.
+- **Minors kept as debt** (CLAUDE.md, top of the list): the fourth copy
+  of the set-one-field command shape; the export bar at 0% through the
+  fonts phase and again at audio; the face hint hover-only for a sighted
+  mouse user and leading with the product name; the preview never
+  re-asking for a face that failed once (the radio is the retry, unsaid);
+  the 글꼴 radios' colour-only checked state, inherited from the shared
+  rule.
+- **Not done, deliberately:** an export cancelled during the fonts phase
+  has no e2e (a fetch that never settles is hard to stage; the unit test
+  on `raceAbort` covers the race). A "prefetch every face the DOCUMENT
+  names on load" (which would remove the reopened document's fallback
+  window at the cost of a cache hit per reopen) is a contract change
+  left to the owner — see the reopened-document entry below.
+
+- **The e2e's first probe was vacuous.** `document.fonts.check('16px
+"Nanum Brush Script"')` answers TRUE for a family the page never
+  registered — the CSS Font Loading spec treats an unknown family as a
+  system font — so "nothing fetched yet" read as fetched and the three
+  "fetched" polls in the other tests would have passed with the loader
+  deleted. The probe now enumerates `document.fonts` for a `FontFace` of
+  that family with status `loaded`; the first test then failed for the
+  right reason and passed once the probe was honest. Recorded in the
+  spec's comment and in `docs/TESTING.md`'s row.
+- **A reload parks the playhead on frame 0, so a reopened document
+  fetches nothing until the playhead reaches the words.** The spec
+  assumed the playhead would be on the words after `page.reload()`; it
+  is not (`projectStore` starts at 0). That is the contract (ADR-0018:
+  on the choice, or under the playhead — never at start), so the spec
+  now asserts nothing was fetched after the reload, presses Enter on the
+  chip (select + seek to its first frame) and then sees the fetch. **The
+  user-visible consequence, for the owner:** a document reopened with a
+  face draws the words in the system font until playback or a click
+  reaches them and the file lands (from the browser cache, usually well
+  under a second; on a first visit to a new machine, a few seconds), and
+  the swap happens on screen mid-subtitle — since the persona round,
+  WITH a sentence (the preview says 받는 중 / 받았어요 / 받지 못했어요 on
+  that path; the entry above). What remains is the window itself: a
+  prefetch on load of only the faces the DOCUMENT names would remove it
+  at the cost of that fetch (a cache hit, usually) on every reopen. That
+  is a contract change to ADR-0018's "never at start" and is the owner's
+  call; left as is.
 
 ### What "style presets" means — defined by the owner on 2026-09-15
 
@@ -754,25 +1044,31 @@ plan's steps, in order, with the gate at each point:
 
 ## Blocked / needs the owner
 
-1. **Commit approval for E8-2a + the E8-2 plan docs, as ONE commit** (the
-   owner's call on 2026-09-15). The visual pass is done. The owner's own
-   uncommitted edits to `AGENTS.md`, `CLAUDE.md` (the ui-ux-guide bullet)
-   and `docs/UX.md` stay theirs to commit — they are in the same files
-   as this unit's changes to `CLAUDE.md` (debt entries), so the commit
-   must stage `CLAUDE.md` by hunk, or the owner commits theirs first.
+1. **E8-2b is uncommitted and waits for the owner's approval of ONE
+   commit** (announced at the end of the 2026-09-15 session; the tree is
+   `main` @ `f7624ac` = `origin/main` plus the unit). What goes in and
+   what stays out is in "Next single step". Ask again before pushing.
+   The owner's own uncommitted edits to `AGENTS.md`, `CLAUDE.md` (the
+   ui-ux-guide bullet) and `docs/UX.md` stay theirs to commit.
 2. **The visual pass's trace in the owner's Chrome:** nothing left in the
-   document (verified identical); the timeline view was zoomed once by a
-   mis-aimed click (view state, not the document) and the playhead was
-   left on frame 10.
-3. **Two auto snapshots and one file** from the visual pass: 자동 저장
+   document (verified identical); the playhead was left on frame 10 and
+   the three faces are now in that browser's HTTP cache. The tab was
+   hidden throughout, so no pixels were seen — if the owner wants a look
+   at the faces on the colour bars, a foreground tab and one press of
+   붓글씨 on 자막 1 is the whole test.
+3. **A prefetch on load of the faces a reopened document names** would
+   close the window in which its words show in the system face until the
+   playhead reaches them (said, since the persona round; ADR-0018
+   "Consequences"). It is a change to "never at start"; the owner's call.
+4. **Two auto snapshots and one file** from the visual pass: 자동 저장
    10:26 / 10:29 (2026-09-11) in the browser's 이전 상태, and
    `Downloads/Untitled.mp4`. Delete or keep.
-4. **Product calls still open from the reframe unit (E8-2 no longer waits
+5. **Product calls still open from the reframe unit (E8-2 no longer waits
    on them):** should 세로 imply 채우기 for every clip (today: per clip,
    deliberately, ADR-0015 "Consequences"); should the box change be
    reachable from the toolbar or only the preview row and the palette;
    should a 4:3 preset exist.
-5. **Unchanged from E7:** playback and an export with a transformed clip
+6. **Unchanged from E7:** playback and an export with a transformed clip
    watched; the sound unit's listening list; the auto snapshots from the
    2026-09-10 visual passes in the browser's 이전 상태; the turn's own
    STATUS sentence (the panel note says the black now, the sentence does

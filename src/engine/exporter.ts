@@ -6,8 +6,10 @@
 // at a fixed interval, and the muxer receives the encoder's own avcC description.
 
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
-import type { Clip, Project, Rational } from './types';
+import type { Clip, Project, Rational, SubtitleFont } from './types';
 import { buildExportPlan, evenDimensions } from './exportPlan';
+import { NO_FONTS, fontsInPlan, type FontLoader } from './fonts';
+import { raceAbort } from './abort';
 import { avcCodecString, type AvcProfile } from './exportConfig';
 import { fpsToNumber, frameToSec, secToUs } from './time';
 import type { VideoDecodeService } from './decoder';
@@ -25,6 +27,10 @@ export interface ExportOptions {
   /** The most each clip may be heard at, from its peak (ADR-0013). The UI
    *  owns the peaks; the exporter only applies the bound. */
   levelCeiling?: (clip: Clip) => number;
+  /** How the subtitle faces the plan names reach the page (ADR-0018).
+   *  Absent = none can (`NO_FONTS`): every face is drawn with the
+   *  fallback and reported in `missingFonts`. */
+  fonts?: FontLoader;
 }
 
 export interface ExportResult {
@@ -34,6 +40,9 @@ export interface ExportResult {
   /** Frames the source could not supply (reported, never silently ignored). */
   missingFrames: number;
   hasAudio: boolean;
+  /** Faces the plan named that could not be loaded, so were drawn with
+   *  the fallback stack (reported, never silently ignored). */
+  missingFonts: SubtitleFont[];
 }
 
 const AUDIO_CODEC = 'mp4a.40.2'; // AAC-LC
@@ -144,6 +153,23 @@ export async function exportProject(
   );
 
   const config = await pickEncoderConfig(width, height, fpsNum, bitrate);
+
+  // The faces the words are set in must be on the page before frame 0 is
+  // drawn, or the first frames go out in the fallback and the rest in the
+  // face (ADR-0018). One await per face, in first-use order; a face that
+  // does not come is drawn with the fallback and named in the result.
+  const fonts = options.fonts ?? NO_FONTS;
+  const missingFonts: SubtitleFont[] = [];
+  const wantedFonts = fontsInPlan(plan);
+  if (wantedFonts.length > 0) {
+    options.onProgress?.(0, plan.length, 'fonts');
+    for (const font of wantedFonts) {
+      // A load cannot be broken into, so the cancel is raced against it:
+      // otherwise 취소 waits for a fetch that may never end.
+      if (!(await raceAbort(fonts.load(font), options.signal)))
+        missingFonts.push(font);
+    }
+  }
 
   // Audio is rendered first: the muxer must be told up front whether the file
   // has an audio track, and rendering offline is fast and deterministic.
@@ -355,6 +381,7 @@ export async function exportProject(
       durationSec: frameToSec(plan.length, fps),
       missingFrames,
       hasAudio: !!audioConfig,
+      missingFonts,
     };
   } finally {
     cleanup();
