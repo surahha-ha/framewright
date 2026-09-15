@@ -4,26 +4,27 @@ Short, immutable records of significant decisions. Nygard style
 (Context → Decision → Consequences). Add a new file per decision; mark superseded
 ones, don't delete.
 
-| #    | Title                                      | Status   |
-| ---- | ------------------------------------------ | -------- |
-| 0001 | Web-first on WebCodecs                     | Accepted |
-| 0002 | CFR timeline + rational time-model         | Accepted |
-| 0003 | Command registry as the spine              | Accepted |
-| 0004 | Local-first, sync-ready storage            | Accepted |
-| 0005 | H.264 / MP4 export target                  | Accepted |
-| 0006 | Direct manipulation, one undo step         | Accepted |
-| 0007 | Bindings as data; paste placement          | Accepted |
-| 0008 | Media time starts at first picture         | Accepted |
-| 0009 | Keep the media (OPFS)                      | Accepted |
-| 0010 | The timeline has a scale of its own        | Accepted |
-| 0011 | Subtitles are not clips; one draw          | Accepted |
-| 0012 | A fade is an edge of a clip                | Accepted |
-| 0013 | A clip's sound is a level and a switch     | Accepted |
-| 0014 | A clip puts its picture in the box         | Accepted |
-| 0015 | The box has a shape of its own             | Accepted |
-| 0016 | A pause is cut by an absolute rule         | Accepted |
-| 0017 | A subtitle has a look, a place, a way in   | Accepted |
-| 0018 | A subtitle has a face, fetched when chosen | Accepted |
+| #    | Title                                                     | Status   |
+| ---- | --------------------------------------------------------- | -------- |
+| 0001 | Web-first on WebCodecs                                    | Accepted |
+| 0002 | CFR timeline + rational time-model                        | Accepted |
+| 0003 | Command registry as the spine                             | Accepted |
+| 0004 | Local-first, sync-ready storage                           | Accepted |
+| 0005 | H.264 / MP4 export target                                 | Accepted |
+| 0006 | Direct manipulation, one undo step                        | Accepted |
+| 0007 | Bindings as data; paste placement                         | Accepted |
+| 0008 | Media time starts at first picture                        | Accepted |
+| 0009 | Keep the media (OPFS)                                     | Accepted |
+| 0010 | The timeline has a scale of its own                       | Accepted |
+| 0011 | Subtitles are not clips; one draw                         | Accepted |
+| 0012 | A fade is an edge of a clip                               | Accepted |
+| 0013 | A clip's sound is a level and a switch                    | Accepted |
+| 0014 | A clip puts its picture in the box                        | Accepted |
+| 0015 | The box has a shape of its own                            | Accepted |
+| 0016 | A pause is cut by an absolute rule                        | Accepted |
+| 0017 | A subtitle has a look, a place, a way in                  | Accepted |
+| 0018 | A subtitle has a face, fetched when chosen                | Accepted |
+| 0019 | The words are dragged on the stage, snapped near a preset | Accepted |
 
 ## Template
 

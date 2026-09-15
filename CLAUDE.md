@@ -233,6 +233,46 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **`Preview.tsx` is ~780 lines and five concerns** — scrub, the playback
+  loop, audio scheduling, the picture's pan drag and now the words' drag
+  with its hit test (ADR-0019). The words' drag (`wordsUnder`,
+  `beginWordsDrag` … `hoverWords`) is the next extraction candidate, into
+  a hook of its own; the stage's two drags share one handler set on
+  purpose (reviewer).
+- **The stage lays the subtitle out on every hover move.** `hoverWords`
+  runs `layoutOfFrame` (font metrics, wrap, `measureText` per line) at
+  pointermove rate whenever the pointer is over the stage, to set the
+  cursor. Cheap for a caption, unmeasured on a slow machine; same class as
+  "`Preview` resolves the clip under the playhead on every render"
+  (reviewer).
+- **A words drag past the box's edge detaches from the pointer**, exactly
+  as the picture's pan does (see that entry): the stored fraction clamps
+  to [0, 1] while the drawn block stops at its margin, so dragging back
+  does nothing until the pointer has returned by the overshoot (novice).
+- **After a drag on the stage, focus is wherever it was.** `.stage` is not
+  focusable and `endWordsDrag` moves focus nowhere, so a mouse-plus-screen-
+  reader user has no way to ask "where am I now" after the panel changed
+  under the pointer; the sentence is the only sign. The keyboard route (the
+  sliders) never enters this path (a11y).
+- **Every slider step says the whole position sentence.** "자막을 옮겼어요
+  · 왼쪽에서 53% · 맨 아래." on each ArrowRight — the most verbose instance
+  of the shared `RangeRow` pattern (the pan's is two clauses); arrival on
+  a preset is already said shorter (a11y).
+- **The 자리 radios and the two sliders under them are not one group.**
+  Off every preset the radios read as nothing checked and the value lives
+  only in the sliders' `aria-valuetext`, a separate Tab stop, tied by the
+  word 자리 in each name and by the note; a group role or a heading would
+  say the relation (a11y). Same family as the panel's missing
+  sub-headings entry below.
+- **자리 here, 위치 there.** The subtitle's sliders are 가로 자리 · 세로
+  자리, the picture's 가로 위치 · 세로 위치 — never on screen together,
+  and the different word tells the two apart, but it is one more word to
+  learn (a11y, novice).
+- **The 세로 slider's 0 is above the 위 preset (15).** Its extreme is the
+  top margin; the nearest radio never lights for it; the note says the
+  true position. The keyboard route has no snap at all (`snapPosition` is
+  applied at the pointer's drop only, by the plan) — the radios are the
+  exact route (a11y, novice).
 - **`subtitle.setFont` is the fourth copy of the set-one-field command
   shape** (`setLook`, `setPlace`, `setEffect` are the others): locate,
   refuse the same value, one `fieldOps`, a `done` from the arg. `fieldOps`
@@ -528,8 +568,12 @@ file that moved. Then run `check:refs` and `typecheck`.
   paste's `done` sentence is the obvious next touch.
 - **Two drag gestures, one per kind of thing** — `Timeline.tsx` for clips and
   `SubtitleLane.tsx` for subtitles, with the same ~120 lines of pointer
-  handling around shared engine arithmetic. The third draggable thing is the
-  trigger to extract the DOM half.
+  handling around shared engine arithmetic. The third draggable thing OF
+  THAT SHAPE (threshold, plan, commit at release) is the trigger to extract
+  the DOM half. The stage has its own pair of another shape — the picture's
+  pan and the words (ADR-0019): pointer capture, a coalesced command per
+  move — sharing one handler set with a hit test; a third stage drag is
+  that pair's trigger.
 - **Delete on a subtitle chip is a key the component handles itself**, not a
   binding (`SubtitleLane.onChipKey`). The keymap binds a chord to ONE action
   and Delete belongs to `clip.deleteRipple`; so this is exactly the shape E6

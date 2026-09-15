@@ -541,6 +541,82 @@ describe('a styled subtitle through the other edits', () => {
   });
 });
 
+describe('subtitle.setPosition (E8-2c)', () => {
+  it('writes the normal form, is one undo step per gesture, and puts the fields back to absent', () => {
+    const ed = editorWith(seed(300, [sub('sub_1', 10, 50)]));
+    // A drag: many dispatches under one key, one undo entry.
+    expect(
+      ed.dispatch(
+        'subtitle.setPosition',
+        { subtitleId: 'sub_1', posX: 0.311, posY: 0.702 },
+        'pos:sub_1',
+      ),
+    ).toBe(true);
+    expect(
+      ed.dispatch(
+        'subtitle.setPosition',
+        { subtitleId: 'sub_1', posX: 0.32, posY: 0.7 },
+        'pos:sub_1',
+      ),
+    ).toBe(true);
+    expect(ed.project.subtitles[0]).toStrictEqual({
+      ...sub('sub_1', 10, 50),
+      posX: 0.32,
+      posY: 0.7,
+    });
+    expect(ed.undo()).toBe(true);
+    expect(ed.project.subtitles[0]).toStrictEqual(sub('sub_1', 10, 50));
+    expect(ed.undo()).toBe(false);
+  });
+
+  it('refuses a position that is the one already stored, after normalising', () => {
+    const ed = editorWith(
+      seed(300, [{ ...sub('sub_1', 10, 50), posX: 0.32, posY: 0.7 }]),
+    );
+    expect(
+      ed.dispatch('subtitle.setPosition', {
+        subtitleId: 'sub_1',
+        posX: 0.3204,
+        posY: 0.7,
+      }),
+    ).toBe(false);
+    // The bottom stack, asked for as numbers, is the absent fields.
+    const atBottom = editorWith(seed(300, [sub('sub_1', 10, 50)]));
+    expect(
+      atBottom.dispatch('subtitle.setPosition', {
+        subtitleId: 'sub_1',
+        posX: 0.5,
+        posY: 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("lands on a preset when the numbers are one, and says the preset's sentence", () => {
+    const ed = editorWith(seed(300, [sub('sub_1', 10, 50)]));
+    const before = ed.context();
+    expect(
+      ed.dispatch('subtitle.setPosition', {
+        subtitleId: 'sub_1',
+        posX: 0.5,
+        posY: 0.5,
+      }),
+    ).toBe(true);
+    expect(ed.project.subtitles[0]).toStrictEqual({
+      ...sub('sub_1', 10, 50),
+      posY: 0.5,
+    });
+    const done = byId('subtitle.setPosition').done;
+    const say = (args: object) =>
+      typeof done === 'function' ? done(before, ed.context(), args) : done;
+    expect(say({ subtitleId: 'sub_1', posX: 0.5, posY: 0.5 })).toBe(
+      '자막 자리를 가운데로 옮겼어요.',
+    );
+    expect(say({ subtitleId: 'sub_1', posX: 0.32, posY: 0.7 })).toBe(
+      '자막을 옮겼어요 · 왼쪽에서 32% · 위에서 70%.',
+    );
+  });
+});
+
 describe('subtitle.setFont (ADR-0018)', () => {
   it('writes the face, is one undo step, and puts the field back to absent', () => {
     const ed = editorWith(seed(300, [sub('sub_1', 10, 50)]));

@@ -59,13 +59,29 @@ const PLACE_Y: Record<Exclude<PlaceId, 'bottom'>, number> = {
   top: 0.15,
 };
 
+/** From here down, `posY` IS the bottom stack: the renderer clamps a placed
+ *  block into the bottom margin, so it draws where the absent field draws.
+ *  The normal form (`subtitlePosition.ts`) stores such a value as absent;
+ *  a document that holds one anyway (a hand edit) is read the same way. */
+export const BOTTOM_FROM = 0.97;
+export function isBottomY(posY: number | undefined): boolean {
+  return posY !== undefined && posY >= BOTTOM_FROM;
+}
+
 /** Which preset the subtitle's place is, or null when it is somewhere a
- *  preset does not name (a drag on the picture, E8-2c, will do that). */
+ *  preset does not name (a drag on the picture, E8-2c). An absent `posX`
+ *  is the centre, as the renderer reads it — the presets write 0.5, the
+ *  drag's normal form writes nothing (`subtitlePosition.ts`), and both
+ *  are 가운데. */
 export function placeOf(s: Pick<Subtitle, 'posX' | 'posY'>): PlaceId | null {
-  if (s.posX === undefined && s.posY === undefined) return 'bottom';
-  if (s.posX !== 0.5) return null;
+  // By VALUE: an absent posX is the centre, a posY from the bottom's
+  // threshold up is the bottom stack — however the document spells them.
+  const posX = s.posX ?? 0.5;
+  const posY = isBottomY(s.posY) ? undefined : s.posY;
+  if (posX !== 0.5) return null;
+  if (posY === undefined) return 'bottom';
   for (const id of ['middle', 'top'] as const) {
-    if (s.posY === PLACE_Y[id]) return id;
+    if (posY === PLACE_Y[id]) return id;
   }
   return null;
 }

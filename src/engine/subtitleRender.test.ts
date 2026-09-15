@@ -5,8 +5,10 @@
 // where "looks fine at 720p, unreadable at 1080p" would otherwise hide.
 import { describe, expect, it } from 'vitest';
 import {
+  drawnBounds,
   effectState,
   layoutBounds,
+  layoutOfFrame,
   layoutSubtitle,
   lookFontPx,
   subtitleFontPx,
@@ -131,6 +133,70 @@ describe('layoutSubtitle — looks', () => {
     expect(shout.ground).toBeNull();
     expect(shout.ink).toBe('#ffffff');
     expect(shout.outlinePx).toBe(12); // 67 × 0.18
+  });
+});
+
+describe("layoutOfFrame — the draw's own layout, for the hit test", () => {
+  it("lays the frame out with the context's font and measure, and can be asked for the bottom stack instead", () => {
+    const ctx = {
+      font: '',
+      measureText: (s: string) => ({ width: s.length * 20 }),
+    } as unknown as Parameters<typeof layoutOfFrame>[0];
+    const frame = { text: '안녕', t: 1, posX: 0.3, posY: 0.4 };
+    const placed = layoutOfFrame(ctx, frame, 1280, 720)!;
+    expect(ctx.font).toContain('37px');
+    expect(placed).toEqual(
+      layoutSubtitle(
+        '안녕',
+        { width: 1280, height: 720 },
+        measure(20),
+        undefined,
+        {
+          posX: 0.3,
+          posY: 0.4,
+        },
+      ),
+    );
+    const bottom = layoutOfFrame(ctx, frame, 1280, 720, { posX: 0.3 })!;
+    expect(bottom.lines[0].y).toBeGreaterThan(placed.lines[0].y);
+    expect(bottom.lines[0].x).toBe(placed.lines[0].x);
+  });
+});
+
+describe('drawnBounds — where the ink is under an effect', () => {
+  const box = { width: 1280, height: 720 };
+  const layout = () => layoutSubtitle('안녕', box, measure(20))!;
+
+  it('is the rest bounds with no effect, or once the effect is done', () => {
+    const rest = layoutBounds(layout());
+    expect(drawnBounds({ t: 1 }, layout(), 720)).toEqual(rest);
+    expect(drawnBounds({ effect: 'rise', t: 1 }, layout(), 720)).toEqual(rest);
+    expect(drawnBounds({ effect: 'fade', t: 0.2 }, layout(), 720)).toEqual(
+      rest,
+    );
+  });
+
+  it("follows 올라오기 down by the effect's shift, and 톡 in about the centre", () => {
+    const rest = layoutBounds(layout());
+    const rise = drawnBounds({ effect: 'rise', t: 0.2 }, layout(), 720);
+    const dy = effectState('rise', 0.2, layout(), 720).dy;
+    expect(dy).toBeGreaterThan(0);
+    expect(rise.top).toBe(rest.top + dy);
+    expect(rise.bottom).toBe(rest.bottom + dy);
+    expect(rise.left).toBe(rest.left);
+
+    const pop = drawnBounds({ effect: 'pop', t: 0.2 }, layout(), 720);
+    const s = effectState('pop', 0.2, layout(), 720).scale;
+    expect(s).toBeLessThan(1);
+    expect(pop.right - pop.left).toBeCloseTo((rest.right - rest.left) * s, 6);
+    expect((pop.left + pop.right) / 2).toBeCloseTo(
+      (rest.left + rest.right) / 2,
+      6,
+    );
+    expect((pop.top + pop.bottom) / 2).toBeCloseTo(
+      (rest.top + rest.bottom) / 2,
+      6,
+    );
   });
 });
 

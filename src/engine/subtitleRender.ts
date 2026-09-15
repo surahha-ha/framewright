@@ -326,6 +326,30 @@ export function effectState(
   return state;
 }
 
+/**
+ * Where the block's pixels ARE on this frame: the rest bounds put through
+ * the effect's transform (`drawSubtitle` translates by dx/dy and scales
+ * about the block's centre). The hit test for the words' drag (E8-2c)
+ * asks this, not `layoutBounds`: on 올라오기's first frame the ink sits
+ * a good way below its rest bounds, and a press on the ink must count.
+ */
+export function drawnBounds(
+  frame: Pick<SubtitleFrame, 'effect' | 't'>,
+  layout: SubtitleLayout,
+  pictureHeight: number,
+): { left: number; top: number; right: number; bottom: number } {
+  const b = layoutBounds(layout);
+  const e = effectState(frame.effect, frame.t, layout, pictureHeight);
+  const x = (v: number) => e.cx + e.dx + e.scale * (v - e.cx);
+  const y = (v: number) => e.cy + e.dy + e.scale * (v - e.cy);
+  return {
+    left: x(b.left),
+    right: x(b.right),
+    top: y(b.top),
+    bottom: y(b.bottom),
+  };
+}
+
 /** The 2D context both a `<canvas>` and an `OffscreenCanvas` hand out. */
 export type SubtitleContext =
   CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -346,6 +370,32 @@ export function subtitleFont(
 }
 
 /**
+ * The layout a frame draws with, measured by the context's own font — the
+ * draw's first half, on its own so the stage can ask where the words ARE
+ * (the drag's hit test, E8-2c) with the same numbers the draw used. Sets
+ * `ctx.font`; `place` overrides the frame's place when given (the bottom
+ * stack's layout for a frame that is elsewhere: `bottomCentreY`).
+ */
+export function layoutOfFrame(
+  ctx: SubtitleContext,
+  frame: SubtitleFrame,
+  width: number,
+  height: number,
+  place: SubtitlePlace = frame,
+): SubtitleLayout | null {
+  const spec = lookSpec(frame.look);
+  const fontPx = lookFontPx(height, frame.look);
+  ctx.font = subtitleFont(fontPx, spec.weight, frame.font);
+  return layoutSubtitle(
+    frame.text,
+    { width, height },
+    (s) => ctx.measureText(s).width,
+    frame.look,
+    place,
+  );
+}
+
+/**
  * Draw the words onto a picture of the given size. Draws nothing for blank
  * text. The caller owns the canvas: this neither clears it nor, when there
  * is no effect to apply, saves state — a plain subtitle goes through exactly
@@ -358,16 +408,7 @@ export function drawSubtitle(
   width: number,
   height: number,
 ): void {
-  const spec = lookSpec(frame.look);
-  const fontPx = lookFontPx(height, frame.look);
-  ctx.font = subtitleFont(fontPx, spec.weight, frame.font);
-  const layout = layoutSubtitle(
-    frame.text,
-    { width, height },
-    (s) => ctx.measureText(s).width,
-    frame.look,
-    frame,
-  );
+  const layout = layoutOfFrame(ctx, frame, width, height);
   if (!layout) return;
   const moving = !!frame.effect && frame.t < 1;
   if (moving) {

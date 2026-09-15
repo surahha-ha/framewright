@@ -1341,6 +1341,18 @@ button[aria-disabled='true'] {
   gap: 6px;
   margin: 6px 12px 8px;
 }
+/* The subtitle's two position sliders and their sentence (E8-2c), under
+   the 자리 row: the same slider rule as the picture's, one per line. */
+.subtitle-position {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 2px 0 6px;
+}
+.subtitle-position .clip-range {
+  flex-basis: 100%;
+}
 .clip-picture .clip-range {
   flex-basis: 100%;
 }
@@ -1371,6 +1383,13 @@ button[aria-disabled='true'] {
 /* The picture can be dragged where a clip is under the playhead. */
 .stage.movable {
   cursor: move;
+}
+/* Over the subtitle's drawn block the words themselves can be dragged
+   (E8-2c). A hand, not the picture's `move` arrows: `.movable` covers the
+   whole stage whenever the clip on screen is the selected one, so the same
+   cursor over the words would say nothing (novice review). */
+.stage.words {
+  cursor: grab;
 }
 /* The box's shape over the preview (ADR-0015): three small buttons and the
    size, on the title row. The title is uppercase 11px; the buttons are not

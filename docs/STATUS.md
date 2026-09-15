@@ -10,9 +10,9 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-15 05:44 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-15 07:14 UTC — `npm run verify` **GREEN**
 
-- unit 668 passed · e2e 130 passed
+- unit 684 passed · e2e 137 passed
 
 <!-- VERIFY:END -->
 
@@ -337,7 +337,7 @@ against the dev server already up on 9990.
 picker at a narrow window (`e2e/narrow-layout.spec.ts` did not gain a
 case), a phone-shot file rather than the colour-bar fixture.
 
-### E8-2b, 캘리그라피 글꼴, is built in this tree — NOT yet committed
+### E8-2b, 캘리그라피 글꼴, is committed and pushed (`5b56e41`, 2026-09-15)
 
 Built in Claude Code on 2026-09-15 across two sessions: a subtitle's
 face as its own field (`font?: 'brush' | 'pen' | 'black'`), three OFL
@@ -357,24 +357,272 @@ New files: `src/engine/fonts.ts` (+test), `src/engine/abort.ts` (+test),
 `docs/TESTING.md`, `docs/adr/README.md`, CLAUDE.md's debt list, this
 file. **The visual pass in the owner's Chrome is done** (step 11 of
 "E8-2b progress"); one finding, fixed with a unit and an e2e assertion.
-**Waiting on the owner: approval for ONE commit** (see "Blocked").
+**Committed with the owner's approval as `5b56e41`** (the whole unit in
+one: code, the three font files with their licences, docs; `CLAUDE.md`
+staged by hunk so the owner's ui-ux-guide bullet stayed out). This file
+carries the post-commit rewrite of three passages (docs only), which can
+ride along with whichever commit comes next. **Not pushed — ask first.**
+
+### E8-2c, 자막 끌기, is built in this tree — NOT yet committed
+
+Built in Claude Code on the evening of 2026-09-15, right after E8-2b was
+pushed: the words on the preview can be dragged anywhere (a press on the
+drawn block selects the subtitle and drags it; the drop snaps within 3%
+of a preset), two sliders 가로 자리 · 세로 자리 are the keyboard's route,
+one sentence under them says where the words are, and every writer goes
+through one normal form so a drop on a preset IS the preset. ADR-0019 is
+the contract; "E8-2c progress" (9 steps) / "E8-2c issues" under the plan
+below are the record; the persona round's leftovers are the eight newest
+entries in CLAUDE.md "Known tech debt". The gate stamped above is this
+tree's handoff run. New files: `src/engine/subtitlePosition.ts` (+test),
+`src/ui/RangeRow.tsx` (moved out of `ClipPanel.tsx`),
+`e2e/subtitle-drag.spec.ts`, `docs/adr/0019-the-words-are-dragged-on-the-stage.md`.
+Changed: `subtitleCommands.ts` (+test), `subtitleStyle.ts` (+test),
+`subtitleRender.ts` (+test), `ui/Preview.tsx`, `ui/SubtitlePanel.tsx`,
+`ui/ClipPanel.tsx`, `styles.css`, `docs/TESTING.md`, `docs/adr/README.md`,
+CLAUDE.md's debt list, this file. **Waiting on the owner: approval for
+ONE commit** (see "Blocked").
 
 ## Next single step
 
-**Commit E8-2b with the owner's approval, then plan E8-2c.** The commit
-is the whole unit in one: the code, the three font files with their
-licences, the docs. `CLAUDE.md` is staged by hunk — the owner's own
-ui-ux-guide bullet (~line 226) stays out, the debt entries go in — and
-`AGENTS.md`, `docs/UX.md`, `debug.log`, `e9-baseline.log` stay out
-(theirs / junk). Then ask before pushing. **After that, E8-2c:** drag the
+**Commit E8-2c with the owner's approval — ONE commit, the E8-2b recipe
+(`CLAUDE.md` staged by hunk so the owner's ui-ux-guide bullet stays out;
+`AGENTS.md`, `docs/UX.md`, `debug.log`, `e9-baseline.log` stay out) —
+ask before pushing, then plan the next unit:** E10 images / stickers
+(the last item of the owner's 예능 자막 definition), or a polish pass
+over the E8-2 debt (the words drag's edge detach, the reopened
+document's font prefetch, the 자리 radios + sliders as one group); the
+owner's call. **The E8-2c plan below is done; kept as the record.**
+Context that held when it was written: `5b56e41` is on
+`origin/main`. The owner's own uncommitted edits (`AGENTS.md`,
+`CLAUDE.md`'s ui-ux-guide bullet, `docs/UX.md`) and the two stray logs
+(`debug.log`, `e9-baseline.log`) are still in the tree, theirs.
+**E8-2c:** drag the
 words anywhere on the stage — the owner's end goal for 예능 자막; `posX` /
 `posY` box fractions are already the fields (ADR-0017), the preview
 already has a pointer drag for the picture (`.stage`), and the two
 existing drag gestures (`Timeline.tsx`, `SubtitleLane.tsx`) are the
-rule-of-three trigger to extract the DOM half. Owner decisions E8-2c
-will need: snap to the three presets or free; a keyboard route (the
-nudges); whether the 자리 radios stay when the words are dragged off
-every preset (today: nothing checked).
+rule-of-three trigger to extract the DOM half. **Decided by the owner on
+2026-09-15 (evening), for E8-2c:**
+
+- **Free, with a light snap near a preset.** The words go anywhere in
+  the box; within a small distance of a preset's value (아래 / 가운데 /
+  위, and the horizontal centre) the drop lands ON that value, so the
+  자리 radio lights again. The snap distance is the plan's to fix (a
+  few percent of the box).
+- **The keyboard route is two sliders in the panel, 가로 · 세로**, the
+  same shape as the clip's 화면 옮기기 (0–100%, 5% notches, described in
+  words) — a screen-reader user and a keyboard user get the same result
+  the pointer gets, and the position is read as a sentence.
+- **Off every preset the 자리 row shows nothing checked, plus a position
+  sentence** ("왼쪽에서 32% · 위에서 70%") beside the row or the sliders.
+  No fourth radio.
+
+### E8-2c execution plan — 자막 끌기
+
+**Facts the plan stands on (measured 2026-09-15 evening):** the place is
+already the block's centre as fractions of the box (`posX` / `posY`,
+ADR-0017); `layoutSubtitle` clamps a placed block to the bottom margin,
+so `posY = 1` draws EXACTLY where the absent field (the bottom stack)
+draws, and `posX` absent is `0.5`; `placeOf` returns null off every
+preset and the 자리 row then shows nothing checked; the stage already has
+a pointer drag (the picture's pan: pointer capture on `.stage`, a 3 px
+threshold, `clip.pan` dispatched per move under one coalesce key so the
+drag is one undo step, the sentence from the command's `done`); the
+overlay canvas sits on the picture's measured rect at the export grid's
+size; no command writes an arbitrary position yet.
+
+**Rule table — the contract the tests assert:**
+
+| Rule          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Command       | `subtitle.setPosition` 자막 자리 정하기 (not 옮기기: `clip.move`'s label is 옮기기, and the vocabulary test forbids one label inside another) — arg-taking, hidden, `{ subtitleId, posX?, posY? }` fractions in [0, 1] rounded to whole percents (0.01), absent = the preset value (`posX` 0.5, `posY` the bottom stack). One `fieldOps`, exact inverse, refuses no change. Coalesce key `pos:<id>` for a drag / a slider run, so each is ONE undo step (the pan's shape).                                                                                                                                                                                                                                                                                                                                                              |
+| Normal form   | `normalizePosition({posX, posY})` (engine): `posX` 0.50 → absent; `posY` ≥ 0.97 → absent (the bottom stack; it draws the same and lights 아래). So a drop at the bottom centre is byte-identical to the 아래 preset and undo of every move gives the document it was.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Snap          | `snapPosition(pos, bottomCentreY)` (engine, pure): on each axis independently, within 0.03 of a preset value the value becomes it — `posX` near 0.5; `posY` near 0.15 (위), 0.5 (가운데), or near `bottomCentreY` (the centre the bottom stack's block has for THIS text and look, given by the caller from `layoutSubtitle(text, box, measure, look, {posX})` with no `posY`) → absent. Applied at the DROP only; during the move the words follow the pointer.                                                                                                                                                                                                                                                                                                                                                                        |
+| Sentence      | `describePosition(posX, posY)`: on a preset the existing sentence ("자막 자리를 가운데로 옮겼어요."); off it "자막을 옮겼어요 · 왼쪽에서 32% · 위에서 70%." with "맨 아래" for an absent `posY` and "가운데" for an absent `posX` on the other axis. The same words, without the verb, are the row's position sentence ("왼쪽에서 32% · 위에서 70%").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| The drag      | On `.stage`, the ONE pointerdown handler hit-tests first: if a subtitle is under the playhead and the point is inside `layoutBounds` of its current layout (overlay px, through the overlay's rect), the gesture is the words'; else the picture's pan as today. The words' drag: selects that subtitle at press (no "press again" step — the words are unambiguous, the picture is not), locks its id for the gesture, base = the block's centre at press (so the first move does not jump, bottom stack included), per move dispatches `setPosition` with the pointer delta as fractions of the overlay, at release re-dispatches the snapped normal form under the same key, then `endGesture`. Cursor `move` over the words (`.stage-subtitle` stays `pointer-events: none`; the stage sets the cursor from the hit test on hover). |
+| The sliders   | Two `<input type="range">` 가로 · 세로 under the 자리 row, 0–100 step 1 (PageUp/Down = 10 natively), `aria-valuetext` in words ("왼쪽에서 32%", "위에서 70%" / "맨 아래"); value = the fraction × 100, 50 / 100 when absent; input writes `setPosition` with the normal form (50 → absent, ≥ 97 → absent) under the coalesce key, one sentence at the end (the clip's 화면 옮기기 shape). The 자리 radios keep lighting from `placeOf`.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Row sentence  | Beside the 자리 row when `placeOf` is null: the position words ("왼쪽에서 32% · 위에서 70%"), no live region (the status line already said it); a screen reader reaches the same as the sliders' values.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Playback      | The drag locks the subtitle at press; if the playhead leaves the subtitle mid-drag the words vanish from the overlay but the gesture keeps writing that subtitle's position; nothing is drawn for it until the playhead is back. The pointer is not stolen.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Not extracted | The stage's two drags (pan, words) are the pan's shape (capture, per-move coalesced dispatch); the timeline's two (clips, subtitles) are another shape (threshold, plan, commit at release). Each pair is at two; nothing reaches three in this unit. The stage's pair shares the one handler set with a hit test.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Export        | Nothing: `SubtitleFrame` already carries `posX` / `posY` and the plan draws them (ADR-0017).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+
+**Shape of the work, in order:**
+
+1. Engine, test-first (a new `subtitlePosition.ts`): `normalizePosition`,
+   `snapPosition`, `describePosition`, the slider mapping
+   (`sliderOfPosition` / `positionOfSlider`), `bottomCentreY` from a
+   layout; `subtitle.setPosition` in `subtitleCommands.ts` with the
+   coalesce contract (two dispatches under `pos:<id>` = one undo,
+   `toStrictEqual` on undo, the no-change refusal, the sentence on and
+   off a preset).
+2. `Preview.tsx`: the hit test, the words' drag, the cursor; the pan
+   untouched (its e2e stays green).
+3. `SubtitlePanel.tsx`: the two sliders, the row sentence; `styles.css`
+   for the range inputs if the clip's rules do not already apply.
+4. e2e `e2e/subtitle-drag.spec.ts`: a drag on the words moves the ink's
+   centre by the drag (within a few px) and is one undo step; a drop
+   near 가운데 lights the radio and says the preset sentence; a drop off
+   every preset shows nothing checked and the position sentence; the
+   pan still moves the picture when the press is off the words; ArrowRight
+   on 가로 moves the ink and says the sentence; a reload keeps the
+   position; an export with a dragged subtitle has 90 frames.
+5. ADR-0019 (the words are dragged on the stage; snap; the normal form
+   and why `posY` 1 is the bottom), `docs/TESTING.md` rows (the drag,
+   the sliders, the row sentence), CLAUDE.md's two-drags entry updated
+   (the stage now has a pair too), UX.md if a rule is new.
+6. Persona round, fix blockers, `npm run verify`, visual pass in the
+   owner's Chrome (ask which by deviceId; a FOREGROUND tab this time so
+   the drag can be seen), `npm run handoff`, ONE commit with approval.
+
+**Out of scope for this unit:** rotating or scaling the words, a drag on
+the timeline lane to place (that lane moves TIME), multi-select,
+alignment guides drawn on the stage (the snap is the guide), images /
+stickers (E10), Escape cancelling the stage drag (the pan has none; both
+or neither, a later polish).
+
+**How progress and issues are reported:** as E8-2b — "### E8-2c
+progress" and "### E8-2c issues" under this plan, one line per step,
+written before moving on; stop before the commit for the owner's
+approval.
+
+### E8-2c progress
+
+Built in Claude Code on 2026-09-15 (evening, KST), the plan's steps in
+order:
+
+1. **Engine, test-first — done.** `src/engine/subtitlePosition.ts` (new:
+   `normalizePosition`, `snapPosition` with `SNAP` 0.03, `bottomCentreY`,
+   `positionText` / `positionXText` / `positionYText`,
+   `describePosition`, `sliderOfPosition` / `positionOfSlider`) with 11
+   tests; `subtitle.setPosition` 자막 자리 정하기 in `subtitleCommands.ts`
+   (3 tests: a coalesced gesture is one undo step back to absent fields,
+   the no-change refusal after normalising, the preset's sentence when the
+   numbers are one); `placeOf` now reads an absent `posX` as the centre
+   (both spellings of 가운데 / 위 light the radio); `layoutOfFrame` split
+   out of `drawSubtitle` for the hit test (1 test). Engine unit: 655.
+2. **Preview — done.** The stage's pointerdown hit-tests the words first
+   (`wordsUnder`: the pointer through the overlay's rect onto the export
+   grid, against `layoutBounds` of the frame's own layout); a hit selects
+   the subtitle and starts its drag (`wordsDragRef`), per move
+   `subtitle.setPosition` under `pos:<id>`, at release the snapped normal
+   form under the same key, then `endGesture`; a hover over the block sets
+   `.stage.words` (cursor `move`). The pan is untouched below it.
+3. **Panel — done.** `RangeRow` moved from `ClipPanel.tsx` to its own
+   `ui/RangeRow.tsx` (its fifth and sixth uses); two sliders 가로 자리 ·
+   세로 자리 (0–100, step 1) under the 자리 row in `.subtitle-position`,
+   values from `sliderOfPosition`, `aria-valuetext` per axis, described by
+   one sentence that is the position words off a preset and "<preset>
+   자리에 있어요 · 화면의 자막을 끌거나 슬라이더로 옮길 수 있어요" on one.
+4. **e2e — done.** `e2e/subtitle-drag.spec.ts`, 6 tests on real Chrome:
+   a drag moves the ink's centre by the drag (±0.05 of the box), says
+   where, shows nothing checked and the position sentence, and one undo
+   puts the bottom stack back; a drop within the snap of 가운데 lights the
+   radio and says the preset's sentence; a press off the words still
+   chooses the clip and then pans the picture, the words unmoved; the
+   sliders move the words by keyboard with `aria-valuetext` and one undo
+   entry per gesture; a position survives a reload; an export with
+   dragged words has 90 frames. The pan's own e2e (`picture.spec.ts`)
+   re-run green beside them. First run 6/7: the slider test assumed three
+   separate arrow presses were one gesture — they are three (the key
+   comes up between them; a held key is one), as on the picture's
+   sliders; the assertion was wrong, the code right.
+5. **Docs — done.** ADR-0019 and its index row; `docs/TESTING.md` rows for
+   the words drag, the two sliders and the position note; CLAUDE.md's
+   two-drags entry now counts the stage's pair.
+6. **Full gate before the personas: GREEN** (unit 682 · e2e 136).
+7. **Persona round — done** (tester-qa, tester-a11y, tester-novice,
+   framewright-reviewer, in parallel). No blocker; four majors fixed
+   test-first (below), the rest in CLAUDE.md "Known tech debt" (eight new
+   entries at the top). Engine unit after the fixes: 657 (the e2e spec
+   grew to 7).
+8. **Full gate after the fixes: GREEN** (unit 684 · e2e 137).
+9. **Visual pass in the owner's Chrome — done, with pixels this time**
+   (the owner chose `da2a0786-…`, the tab in the foreground; Claude in
+   Chrome on the live dev server at 9990, the owner's own autosaved
+   project: 7 clips, 3 subtitles). Selected 자막 1 ("걸침", 10–24) with
+   Enter (playhead to 10). Hovering the words turned the cursor to a hand
+   (`.stage.words`, computed `grab`); a drag of −25% × −40% of the box put
+   the words at the left middle of the colour bars (seen), said "자막을
+   옮겼어요 · 왼쪽에서 25% · 위에서 50%.", lit no 자리 radio, and the
+   sliders read 25 / 50 with the note "왼쪽에서 25% · 위에서 50%"; the
+   document held `posX 0.25, posY 0.5`. A second drag to just past the
+   horizontal centre snapped: "자막 자리를 가운데로 옮겼어요.", 가운데 lit,
+   the document `{ posY: 0.5 }` alone (the normal form). The panel
+   (zoomed): the 자리 row, then 가로 자리 / 세로 자리 as two full-width
+   slider rows with their readouts (가로 가운데 · 위에서 50%), the note
+   under them — aligned with the picture panel's sliders. Home on 세로
+   자리 put the words at the top margin (seen in the zoomed preview),
+   said "자막을 옮겼어요 · 가로 가운데 · 위에서 0%." Three edits undone
+   with Ctrl+Z from the ruler: 아래 lit, sliders 50 / 100, the persisted
+   project JSON identical to the snapshot taken before the pass. **No
+   finding.** One mis-aimed first press (the driver's coordinate
+   conversion, not the app) selected the clip and said the pan's
+   "지금 보이는 클립을 골랐어요" sentence without moving anything. Tab
+   closed. The stamp at the top is the handoff run after this pass.
+
+### E8-2c issues
+
+- **Major (QA): the hit test ignored the effect.** `wordsUnder` tested
+  the pointer against the REST bounds, but 올라오기 draws the words a
+  good way below them on its first frames and 톡 draws them smaller, so
+  a press on the visible ink on such a frame fell through to the
+  picture's pan. Fixed with `drawnBounds(frame, layout, height)` in
+  `subtitleRender.ts` (the rest bounds through the effect's transform;
+  unit-tested for 올라오기's shift and 톡's scale about the centre); the
+  hit is against it, the drag's base stays the REST centre (the one the
+  stored fractions name, so the first move does not add the effect's
+  offset). E2e: 올라오기, Enter on the chip (its first frame), a drag on
+  the ink follows the pointer. ADR-0019's "drawn centre" wording
+  corrected.
+- **Minor (QA), fixed:** a hand-edited `posY` of 0.98 drew at the bottom
+  but was said as "위에서 98%" and lit no radio. `BOTTOM_FROM` / `isBottomY`
+  moved to `subtitleStyle.ts`; `placeOf` and `positionYText` read such a
+  value as the bottom (unit tests), and `placeOf` now answers by value on
+  both axes — `{ posX: 0.5 }` alone is 아래 (it draws at the bottom
+  centre), which changed one E8-2a expectation with the reason beside it.
+
+- **The plan's label 자막 자리 옮기기 failed the vocabulary test**
+  (`clip.move`'s label 옮기기 is inside it); the command is 자막 자리
+  정하기.
+- **Two spellings of one place.** The radios write `posX: 0.5`
+  (ADR-0017); the normal form writes nothing for the centre. Rather than
+  make the drag write 0.5 (then 가로 slider 50 on a bottom subtitle would
+  write a field for nothing), `placeOf` and the command's no-change test
+  compare by VALUE (`posX ?? 0.5`). ADR-0019 records it.
+- **The row sentence is always shown**, not only off a preset as the
+  plan said: the sliders need a description either way, and on a preset
+  it is the one line that tells a first-time user the words can be
+  dragged at all.
+- **Major (a11y): a press on the words that did not move them changed
+  the selection in silence** — the panel swapped under the pointer with
+  no sentence, where the picture's press says "지금 보이는 클립을
+  골랐어요". Fixed: the drag records whether the press changed the
+  selection and, on a release without a move, says "화면의 자막을 골랐어요
+  · 끌면 자리가 옮겨져요." (e2e asserts it after the pan test's clip
+  press).
+- **Major (novice): the cursor said nothing** — `.stage.movable` sets
+  `move` over the WHOLE stage whenever the clip on screen is the selected
+  one, so the words' `move` was the same arrows. Fixed: the words get a
+  hand (`grab`); TESTING.md and ADR-0019 updated.
+- **Major (novice): "가운데" for the horizontal centre collided with the
+  가운데 radio.** The most natural first drag (straight up) produced
+  "자막을 옮겼어요 · 가운데 · 위에서 63%", which reads as the preset.
+  Fixed: an absent `posX` is said as 가로 가운데 (`positionXText`; unit
+  test).
+- **Majors kept as debt (CLAUDE.md, top of the list):** focus after a
+  stage drag is wherever it was (a11y); the words drag detaches from the
+  pointer at the box's edge like the pan (novice).
+- **Minors kept as debt:** `Preview.tsx` at ~780 lines with the words
+  drag as the next extraction (reviewer); a layout per hover move for the
+  cursor (reviewer); the whole sentence on every slider step (a11y); the
+  radios and the sliders not one group (a11y); 자리 vs 위치 (a11y,
+  novice); the 세로 slider's 0 above the 위 preset and no snap on the
+  keyboard route (novice, a11y).
+- **Noted, not debt:** `SubtitlePositionArgs`' optional axes mean "the
+  preset value", not "leave as is" — every caller passes both; the field
+  comment says so (reviewer). The first-press asymmetry between the two
+  stage drags is ADR-0019's decision (novice).
 
 **The E8-2b plan below is done; kept as the record.** Decided by the
 owner on 2026-09-15:
@@ -1044,12 +1292,12 @@ plan's steps, in order, with the gate at each point:
 
 ## Blocked / needs the owner
 
-1. **E8-2b is uncommitted and waits for the owner's approval of ONE
-   commit** (announced at the end of the 2026-09-15 session; the tree is
-   `main` @ `f7624ac` = `origin/main` plus the unit). What goes in and
-   what stays out is in "Next single step". Ask again before pushing.
-   The owner's own uncommitted edits to `AGENTS.md`, `CLAUDE.md` (the
-   ui-ux-guide bullet) and `docs/UX.md` stay theirs to commit.
+1. **E8-2c is uncommitted and waits for the owner's approval of ONE
+   commit** (announced at the end of the 2026-09-15 evening session; the
+   tree is `main` @ `5b56e41` = `origin/main` plus the unit). What goes
+   in and what stays out is in "Next single step". Ask again before
+   pushing. The owner's own uncommitted edits to `AGENTS.md`, `CLAUDE.md`
+   (the ui-ux-guide bullet) and `docs/UX.md` stay theirs to commit.
 2. **The visual pass's trace in the owner's Chrome:** nothing left in the
    document (verified identical); the playhead was left on frame 10 and
    the three faces are now in that browser's HTTP cache. The tab was

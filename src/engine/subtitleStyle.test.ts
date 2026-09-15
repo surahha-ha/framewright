@@ -44,7 +44,10 @@ describe('what the document stores', () => {
     // A drag (E8-2c) will write values no preset names: no radio is checked.
     expect(placeOf({ posX: 0.2, posY: 0.5 })).toBeNull();
     expect(placeOf({ posX: 0.5, posY: 0.3 })).toBeNull();
-    expect(placeOf({ posX: 0.5 })).toBeNull();
+    // By VALUE since E8-2c (ADR-0019): posX 0.5 with no posY draws exactly
+    // where the bottom stack draws — the bottom centre — so it IS 아래.
+    expect(placeOf({ posX: 0.5 })).toBe('bottom');
+    expect(placeOf({ posX: 0.49 })).toBeNull();
   });
 
   it('writes the bottom preset as ABSENT fields, so an old document and a new one draw alike', () => {

@@ -44,6 +44,14 @@ import {
 } from '../engine/fonts';
 import type { SubtitleFont } from '../engine/types';
 import { browserFonts, fontState } from './fonts';
+import { RangeRow } from './RangeRow';
+import {
+  positionOfSlider,
+  positionText,
+  positionXText,
+  positionYText,
+  sliderOfPosition,
+} from '../engine/subtitlePosition';
 import { CommandButton } from './CommandButton';
 
 const NEXT: Record<string, 1 | -1> = {
@@ -188,6 +196,18 @@ export function SubtitlePanel() {
     run('subtitle.setText', { subtitleId: id, text: draft });
   }
 
+  // Where the words are, for the two sliders (E8-2c): the absent fields
+  // read as 50 (centre) and 100 (bottom), and writing those back is the
+  // preset again — the normal form, `subtitlePosition.ts`.
+  const slider = sliderOfPosition(subtitle);
+  const positionNoteId = 'subtitle-position-note';
+  const slide = (x: number, y: number) =>
+    run(
+      'subtitle.setPosition',
+      { subtitleId: id, ...positionOfSlider(x, y) },
+      `pos:${id}`,
+    );
+
   /** A face is fetched the first time it is chosen (ADR-0018): the command
    *  writes the field, then the loader is asked, and the sentence says the
    *  words will change when the file lands — the preview draws the
@@ -312,6 +332,38 @@ export function SubtitlePanel() {
           }
           same={SAME_PLACE}
         />
+        {/* The keyboard's route to what a drag on the preview does (E8-2c):
+            two sliders in the words' own language (fractions of the box,
+            as percents), and one sentence that says where the words are —
+            the sliders' description, and what the 자리 row cannot say when
+            nothing in it is checked. */}
+        <div className="subtitle-position">
+          <RangeRow
+            label="가로 자리"
+            min={0}
+            max={100}
+            step={1}
+            value={slider.x}
+            valueText={positionXText(subtitle.posX)}
+            describedBy={positionNoteId}
+            onChange={(v) => slide(v, slider.y)}
+          />
+          <RangeRow
+            label="세로 자리"
+            min={0}
+            max={100}
+            step={1}
+            value={slider.y}
+            valueText={positionYText(subtitle.posY)}
+            describedBy={positionNoteId}
+            onChange={(v) => slide(slider.x, v)}
+          />
+          <span className="clip-edge-note dim" id={positionNoteId}>
+            {placeOf(subtitle)
+              ? `${PLACE_LABEL[placeOf(subtitle)!]} 자리에 있어요 · 화면의 자막을 끌거나 슬라이더로 옮길 수 있어요`
+              : positionText(subtitle)}
+          </span>
+        </div>
         <Choices
           id="subtitle-effect"
           title="효과"

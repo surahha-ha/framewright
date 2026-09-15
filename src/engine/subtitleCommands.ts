@@ -35,6 +35,7 @@ import {
   type PlaceId,
 } from './subtitleStyle';
 import { describeFont, fontField, fontOf, type FontId } from './fonts';
+import { describePosition, normalizePosition } from './subtitlePosition';
 
 export interface SubtitleTextArgs {
   subtitleId: string;
@@ -543,6 +544,54 @@ export const setSubtitleEffectCommand: Command<SubtitleEffectArgs> = {
   },
 };
 
+export interface SubtitlePositionArgs {
+  subtitleId: string;
+  /** Fractions of the box; absent = the preset value on that axis. */
+  posX?: number;
+  posY?: number;
+}
+
+function decidePosition(
+  ctx: EditorCtx,
+  args: SubtitlePositionArgs | undefined,
+) {
+  if (!args) return null;
+  if (args.posX !== undefined && !Number.isFinite(args.posX)) return null;
+  if (args.posY !== undefined && !Number.isFinite(args.posY)) return null;
+  const found = locateSubtitle(ctx.project, args.subtitleId);
+  if (!found) return null;
+  const next = normalizePosition(args);
+  const { subtitle } = found;
+  // Compared by VALUE: a preset wrote `posX` 0.5, the normal form writes
+  // nothing for it, and neither is a move.
+  if (
+    (next.posX ?? 0.5) === (subtitle.posX ?? 0.5) &&
+    next.posY === subtitle.posY
+  )
+    return null;
+  return { subtitle, next };
+}
+
+/** Where the words are put by hand (E8-2c, ADR-0019): the stage's drag
+ *  and the panel's sliders write any position, in the normal form
+ *  (`subtitlePosition.ts`), so a drop on a preset IS the preset. Callers
+ *  dispatch under the coalesce key `pos:<id>` so a gesture is one undo
+ *  step — the pan's shape. */
+export const setSubtitlePositionCommand: Command<SubtitlePositionArgs> = {
+  id: 'subtitle.setPosition',
+  label: '자막 자리 정하기',
+  hidden: true,
+  requiresArgs: true,
+  done: (_before, _after, args) =>
+    describePosition(normalizePosition(args as SubtitlePositionArgs)),
+  canRun: (ctx, args) => decidePosition(ctx, args) !== null,
+  run(ctx, args) {
+    const d = decidePosition(ctx, args);
+    if (!d) throw new Error('subtitle.setPosition: nothing to change');
+    return fieldOps(d.subtitle, d.next);
+  },
+};
+
 /** The face the words are set in (ADR-0018). The same shape as the look:
  *  one field, an exact inverse, the face already set refused. Loading the
  *  file is the panel's and the preview's business, not the document's. */
@@ -585,4 +634,5 @@ export const SUBTITLE_COMMANDS: Command<any>[] = [
   setSubtitlePlaceCommand,
   setSubtitleEffectCommand,
   setSubtitleFontCommand,
+  setSubtitlePositionCommand,
 ];
