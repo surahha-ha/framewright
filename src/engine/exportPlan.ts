@@ -5,7 +5,8 @@
 
 import type { Project } from './types';
 import { resolveAt, videoDuration } from './timeline';
-import { subtitleAt } from './subtitles';
+import { subtitleFrameAt } from './subtitleStyle';
+import type { SubtitleFrame } from './subtitleRender';
 import { blendAt, type Blend } from './fades';
 import { isAsShot, pictureTransform, type PictureTransform } from './picture';
 
@@ -15,10 +16,11 @@ export interface ExportFrame {
   assetId: string | null;
   clipId: string | null;
   sourceFrame: number;
-  /** The words burnt into this frame, or null. Part of the plan, not looked
-   *  up at render time, so "what does frame N show" is answered in one place
-   *  and the preview and the export cannot answer it differently. */
-  subtitle: string | null;
+  /** The words burnt into this frame — how they look, where they sit and
+   *  how far in their effect is (ADR-0017) — or null. Part of the plan, not
+   *  looked up at render time, so "what does frame N show" is answered in
+   *  one place and the preview and the export cannot answer it differently. */
+  subtitle: SubtitleFrame | null;
   /** A second picture mixed over this one — the other side of a fade — and
    *  how much of it shows (ADR-0012). `assetId: null` is black. In the plan
    *  for the same reason as the words: one answer per frame, for both
@@ -35,8 +37,7 @@ export function buildExportPlan(project: Project): ExportFrame[] {
   const plan: ExportFrame[] = new Array(total);
   for (let f = 0; f < total; f++) {
     const hit = resolveAt(project, f);
-    const words = subtitleAt(project, f)?.text ?? '';
-    const subtitle = words.length ? words : null;
+    const subtitle = subtitleFrameAt(project, f);
     plan[f] = hit
       ? {
           timelineFrame: f,

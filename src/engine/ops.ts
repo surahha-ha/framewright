@@ -106,10 +106,13 @@ export function applyOp(project: Project, op: Op): Project {
       return { ...project, subtitles: next };
     }
     case 'updateSubtitle':
+      // Same rule as a clip: a subtitle's look, place and effect are
+      // optional (ADR-0017), and "look: undefined" must REMOVE the field so
+      // that undo and a reload agree on the document.
       return {
         ...project,
         subtitles: project.subtitles.map((s) =>
-          s.id === op.subtitleId ? { ...s, ...op.changes } : s,
+          s.id === op.subtitleId ? dropUndefined({ ...s, ...op.changes }) : s,
         ),
       };
     case 'addAsset':

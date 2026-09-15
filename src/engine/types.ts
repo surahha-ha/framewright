@@ -101,11 +101,30 @@ export interface Track {
  * Subtitles are kept sorted by `startFrame` and never overlap — one line of
  * words on screen at a time is the whole of what a first-time user expects.
  */
+/** A subtitle's named look (ADR-0017). Absent on the subtitle = 기본: white
+ *  ink on a dark pill, the one look every subtitle had before E8-2. */
+export type SubtitleLook = 'bold' | 'shout';
+
+/** How a subtitle comes and goes (ADR-0017). Absent = it is simply there. */
+export type SubtitleEffect = 'fade' | 'pop' | 'rise';
+
 export interface Subtitle {
   id: string;
   text: string;
   startFrame: number;
   endFrame: number; // EXCLUSIVE
+  /** 기본 when absent. */
+  look?: SubtitleLook;
+  /** Where the CENTRE of the text block sits, as fractions of the box (the
+   *  same language as a clip's pan, ADR-0014), so a later drag on the
+   *  picture writes the same two numbers. Absent = the bottom stack every
+   *  subtitle had before: `posY` absent keeps the bottom margin, `posX`
+   *  absent keeps the centre. Any value in [0, 1] is legal; the draw clamps
+   *  the block inside the box. */
+  posX?: number;
+  posY?: number;
+  /** 바로 (no effect) when absent. */
+  effect?: SubtitleEffect;
 }
 
 export interface Project {

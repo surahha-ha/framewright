@@ -256,6 +256,21 @@ describe('rippleSubtitles — captions follow the footage they caption', () => {
     ]);
   });
 
+  it('carries the look, the place and the effect into the tail (ADR-0017)', () => {
+    const styled: Subtitle = {
+      ...sub('b', 40, 60, 'b'),
+      look: 'shout',
+      posX: 0.5,
+      posY: 0.15,
+      effect: 'pop',
+    };
+    const split = splitSubtitleAt([styled], 50, 7);
+    expect(split.subtitles).toEqual([
+      { ...styled, endFrame: 50 },
+      { ...styled, id: 'sub_7', startFrame: 50 },
+    ]);
+  });
+
   it('splits nothing when no subtitle straddles the point', () => {
     // 60 is b's end and c's start: an edge, not an inside.
     expect(splitSubtitleAt(list(), 60, 7)).toEqual({

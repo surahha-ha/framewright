@@ -8,11 +8,16 @@
 // preview keeps the words on their own layer (they must change on the exact
 // frame without waiting for a picture); the export burns them in.
 
-import { drawSubtitle, type SubtitleContext } from './subtitleRender';
+import {
+  drawSubtitle,
+  type SubtitleContext,
+  type SubtitleFrame,
+} from './subtitleRender';
 import { AS_SHOT, pictureRect, type PictureTransform } from './picture';
 
 /** The 2D context — an `OffscreenCanvas`'s or a canvas's. The turn needs
- *  the transform calls a subtitle never did. */
+ *  the transform calls a plain subtitle never did (and a subtitle with an
+ *  effect now does, ADR-0017). */
 export type FrameContext = SubtitleContext & {
   translate(x: number, y: number): void;
   rotate(angle: number): void;
@@ -76,7 +81,7 @@ export function composeFrame(
   height: number,
   primary: (CanvasImageSource & Picture) | null,
   blend: BlendLayer | null,
-  subtitle: string | null,
+  subtitle: SubtitleFrame | null,
   transform: PictureTransform = AS_SHOT,
 ): void {
   ctx.globalAlpha = 1;

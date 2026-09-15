@@ -25,17 +25,28 @@ function fakeCtx() {
       calls.push(`text ${text}`);
     },
     measureText: (text: string) => ({ width: text.length * 10 }),
+    // A real context restores its state; the fake keeps that one promise
+    // for the alpha, which is what an effect changes (ADR-0017).
+    saved: [] as number[],
     save() {
       calls.push('save');
+      this.saved.push(this.globalAlpha);
     },
     restore() {
       calls.push('restore');
+      this.globalAlpha = this.saved.pop() ?? this.globalAlpha;
     },
     translate(x: number, y: number) {
       calls.push(`translate ${x},${y}`);
     },
     rotate(angle: number) {
       calls.push(`rotate ${Math.round((angle * 180) / Math.PI)}`);
+    },
+    scale(x: number, y: number) {
+      calls.push(`scale ${x},${y}`);
+    },
+    strokeText(text: string) {
+      calls.push(`stroke ${text}`);
     },
     beginPath() {},
     roundRect() {},
@@ -86,9 +97,38 @@ describe('composeFrame', () => {
 
   it('draws the words last, over the blend', () => {
     const { ctx, calls } = fakeCtx();
-    composeFrame(ctx, 320, 180, pic('a'), { frame: null, weight: 0.5 }, '안녕');
+    composeFrame(
+      ctx,
+      320,
+      180,
+      pic('a'),
+      { frame: null, weight: 0.5 },
+      { text: '안녕', t: 1 },
+    );
     expect(calls[calls.length - 1]).toBe('text 안녕');
     expect(calls.indexOf('text 안녕')).toBeGreaterThan(2);
+  });
+
+  it('draws a plain subtitle through exactly the calls it always did — no save, no transform', () => {
+    const { ctx, calls } = fakeCtx();
+    composeFrame(ctx, 320, 180, pic('a'), null, { text: '안녕', t: 1 });
+    expect(calls.slice(2)).toEqual([
+      expect.stringMatching(/^rect .* rgba\(0, 0, 0, 0\.62\)$/),
+      'text 안녕',
+    ]);
+  });
+
+  it('applies an effect inside a save/restore, so the next frame starts clean (ADR-0017)', () => {
+    const { ctx, calls } = fakeCtx();
+    composeFrame(ctx, 320, 180, pic('a'), null, {
+      text: '안녕',
+      effect: 'fade',
+      t: 0.25,
+    });
+    expect(calls[2]).toBe('save');
+    expect(calls[calls.length - 1]).toBe('restore');
+    expect(calls).toContain('text 안녕');
+    expect(ctx.globalAlpha).toBe(1);
   });
 });
 

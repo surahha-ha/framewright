@@ -786,6 +786,37 @@ body {
 /* Stacked, one fact per line, and never broken inside a word: side by side
    in the 260px sidebar the range wrapped as "00:03:00까 / 지". Seen in Chrome;
    asserted in e2e/subtitles.spec.ts. */
+/* 꾸미기: three rows, a word on the left and its choices beside it, the
+   choices wrapping under the word when the sidebar is narrow. */
+.subtitle-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 12px 8px;
+}
+.subtitle-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px 8px;
+  font-size: 12px;
+}
+/* The word lines up with the FIRST row of choices, not the middle of two. */
+.subtitle-choice-label {
+  flex: 0 0 2.2em;
+  line-height: 22px;
+  color: var(--muted);
+}
+/* The group shrinks and wraps INSIDE itself, so a fourth choice (올라오기)
+   goes under the other three and the word stays in its column; as one
+   rigid item it dropped whole to the next line and the 효과 row alone
+   read label-above (seen in the owner's Chrome, 2026-09-15). */
+.subtitle-choice [role='radiogroup'] {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+}
 .subtitle-when {
   display: flex;
   flex-direction: column;
@@ -1358,7 +1389,10 @@ button[aria-disabled='true'] {
   letter-spacing: 0;
   font-size: 12px;
 }
-.frame-picker button {
+/* One look for every radio row: the box's shape over the preview and the
+   subtitle's 모양 · 자리 · 효과 in its panel (ADR-0017). */
+.frame-picker button,
+.subtitle-choice button {
   background: #12202c;
   border: 1px solid #35506a;
   color: var(--ink);
@@ -1366,16 +1400,20 @@ button[aria-disabled='true'] {
   padding: 2px 8px;
   font-size: 12px;
   line-height: 1.4;
+  cursor: pointer;
 }
-.frame-picker button:hover:not([aria-disabled='true']) {
+.frame-picker button:hover:not([aria-disabled='true']),
+.subtitle-choice button:hover:not([aria-disabled='true']) {
   border-color: var(--teal);
 }
-.frame-picker button:focus-visible {
+.frame-picker button:focus-visible,
+.subtitle-choice button:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 1px;
 }
-/* The current shape: the same look as an on switch elsewhere. */
-.frame-picker button[aria-checked='true'] {
+/* The current choice: the same look as an on switch elsewhere. */
+.frame-picker button[aria-checked='true'],
+.subtitle-choice button[aria-checked='true'] {
   border-color: var(--teal);
   box-shadow: inset 0 0 0 1px var(--teal);
   cursor: default;

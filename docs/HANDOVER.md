@@ -133,8 +133,16 @@ height`) takes another shape through three commands (가로 16:9 / 세로
   Codex tooling (`AGENTS.md`, `docs/CODEX_HOOKS.md`) is in place for the
   next unit that goes there.
 
-Next: E8's second item (style presets), which still waits on a product
-call — whether 세로 should imply 화면 채우기 for every clip.
+Next: E8's second item, **style presets**, which the owner defined on
+2026-09-15 as **예능 자막** — the variety-show caption: styled words, placed
+anywhere on the picture, coming and going with an effect. Not shorts-only.
+Built in layers: E8-2a a subtitle's look, place and effect as fields on the
+subtitle (the place stored as box fractions from day one); E8-2b bundled
+calligraphy fonts; E8-2c dragging the words to any spot on the stage (the
+owner's end goal). Images and stickers are a separate epic, E10. The plan
+with the rule table is in `docs/STATUS.md` "Next single step". The 세로 →
+채우기 product call from the reframe unit is still open but no longer
+blocks anything.
 
 Still owed regardless of epic: preview depth (quality toggle, loop range,
 fullscreen, safe area), proxy media, Worker-based export, rotation metadata

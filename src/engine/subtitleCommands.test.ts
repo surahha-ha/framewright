@@ -277,39 +277,40 @@ describe('subtitle.moveToPlayhead — the keyboard drag', () => {
   });
 });
 
+function threeClips(): Project {
+  const p = createProject();
+  const clip = (id: string, i: number): Clip => ({
+    id,
+    assetId: 'asset_1',
+    startFrame: i * 100,
+    inFrame: i * 100,
+    outFrame: (i + 1) * 100,
+  });
+  return {
+    ...p,
+    nextId: 10,
+    assets: [
+      {
+        id: 'asset_1',
+        kind: 'video',
+        name: 'a.mp4',
+        meta: { durationSec: 10 },
+      },
+    ],
+    tracks: p.tracks.map((t) =>
+      t.type === 'video'
+        ? {
+            ...t,
+            clips: [clip('clip_1', 0), clip('clip_2', 1), clip('clip_3', 2)],
+          }
+        : t,
+    ),
+    subtitles: [sub('over2', 120, 150), sub('over3', 210, 240)],
+  };
+}
+
 describe('the footage moves, the words move with it', () => {
   /** Three 100-frame clips of one source, subtitles over the 2nd and 3rd. */
-  function threeClips(): Project {
-    const p = createProject();
-    const clip = (id: string, i: number): Clip => ({
-      id,
-      assetId: 'asset_1',
-      startFrame: i * 100,
-      inFrame: i * 100,
-      outFrame: (i + 1) * 100,
-    });
-    return {
-      ...p,
-      nextId: 10,
-      assets: [
-        {
-          id: 'asset_1',
-          kind: 'video',
-          name: 'a.mp4',
-          meta: { durationSec: 10 },
-        },
-      ],
-      tracks: p.tracks.map((t) =>
-        t.type === 'video'
-          ? {
-              ...t,
-              clips: [clip('clip_1', 0), clip('clip_2', 1), clip('clip_3', 2)],
-            }
-          : t,
-      ),
-      subtitles: [sub('over2', 120, 150), sub('over3', 210, 240)],
-    };
-  }
 
   it('ripple delete pulls later subtitles left and drops the ones over the cut', () => {
     const ed = editorWith(threeClips());
@@ -398,5 +399,144 @@ describe('selection', () => {
     expect(ed.selectedClipId).toBeNull();
     ed.restoreProject(seed());
     expect(ed.selectedSubtitleId).toBeNull();
+  });
+});
+
+// ---- ADR-0017: a look, a place, a way in ----
+
+describe('subtitle.setLook / setPlace / setEffect', () => {
+  it('each writes one field, is one undo step, and puts the field back to ABSENT on undo', () => {
+    const ed = editorWith(seed(300, [sub('sub_1', 10, 50)]));
+    expect(
+      ed.dispatch('subtitle.setLook', { subtitleId: 'sub_1', look: 'bold' }),
+    ).toBe(true);
+    expect(ed.project.subtitles[0].look).toBe('bold');
+    expect(
+      ed.dispatch('subtitle.setPlace', { subtitleId: 'sub_1', place: 'top' }),
+    ).toBe(true);
+    expect(ed.project.subtitles[0]).toMatchObject({ posX: 0.5, posY: 0.15 });
+    expect(
+      ed.dispatch('subtitle.setEffect', {
+        subtitleId: 'sub_1',
+        effect: 'rise',
+      }),
+    ).toBe(true);
+    expect(ed.project.subtitles[0].effect).toBe('rise');
+
+    expect(ed.undo()).toBe(true);
+    expect(ed.project.subtitles[0].effect).toBeUndefined();
+    expect(ed.undo()).toBe(true);
+    expect(ed.project.subtitles[0].posX).toBeUndefined();
+    expect(ed.project.subtitles[0].posY).toBeUndefined();
+    expect(ed.undo()).toBe(true);
+    expect(ed.project.subtitles[0].look).toBeUndefined();
+    // Absent, not "present and undefined": the LIVE document is the object
+    // it was before the three edits, not only its JSON (`toStrictEqual`
+    // sees an own key holding undefined; `JSON.stringify` would hide it —
+    // the reviewer's catch, `ops.ts` `dropUndefined`).
+    expect(ed.project.subtitles[0]).toStrictEqual(sub('sub_1', 10, 50));
+    expect(Object.keys(ed.project.subtitles[0])).toEqual(
+      Object.keys(sub('sub_1', 10, 50)),
+    );
+    expect(ed.undo()).toBe(false);
+  });
+
+  it('refuses the choice already made — not an edit, not an undo entry', () => {
+    const ed = editorWith(seed(300, [sub('sub_1', 10, 50)]));
+    expect(
+      ed.dispatch('subtitle.setLook', { subtitleId: 'sub_1', look: 'plain' }),
+    ).toBe(false);
+    expect(
+      ed.dispatch('subtitle.setPlace', {
+        subtitleId: 'sub_1',
+        place: 'bottom',
+      }),
+    ).toBe(false);
+    expect(
+      ed.dispatch('subtitle.setEffect', {
+        subtitleId: 'sub_1',
+        effect: 'none',
+      }),
+    ).toBe(false);
+    expect(ed.undo()).toBe(false);
+  });
+
+  it('puts the plain look and the bottom place back as absent fields', () => {
+    const ed = editorWith(
+      seed(300, [
+        { ...sub('sub_1', 10, 50), look: 'shout', posX: 0.5, posY: 0.5 },
+      ]),
+    );
+    ed.dispatch('subtitle.setLook', { subtitleId: 'sub_1', look: 'plain' });
+    ed.dispatch('subtitle.setPlace', { subtitleId: 'sub_1', place: 'bottom' });
+    expect(ed.project.subtitles[0]).toStrictEqual(sub('sub_1', 10, 50));
+    expect(ed.undo()).toBe(true);
+    expect(ed.project.subtitles[0]).toMatchObject({ posX: 0.5, posY: 0.5 });
+  });
+
+  it('says which choice was made', () => {
+    const ed = editorWith(seed(300, [sub('sub_1', 10, 50)]));
+    const sentence = (id: string, args: unknown) => {
+      const before = ed.context();
+      ed.dispatch(id, args);
+      const done = byId(id).done;
+      return typeof done === 'function'
+        ? done(before, ed.context(), args)
+        : done;
+    };
+    expect(
+      sentence('subtitle.setLook', { subtitleId: 'sub_1', look: 'bold' }),
+    ).toBe('자막 모양을 강조로 바꿨어요.');
+    expect(
+      sentence('subtitle.setLook', { subtitleId: 'sub_1', look: 'plain' }),
+    ).toBe('자막 모양을 기본으로 되돌렸어요.');
+    expect(
+      sentence('subtitle.setPlace', { subtitleId: 'sub_1', place: 'top' }),
+    ).toBe('자막 자리를 위로 옮겼어요.');
+    expect(
+      sentence('subtitle.setEffect', { subtitleId: 'sub_1', effect: 'fade' }),
+    ).toBe(
+      '자막 효과를 서서히로 바꿨어요 · 서서히 나타났다가 서서히 사라져요.',
+    );
+    expect(
+      sentence('subtitle.setEffect', { subtitleId: 'sub_1', effect: 'none' }),
+    ).toBe('자막 효과를 없앴어요 · 바로 나타나요.');
+  });
+
+  it('is refused for a subtitle that does not exist', () => {
+    const ed = editorWith(seed());
+    expect(
+      ed.dispatch('subtitle.setLook', { subtitleId: 'x', look: 'bold' }),
+    ).toBe(false);
+  });
+});
+
+describe('a styled subtitle through the other edits', () => {
+  it('a paste INTO a styled subtitle leaves two styled halves, and undo one', () => {
+    const styled: Subtitle = {
+      ...sub('straddle', 180, 230), // across clip_2 | clip_3 at 200
+      look: 'bold',
+      posX: 0.5,
+      posY: 0.15,
+      effect: 'pop',
+    };
+    const ed = editorWith({ ...threeClips(), subtitles: [styled] });
+    ed.setClipboard({ assetId: 'asset_1', inFrame: 0, outFrame: 50 });
+    ed.setPlayhead(200);
+    expect(ed.dispatch('clip.paste')).toBe(true);
+    expect(ed.project.subtitles).toStrictEqual([
+      { ...styled, endFrame: 200 },
+      { ...styled, id: 'sub_11', startFrame: 250, endFrame: 280 },
+    ]);
+    ed.undo();
+    expect(ed.project.subtitles).toStrictEqual([styled]);
+  });
+
+  it('a plain split of the footage under a styled subtitle touches nothing on it', () => {
+    const styled: Subtitle = { ...sub('sub_1', 10, 90), look: 'shout' };
+    const ed = editorWith(seed(300, [styled]));
+    ed.setPlayhead(50);
+    ed.dispatch('clip.split');
+    expect(ed.project.subtitles).toStrictEqual([styled]);
   });
 });

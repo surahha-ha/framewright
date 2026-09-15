@@ -10,6 +10,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -21,7 +22,8 @@ import { buildAudioSchedule } from '../engine/audioSchedule';
 import { AudioPlayer } from '../engine/audioPlayer';
 import { audioContext, getAudioBuffer, resumeAudio } from '../engine/audio';
 import { subtitleAt } from '../engine/subtitles';
-import { drawSubtitle } from '../engine/subtitleRender';
+import { subtitleFrameOf } from '../engine/subtitleStyle';
+import { drawSubtitle, type SubtitleFrame } from '../engine/subtitleRender';
 import { evenDimensions } from '../engine/exportPlan';
 import { blendAt } from '../engine/fades';
 import { FeedPool } from '../engine/feeds';
@@ -292,15 +294,29 @@ export function Preview() {
   // picture — the document only gets it on Enter/blur.
   const draft = useStore((s) => s.subtitleDraft);
   const current = total > 0 ? subtitleAt(project, playhead) : null;
-  const words = !current
-    ? ''
-    : draft && draft.id === current.id
-      ? draft.text
-      : current.text;
+  // The same object the export plan records for this frame (ADR-0017), with
+  // the draft's words swapped in while typing. Keyed by its JSON so the
+  // effect below runs when the frame CHANGES, not on every render.
+  const frameKey = current
+    ? JSON.stringify(
+        subtitleFrameOf(
+          current,
+          playhead,
+          project.timeline.fps,
+          draft && draft.id === current.id ? draft.text : current.text,
+        ),
+      )
+    : '';
+  const frame = useMemo(
+    () => (frameKey ? (JSON.parse(frameKey) as SubtitleFrame) : null),
+    [frameKey],
+  );
+  const words = frame?.text ?? '';
   // A LAYOUT effect: the picture is painted inside the rAF tick and the
-  // playhead update that changes `words` is committed right after, so drawing
-  // the words before that commit reaches the screen keeps both on the same
-  // paint. A passive effect put the words one paint behind the picture.
+  // playhead update that changes the frame is committed right after, so
+  // drawing the words before that commit reaches the screen keeps both on
+  // the same paint. A passive effect put the words one paint behind the
+  // picture.
   useLayoutEffect(() => {
     const overlay = overlayRef.current;
     const ctx = overlay?.getContext('2d');
@@ -314,8 +330,8 @@ export function Preview() {
       overlay.height = height;
     }
     ctx.clearRect(0, 0, width, height);
-    if (words) drawSubtitle(ctx, words, width, height);
-  }, [words, project.timeline.width, project.timeline.height]);
+    if (frame && frame.text) drawSubtitle(ctx, frame, width, height);
+  }, [frame, project.timeline.width, project.timeline.height]);
 
   // The picture is centred and letterboxed by CSS, so the overlay finds out
   // where it landed and sits exactly on top of it. Re-measured whenever the

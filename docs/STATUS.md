@@ -10,9 +10,9 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-14 06:26 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-15 04:11 UTC — `npm run verify` **GREEN**
 
-- unit 607 passed · e2e 116 passed
+- unit 646 passed · e2e 124 passed
 
 <!-- VERIFY:END -->
 
@@ -33,10 +33,37 @@ owner's call, 14:10 KST), committed with the owner's approval and pushed
 **After it, one docs-only unit (this tree): the driver question.** The
 owner asked whether Claude Code's visual pass could move to dev-browser.
 Measured and answered no — decision 2 below and `docs/TESTING.md`
-"Visual QA" hold the evidence. The gate stamped above is that unit's
-handoff run (no code changed). Also in the tree, NOT part of this unit:
-the owner's own edits to `AGENTS.md`, `CLAUDE.md` and `docs/UX.md`
-(the ui-ux-guide skill mapping), left uncommitted for them to commit.
+"Visual QA" hold the evidence. That unit is committed as `91795d8`, not
+yet pushed.
+
+**`91795d8` was pushed on 2026-09-15 with the owner's approval;
+`origin/main` = `91795d8`.**
+
+### E8-2a, 예능 자막, is BUILT and in the tree, uncommitted (2026-09-15)
+
+"Style presets" had no definition anywhere in the repo; the owner gave
+one on 2026-09-15 (예능 자막, see "Next single step" for the layers) and
+its first layer was built the same day in Claude Code: a subtitle's look
+(기본 / 강조 / 외침), place (아래 / 가운데 / 위, stored as box fractions
+for the drag to come) and effect (바로 / 서서히 / 톡 / 올라오기), as
+optional fields on the subtitle, one `SubtitleFrame` per frame for both
+the export plan and the preview, three arg-taking commands, three
+radiogroups in the subtitle panel. ADR-0017 is the contract; "E8-2a
+progress" / "E8-2a issues" below are the record, step by step; the
+persona round's leftovers are in CLAUDE.md "Known tech debt". The gate
+stamped above is this tree's handoff run (unit 646 · e2e 124). New files:
+`src/engine/subtitleStyle.ts` (+test), `e2e/subtitle-style.spec.ts`,
+`docs/adr/0017-a-subtitle-has-a-look-a-place-a-way-in.md`. Changed:
+`types.ts`, `subtitles.ts`, `subtitleRender.ts`, `subtitleCommands.ts`,
+`exportPlan.ts`, `compose.ts`, `ops.ts` (their tests), `ui/Preview.tsx`,
+`ui/SubtitlePanel.tsx`, `styles.css`, `docs/TESTING.md`, `docs/adr/README.md`,
+CLAUDE.md's debt list, `docs/HANDOVER.md`, `README.md`, this file. The
+owner asked for the E8-2 plan docs and this build to go in ONE commit.
+The visual pass in the owner's Chrome is done (step 9 of "E8-2a
+progress"; one finding, fixed, with an assertion). **Not yet done: the
+commit itself.** Also in the tree, NOT part of this unit: the owner's own edits to `AGENTS.md`,
+`CLAUDE.md` (the ui-ux-guide mapping bullet only; the debt entries are
+this unit's) and `docs/UX.md`, left for them to commit.
 
 ### Moving implementation to Codex (2026-09-14)
 
@@ -308,30 +335,263 @@ case), a phone-shot file rather than the colour-bar fixture.
 
 ## Next single step
 
-**Commit E9 as ONE commit, with the owner's approval** — the tree holds
-the whole unit and nothing else: `src/engine/silence.ts`, `silence.test.ts`,
-`silenceCommand.ts`, `silenceCommand.test.ts`, the `EditorCtx.peaks` seam
-(`command.ts`, `commands.ts`), `time.ts` / `time.test.ts` / `fades.ts`,
-`ui/waveform.ts`, `App.tsx`, `ui/Toolbar.tsx`, `ui/CommandPalette.tsx`,
-`e2e/silence.spec.ts`, `e2e/fixtures/sample-silence.mp4`, ADR-0016,
-`docs/adr/README.md`, `docs/TESTING.md`, CLAUDE.md's debt list, this
-file. Leave `debug.log` and `e9-baseline.log` out (untracked junk).
+**ONE commit of E8-2a with the owner's approval, then plan E8-2b.** The
+build is done, the gate is green, the persona round and the visual pass
+in the owner's Chrome are done (see "Where we are" and "E8-2a progress").
+The commit: the E8-2a code + ADR-0017 + the E8-2 plan docs (this file,
+`docs/HANDOVER.md`, `README.md`) as ONE commit — the owner's call on
+2026-09-15; leave `AGENTS.md`, `docs/UX.md`, CLAUDE.md's ui-ux-guide
+bullet (the owner's; stage `CLAUDE.md` by hunk) and the two stray logs
+out. After that: **E8-2b, 캘리그라피 글꼴** (plan it first, in this file,
+the E8-2a plan's shape: which two or three Korean display faces, their
+licences and sizes, how they load before an export, a fourth column in
+`SUBTITLE_LOOKS` or a separate `font` field).
 
-**The driver question is answered (2026-09-14, after the E9 push):**
-Claude Code keeps Claude in Chrome; see decision 2 above and
-`docs/TESTING.md` "Visual QA" for what was measured (dev-browser 0.2.9
-installed and working in launch mode — Chrome 145, H.264 OK, screenshots
-readable; attach to the owner's real Chrome hangs in `connectOverCDP`
-while raw CDP works; the Codex-sandbox "home directory" error does not
-reproduce outside the sandbox). One doc unit, no code. **Ask the owner to
-turn the chrome://inspect remote-debugging toggle back OFF** — it was
-switched on for the attach test and exposes port 9222 to anything local.
+Housekeeping, closed on 2026-09-15: `91795d8` pushed; the chrome://inspect
+toggle is OFF (port 9222 has no listener, the dev-browser daemon is dead).
+Still open: the owner's own uncommitted edits to `AGENTS.md`, `CLAUDE.md`
+(one bullet) and `docs/UX.md`, theirs to commit.
 
-**Next: E8-2 (style presets)** — still waiting on the product call below
-(does 세로 imply 채우기); if the owner has not decided, build it per clip
-like 화면 채우기 (ADR-0015 "Consequences") and say so in the ADR.
+### What "style presets" means — defined by the owner on 2026-09-15
 
-### E9 execution plan — silence auto-cut
+The epic list of 2026-08-12 (`4f154ef`, HANDOVER) said only "E8 (style
+presets, shorts reframe)"; the conversation that produced those two words
+was never written down and is gone. The owner defined it on 2026-09-15:
+**예능 자막** — the caption style of Korean variety shows: words that are
+styled, placed anywhere on the picture (not only along the bottom), and
+that come and go with an effect. It is not shorts-only. The owner's END
+goal is dragging a subtitle to any spot on the picture; images and
+stickers are wanted too, later.
+
+Sized against today's code (one `Subtitle` shape, one fixed look, one draw
+path `compose.ts` shared by preview and export), it splits into layers of
+very different cost. Order and boundaries, decided:
+
+| Unit      | What                                                                                                           | Size                |
+| --------- | -------------------------------------------------------------------------------------------------------------- | ------------------- |
+| **E8-2a** | 자막 모양 · 자리 · 효과 — three named looks, three places, three enter/exit effects, as fields on the subtitle | one unit (this one) |
+| E8-2b     | 캘리그라피 글꼴 — two or three bundled Korean display faces, loaded before export                              | one unit            |
+| E8-2c     | 자막을 화면 아무 데나 끌어다 놓기 — free placement by dragging on the stage; the owner's end goal              | one unit            |
+| E10       | 이미지·스티커 — a new kind of thing on the timeline (import, store, overlay lane, drag, export)                | an epic; backlog    |
+
+E8-2a's data is shaped so that E8-2c adds only a gesture: a subtitle's place
+is stored as fractions of the box from day one (the same convention as a
+clip's `panX` / `panY`, ADR-0014), and the three place presets just write
+three values of it.
+
+### E8-2a execution plan — 예능 자막: 모양, 자리, 효과
+
+**Decided by the owner (2026-09-15), do not re-open in this unit:**
+
+- One kind of subtitle. Looks, places and effects are optional fields on
+  `Subtitle`; there is no second "title / caption" list. (Two lists would
+  double the panel, the lane and the commands for one first-time user's
+  benefit; ADR-0011's single list stays.)
+- The place is stored as box fractions, ready for the drag in E8-2c.
+- Fonts wait for E8-2b; images are E10.
+
+**Rule table — the contract the tests assert:**
+
+| Rule                       | Value                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fields on `Subtitle`       | `look?: 'bold' \| 'shout'` · `posX?: number` · `posY?: number` · `effect?: 'fade' \| 'pop' \| 'rise'`. All optional; **absent = today's subtitle exactly** (white on a pill, bottom stack, no effect), so schema stays 2 and `upgradeProject` is untouched — the same convention as a clip's `zoom` / `panX` (ADR-0014).                                                           |
+| Looks (3)                  | 기본 (absent): today's white ink on the 62% black pill. 강조 (`bold`): yellow ink, black outline, no pill, font 1.4× 기본. 외침 (`shout`): white ink, thicker black outline, font 1.8× 기본, weight 800. Exact colours, outline widths and sizes are one table `SUBTITLE_LOOKS` in `subtitleRender.ts`, all relative to the picture's height like the font is today.               |
+| Places (3 presets)         | `posX` / `posY` name the CENTRE of the text block as a fraction of the box. 아래 = both absent (today's bottom-margin stack, unchanged to the pixel). 가운데 = `posY` 0.5. 위 = `posY` 0.15. `posX` 0.5 in all three. Any value in [0, 1] is legal (E8-2c writes arbitrary ones); the block is **clamped inside the box at draw time**, so no stored value puts words off-screen.  |
+| Effects (3 + none)         | 바로 (absent): as today. 서서히 (`fade`): alpha 0 → 1. 톡 (`pop`): scale 0.6 → 1 about the block's centre, ease-out. 올라오기 (`rise`): translate from +6% of the box height, ease-out. The same effect runs at both edges, mirrored (in, then out).                                                                                                                               |
+| Effect length              | `EFFECT_SEC = 0.25`, an engine constant, rounded to frames through `time.ts`; **capped at half the subtitle's length** so the way in and the way out never overlap. A one-frame subtitle is simply shown.                                                                                                                                                                          |
+| Per-frame progress         | `subtitlePhase(sub, frame, fps)` → `t` in [0, 1]: `enter = (frame - start + 1) / n`, `exit = (end - frame) / n`, `t = min(1, enter, exit)`. The first frame and the last frame show `1 / n` (something is visible on every frame the subtitle owns; `[start, end)` half-open as everywhere). Pure, in the engine, unit-tested at both edges, the middle, and the cap.              |
+| One draw for both surfaces | `drawSubtitle(ctx, frame: SubtitleFrame, width, height)` with `SubtitleFrame = { text, look, posX, posY, effect, t }`, built by ONE function `subtitleFrameAt(project, frame)` that the export plan and the preview both call. `ExportFrame.subtitle` becomes a `SubtitleFrame                                                                                                     | null` (today a string). ADR-0011's "one answer per frame" holds. |
+| Layout                     | `layoutSubtitle` takes the look and the place. Lines stack about the anchor (a two-line block centred at `posY` has one line above and one below it); the 아래 case is bit-for-bit today's arithmetic, asserted by the existing tests staying green untouched.                                                                                                                     |
+| Commands                   | Three, in `subtitleCommands.ts`, each an `updateSubtitle` op with the exact inverse and one undo step: `subtitle.setLook` 자막 모양 고르기, `subtitle.setPlace` 자막 자리 고르기, `subtitle.setEffect` 자막 효과 고르기. Arg-taking (`requiresArgs`, hidden from the palette like `subtitle.setText`); `canRun` false with no subtitle selected or when the choice is already set. |
+| Sentences                  | Each names the choice: "자막 모양을 강조로 바꿨어요.", "자막 자리를 위로 옮겼어요.", "자막 효과를 서서히로 바꿨어요.", and the 기본 / 아래 / 바로 forms "자막 모양을 기본으로 되돌렸어요." etc. Vocabulary test: no label is, or contains, another label (UX.md).                                                                                                                  |
+| Panel                      | `SubtitlePanel` gains three radiogroups under one `<h3>` 꾸미기: 모양 (기본 / 강조 / 외침), 자리 (아래 / 가운데 / 위), 효과 (바로 / 서서히 / 톡 / 올라오기) — the `FramePicker` pattern (`role="radiogroup"`, `aria-checked`, arrow keys within a group, a refused press says why). The draft text in the field previews in the chosen look live.                                  |
+| Split and paste carry      | `splitSubtitleAt`'s tail copies every field, not only `text` (today it copies only `text`; that is the first red test). A paste that splits a styled subtitle leaves two styled halves.                                                                                                                                                                                            |
+| Hold frames                | A `HOLD` in the export plan still cannot carry a subtitle that has ended (ADR-0011); the phase is computed from the timeline frame, never from the held picture.                                                                                                                                                                                                                   |
+
+Why these values, for the ADR: three looks because a first-time user
+picks from a row, not from a colour wheel (UX.md "Simple"); yellow +
+outline is what every Korean variety caption reaches for first; three
+places because the panel is a row of radios and the drag (E8-2c) is where
+"anywhere" lives; 0.25 s because a caption effect longer than that reads
+as a title card; the cap at half the length because a 0.5 s subtitle with
+a 0.25 s way in and a 0.25 s way out would never be fully shown; box
+fractions for the place because the pan already speaks that language and
+the export must not depend on the preview's pixel size.
+
+**Shape of the work, in order:**
+
+1. `src/engine/subtitleRender.ts` (test-first, fake measurer): the
+   `SUBTITLE_LOOKS` table; `layoutSubtitle(text, box, measure, look, place)`
+   with the anchored stack and the edge clamp; `drawSubtitle` taking a
+   `SubtitleFrame` and applying the effect through `save` / `translate` /
+   `scale` / `globalAlpha` / `restore` so the caller's state is untouched;
+   an outline drawn with `strokeText` under `fillText`. Cases: 아래 is
+   today's layout to the pixel; 가운데 with one and with three lines;
+   위 with a block taller than the room above (clamped down, never off
+   the top); `posX` 0 and 1 (clamped in); the 강조 font is 1.4× 기본.
+2. `src/engine/subtitles.ts`: `subtitlePhase`, `effectFrames(fps, sub)`,
+   `subtitleFrameAt(project, frame)`; `splitSubtitleAt` carries the fields.
+   Cases: first / last / middle frame; the cap on a short subtitle; a
+   one-frame subtitle → `t = 1`; 29.97 fps rounding; absent effect → `t`
+   is 1 on every frame.
+3. `exportPlan.ts` / `exporter.ts` / `compose.ts`: the plan carries the
+   `SubtitleFrame`; `compose.test.ts` asserts a held frame after the
+   subtitle's end has none. `ui/Preview.tsx` builds the same frame (with
+   the draft text substituted while typing) and calls the same draw.
+4. Commands: the three above, registered, with `describeSubtitleEdit`
+   sentences and `vocabulary.test.ts` green.
+5. UI: `SubtitlePanel` radiogroups; a refused press states the reason
+   (no subtitle selected → "자막을 먼저 고르세요."). No toolbar button, no
+   default key, no chip mark on the lane in this unit.
+6. e2e `e2e/subtitle-style.spec.ts`, on `sample-h264.mp4`: pick 위 and
+   assert the overlay canvas has ink in its top band and none in the
+   bottom band (sample pixels through `page.evaluate`); pick 강조 and
+   assert the sampled ink is not white; pick 서서히 and assert the alpha
+   sampled at the subtitle's first frame is below the alpha at its middle
+   frame; one `Ctrl+Z` per choice restores it; the fields survive a
+   reload; an export of a styled subtitle has every frame (the frame-count
+   invariant, `ExportButton`'s sentence).
+7. ADR-0017 "A subtitle has a look, a place and a way in": the fields, why
+   box fractions (the drag to come), why three of each, the effect length
+   and its cap, `SubtitleFrame` as the one answer per frame.
+8. Persona round (tester-qa on the phase at the edges, the cap, split and
+   paste carrying the fields, the held frame; tester-novice on the words
+   기본 / 강조 / 외침 / 톡 / 올라오기 and the sentences; tester-a11y on the
+   three radiogroups, focus after a choice, what a screen reader hears when
+   a look changes), fix blockers, `npm run verify`, visual pass in the
+   owner's Chrome (confirm the deviceId first — CLAUDE.md global rule),
+   `npm run handoff`, one commit with the owner's approval.
+
+**Out of scope for this unit:** fonts (E8-2b), dragging the words on the
+stage (E8-2c), images and stickers (E10), per-word or karaoke styling,
+custom colours or sizes, the effect length in the UI, a mark on the
+subtitle chip for a styled subtitle, palette rows per choice (the three
+commands are arg-taking and hidden, like `subtitle.setText`; whether nine
+visible rows belong in the palette is the owner's call, recorded as debt).
+
+**How progress and issues are reported:** the same way as E9 — a
+"### E8-2a progress" section directly under this plan with one line per
+step (step number, gate result at that point, anything off-plan), written
+before moving on; a "### E8-2a issues" section under it with every decision
+the plan did not settle, every persona finding by tier and what was done,
+every test that had to change and why, and a red gate written as red. Stop
+before the commit: after `npm run handoff` and this file rewritten, show
+the commit message and wait for the owner's approval. One commit.
+
+### E8-2a progress
+
+Built in Claude Code on 2026-09-15 (KST), the plan's steps in order:
+
+1. **Engine, test-first — done.** `src/engine/subtitleStyle.ts` (new:
+   the vocabulary, `placeOf` / `placeFields`, `effectFrames`,
+   `subtitlePhase`, `subtitleFrameOf` / `subtitleFrameAt`, the sentences
+   and `toward` for 로/으로) with 15 tests; `subtitleRender.ts` gained
+   `SUBTITLE_LOOKS`, a look and a place on `layoutSubtitle`, `layoutBounds`,
+   `effectState`, and `drawSubtitle(ctx, SubtitleFrame, w, h)` with 16 new
+   tests (the plain layout is asserted equal to the pixel to the old one);
+   `types.ts` the four optional fields; `splitSubtitleAt` carries them
+   (its red test first). Unit at this point: 616 passed.
+2. **Plan and preview — done.** `ExportFrame.subtitle` is a
+   `SubtitleFrame | null`; `composeFrame` takes it; `Preview.tsx` builds
+   the same frame (draft words substituted) keyed by its JSON. `compose.test`
+   pins "a plain subtitle is the same calls as before, no save" and "an
+   effect sits inside save/restore, alpha back to 1".
+3. **Commands — done.** `subtitle.setLook` / `setPlace` / `setEffect`,
+   arg-taking, one `updateSubtitle` op each, inverse writes the absent
+   field back as `undefined`; the JSON of the document after undo equals
+   the original. `vocabulary.test` green.
+4. **UI — done.** `SubtitlePanel` has `<h3>` 꾸미기 and three `Choices`
+   radiogroups (the `FramePicker` pattern); `.subtitle-choice` shares the
+   picker's button rules in `styles.css`.
+5. **e2e — done.** `e2e/subtitle-style.spec.ts`, 8 tests × 2 browsers:
+   rows and defaults, 위 → ink in the top band + undo, 강조 → yellow ink
+   - back, 서서히 → first frame's alpha under half the middle's, the
+     already-chosen radio's sentence, arrows choose and never move the
+     playhead, reload survival, export of a styled subtitle = 90 frames.
+     First run 14/16: the sentence said "톡로"; fixed in the engine
+     (`toward`), unit-tested, rerun green.
+6. **ADR-0017 — written**; index row added; `docs/TESTING.md` DOM
+   contract rows for the radiogroups and the overlay pixels.
+7. **Full gate before the personas: GREEN** (unit 645 · e2e 124, the new
+   spec 8 × 2 browsers included).
+8. **Persona round — done** (tester-qa, tester-a11y, tester-novice,
+   framewright-reviewer, in parallel). One blocker, fixed; the majors
+   below fixed or in CLAUDE.md "Known tech debt"; gate re-run after the
+   fixes (the stamp at the top of this file is that run).
+9. **Visual pass in the owner's Chrome — done** (the owner named
+   `da2a0786-…`; Claude in Chrome on the live dev server at 9990, the
+   owner's own autosaved project: 7 clips, 3 subtitles). Selected 자막 1
+   ("걸침", 10–24) and tried 강조 (yellow ink, black outline, readable
+   over the colour bars), 위 (top band), 외침 + 가운데 (white, thick
+   outline, centred), 톡 with the playhead on frame 10 (the words visibly
+   small on the first frame). **One finding, fixed:** the 효과 row's four
+   radios did not fit beside the word at sidebar width and the whole
+   group dropped under it, so that row alone read label-above; the group
+   now shrinks and wraps inside itself (`styles.css`), the word aligns
+   with the first line, and `e2e/subtitle-style.spec.ts` asserts the three
+   groups share a left edge. Five edits undone with Ctrl+Z; the persisted
+   project JSON was compared to a snapshot taken before the pass and is
+   identical. Tab closed. The gate re-ran after the CSS and spec change
+   (the stamp at the top).
+
+### E8-2a issues
+
+- **Blocker (reviewer, also QA as a major): `updateSubtitle` did not drop
+  `undefined` fields.** `updateClip` runs `dropUndefined` for exactly this
+  case and the subtitle op never had to until this unit's inverses wrote
+  `{ look: undefined }`. The live document then carried an own key
+  holding `undefined` — invisible to `JSON.stringify` (which is what the
+  test compared) and to `toEqual`. Fixed in `ops.ts` (one line, same
+  comment as the clip's); the test now asserts with `toStrictEqual` and
+  `Object.keys`, and was seen RED without the fix (2 failed) and GREEN
+  with it.
+- **Major (novice, a11y): the effect is invisible on most frames, and the
+  one line that says what 톡 IS was mouse-only.** The effect's sentence
+  now carries the hint ("자막 효과를 톡으로 바꿨어요 · 작았다가 톡 커지며
+  나타나요."), each radio's hint is also its `aria-describedby` (an
+  `sr-only` span), and the panel's hint paragraph says the effect shows
+  when the subtitle comes and goes, play to see it. The rest of the
+  novice's point — nothing parks the playhead on the subtitle or previews
+  the motion — is a debt entry.
+- **Minor (QA): a test named "paste splits a styled subtitle" dispatched
+  `clip.split`.** Replaced by a real `clip.paste` through the dispatcher
+  on a styled straddling subtitle (both halves keep every field, undo
+  puts one back, `toStrictEqual`) plus a correctly named split test;
+  `threeClips` hoisted to module scope for it.
+- **Minor (reviewer): `SUBTITLE_COMMANDS` was a literal plus a `push`.**
+  One literal at the bottom now.
+- **Minors kept as debt** (CLAUDE.md): the effect cap on a short subtitle
+  is silent; one sub-heading for four panel sections; checked radios are
+  colour-only (shared rule with `FramePicker`); undo inside a radiogroup
+  leaves focus off the Tab stop; the palette lacks the nine choices; the
+  second radiogroup copy; `Preview`'s JSON frame key; 꾸미기 as an
+  umbrella for 자리.
+- **Decided by the plan's author, not the plan:** the time arithmetic
+  lives in a new module `subtitleStyle.ts` rather than in `subtitles.ts`
+  (the plan allowed either); the looks table lives in `subtitleRender.ts`
+  as planned. The 바로 sentence is "자막 효과를 없앴어요 · 바로 나타나요."
+  (the plan's "바로로 바꿨어요" does not read).
+- **Caught by the e2e, fixed in the engine:** "톡로" — the 로/으로
+  particle now follows the last syllable (`toward`).
+- **The place radios show nothing checked** when `posX`/`posY` are values
+  no preset names (only reachable by a future drag, or a hand-edited
+  document). Deliberate: the first radio is then the Tab stop.
+- **One `git stash` / `stash pop` on `src/engine/ops.ts`** was used to
+  show the strict test red without the fix; the tree came back as it was
+  (`git status` unchanged). No other git write.
+
+- **Decided by the plan's author, not the plan:** the time arithmetic
+  lives in a new module `subtitleStyle.ts` rather than in `subtitles.ts`
+  (the plan allowed either); the looks table lives in `subtitleRender.ts`
+  as planned. The 바로 sentence is "자막 효과를 없앴어요 · 바로 나타나요."
+  (the plan's "바로로 바꿨어요" does not read).
+- **Caught by the e2e, fixed in the engine:** "톡로" — the 로/으로
+  particle now follows the last syllable (`toward`).
+- **The place radios show nothing checked** when `posX`/`posY` are values
+  no preset names (only reachable by a future drag, or a hand-edited
+  document). Deliberate: the first radio is then the Tab stop.
+
+### E9 execution plan — silence auto-cut (done; kept as the record)
 
 **What counts as silent — decided by the owner on 2026-09-14.** These are
 the rule; do not re-derive them, and do not add a relative (per-clip)
@@ -494,16 +754,25 @@ plan's steps, in order, with the gate at each point:
 
 ## Blocked / needs the owner
 
-1. **Commit approval** for the E9 tree (see "Next single step"). Everything
-   before it is pushed through `2aa94b9`.
-2. **Two auto snapshots and one file** from the visual pass: 자동 저장
+1. **Commit approval for E8-2a + the E8-2 plan docs, as ONE commit** (the
+   owner's call on 2026-09-15). The visual pass is done. The owner's own
+   uncommitted edits to `AGENTS.md`, `CLAUDE.md` (the ui-ux-guide bullet)
+   and `docs/UX.md` stay theirs to commit — they are in the same files
+   as this unit's changes to `CLAUDE.md` (debt entries), so the commit
+   must stage `CLAUDE.md` by hunk, or the owner commits theirs first.
+2. **The visual pass's trace in the owner's Chrome:** nothing left in the
+   document (verified identical); the timeline view was zoomed once by a
+   mis-aimed click (view state, not the document) and the playhead was
+   left on frame 10.
+3. **Two auto snapshots and one file** from the visual pass: 자동 저장
    10:26 / 10:29 (2026-09-11) in the browser's 이전 상태, and
    `Downloads/Untitled.mp4`. Delete or keep.
-3. **Product calls surfaced by this unit:** should 세로 imply 채우기 for
-   every clip (today: per clip, deliberately, ADR-0015 "Consequences");
-   should the box change be reachable from the toolbar or only the
-   preview row and the palette; should a 4:3 preset exist.
-4. **Unchanged from E7:** playback and an export with a transformed clip
+4. **Product calls still open from the reframe unit (E8-2 no longer waits
+   on them):** should 세로 imply 채우기 for every clip (today: per clip,
+   deliberately, ADR-0015 "Consequences"); should the box change be
+   reachable from the toolbar or only the preview row and the palette;
+   should a 4:3 preset exist.
+5. **Unchanged from E7:** playback and an export with a transformed clip
    watched; the sound unit's listening list; the auto snapshots from the
    2026-09-10 visual passes in the browser's 이전 상태; the turn's own
    STATUS sentence (the panel note says the black now, the sentence does

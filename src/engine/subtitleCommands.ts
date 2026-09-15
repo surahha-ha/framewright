@@ -20,6 +20,20 @@ import {
   subtitleLimits,
   subtitlePlan,
 } from './subtitles';
+import {
+  describeEffect,
+  describeLook,
+  describePlace,
+  effectField,
+  effectOf,
+  lookField,
+  lookOf,
+  placeFields,
+  placeOf,
+  type EffectId,
+  type LookId,
+  type PlaceId,
+} from './subtitleStyle';
 
 export interface SubtitleTextArgs {
   subtitleId: string;
@@ -415,6 +429,114 @@ export function describeSubtitleDrag(
   return describeSubtitleEdit(mode, ctx.project, subtitleId, lengthBefore);
 }
 
+// ---- ADR-0017: a look, a place, a way in ----
+//
+// Three arg-taking commands, each one `updateSubtitle` op with its exact
+// inverse, each one undo step. Arg-taking like `subtitle.setText` (the panel
+// supplies the subtitle and the choice), so no palette row per choice —
+// three radiogroups in the panel are the surface. A choice already made is
+// refused like a no-op text edit: not an edit, not an undo entry.
+
+export interface SubtitleLookArgs {
+  subtitleId: string;
+  look: LookId;
+}
+
+export interface SubtitlePlaceArgs {
+  subtitleId: string;
+  place: PlaceId;
+}
+
+export interface SubtitleEffectArgs {
+  subtitleId: string;
+  effect: EffectId;
+}
+
+/** One field, before and after, as forward and inverse ops. A field going
+ *  back to "absent" is written as `undefined`, which `updateSubtitle`'s
+ *  spread applies and JSON then drops — the document reads as it did. */
+function fieldOps(
+  subtitle: Subtitle,
+  changes: Partial<Omit<Subtitle, 'id'>>,
+): { forward: Op[]; inverse: Op[] } {
+  const before: Partial<Omit<Subtitle, 'id'>> = {};
+  for (const key of Object.keys(changes) as (keyof typeof changes)[]) {
+    (before as Record<string, unknown>)[key] = subtitle[key];
+  }
+  return {
+    forward: [{ kind: 'updateSubtitle', subtitleId: subtitle.id, changes }],
+    inverse: [
+      { kind: 'updateSubtitle', subtitleId: subtitle.id, changes: before },
+    ],
+  };
+}
+
+export const setSubtitleLookCommand: Command<SubtitleLookArgs> = {
+  id: 'subtitle.setLook',
+  label: '자막 모양 고르기',
+  hidden: true,
+  requiresArgs: true,
+  done: (_before, _after, args) =>
+    describeLook((args as SubtitleLookArgs).look),
+  canRun(ctx, args) {
+    if (!args) return false;
+    const found = locateSubtitle(ctx.project, args.subtitleId);
+    return !!found && lookOf(found.subtitle) !== args.look;
+  },
+  run(ctx, args) {
+    const found = locateSubtitle(ctx.project, args.subtitleId);
+    if (!found) throw new Error('subtitle.setLook: no such subtitle');
+    if (lookOf(found.subtitle) === args.look) {
+      throw new Error('subtitle.setLook: no change');
+    }
+    return fieldOps(found.subtitle, { look: lookField(args.look) });
+  },
+};
+
+export const setSubtitlePlaceCommand: Command<SubtitlePlaceArgs> = {
+  id: 'subtitle.setPlace',
+  label: '자막 자리 고르기',
+  hidden: true,
+  requiresArgs: true,
+  done: (_before, _after, args) =>
+    describePlace((args as SubtitlePlaceArgs).place),
+  canRun(ctx, args) {
+    if (!args) return false;
+    const found = locateSubtitle(ctx.project, args.subtitleId);
+    return !!found && placeOf(found.subtitle) !== args.place;
+  },
+  run(ctx, args) {
+    const found = locateSubtitle(ctx.project, args.subtitleId);
+    if (!found) throw new Error('subtitle.setPlace: no such subtitle');
+    if (placeOf(found.subtitle) === args.place) {
+      throw new Error('subtitle.setPlace: no change');
+    }
+    return fieldOps(found.subtitle, placeFields(args.place));
+  },
+};
+
+export const setSubtitleEffectCommand: Command<SubtitleEffectArgs> = {
+  id: 'subtitle.setEffect',
+  label: '자막 효과 고르기',
+  hidden: true,
+  requiresArgs: true,
+  done: (_before, _after, args) =>
+    describeEffect((args as SubtitleEffectArgs).effect),
+  canRun(ctx, args) {
+    if (!args) return false;
+    const found = locateSubtitle(ctx.project, args.subtitleId);
+    return !!found && effectOf(found.subtitle) !== args.effect;
+  },
+  run(ctx, args) {
+    const found = locateSubtitle(ctx.project, args.subtitleId);
+    if (!found) throw new Error('subtitle.setEffect: no such subtitle');
+    if (effectOf(found.subtitle) === args.effect) {
+      throw new Error('subtitle.setEffect: no change');
+    }
+    return fieldOps(found.subtitle, { effect: effectField(args.effect) });
+  },
+};
+
 export const SUBTITLE_COMMANDS: Command<any>[] = [
   addSubtitleCommand,
   removeSubtitleCommand,
@@ -425,4 +547,7 @@ export const SUBTITLE_COMMANDS: Command<any>[] = [
   moveSubtitleCommand,
   trimSubtitleStartCommand,
   trimSubtitleEndCommand,
+  setSubtitleLookCommand,
+  setSubtitlePlaceCommand,
+  setSubtitleEffectCommand,
 ];

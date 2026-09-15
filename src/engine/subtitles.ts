@@ -261,9 +261,11 @@ export function splitSubtitleAt(
   if (index < 0) return { subtitles, nextId };
   const s = subtitles[index];
   const head: Subtitle = { ...s, endFrame: at };
+  // The tail is the same subtitle from `at` on: every field but the id and
+  // the range comes with it, the look, place and effect included (ADR-0017).
   const tail: Subtitle = {
+    ...s,
     id: `sub_${nextId}`,
-    text: s.text,
     startFrame: at,
     endFrame: s.endFrame,
   };

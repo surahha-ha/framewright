@@ -17,7 +17,9 @@ function seed(frames = 100): Project {
   return {
     ...p,
     nextId: 2,
-    tracks: p.tracks.map((t) => (t.type === 'video' ? { ...t, clips: [c] } : t)),
+    tracks: p.tracks.map((t) =>
+      t.type === 'video' ? { ...t, clips: [c] } : t,
+    ),
   };
 }
 
@@ -45,9 +47,7 @@ describe('export plan', () => {
     const ed = createEditor(seed(100));
     ed.setPlayhead(40);
     ed.dispatch('clip.split'); // [0,40) [40,100)
-    ed.select(
-      ed.project.tracks.find((t) => t.type === 'video')!.clips[0].id,
-    );
+    ed.select(ed.project.tracks.find((t) => t.type === 'video')!.clips[0].id);
     ed.dispatch('clip.deleteRipple'); // drop the first 40 frames
 
     const plan = buildExportPlan(ed.project);
@@ -81,8 +81,20 @@ describe('export plan', () => {
           ? {
               ...t,
               clips: [
-                { id: 'c1', assetId: 'a1', startFrame: 0, inFrame: 0, outFrame: 10 },
-                { id: 'c2', assetId: 'a1', startFrame: 20, inFrame: 0, outFrame: 10 },
+                {
+                  id: 'c1',
+                  assetId: 'a1',
+                  startFrame: 0,
+                  inFrame: 0,
+                  outFrame: 10,
+                },
+                {
+                  id: 'c2',
+                  assetId: 'a1',
+                  startFrame: 20,
+                  inFrame: 0,
+                  outFrame: 10,
+                },
               ],
             }
           : t,
@@ -105,15 +117,57 @@ describe('subtitles in the plan', () => {
       ],
     };
     const plan = buildExportPlan(p);
-    expect(plan.map((f) => f.subtitle)).toEqual([
-      null, null, '안녕', '안녕', '안녕', null, null, null, null, null,
+    expect(plan.map((f) => f.subtitle?.text ?? null)).toEqual([
+      null,
+      null,
+      '안녕',
+      '안녕',
+      '안녕',
+      null,
+      null,
+      null,
+      null,
+      null,
     ]);
+    // A plain subtitle's frame is the words and nothing else (ADR-0017).
+    expect(plan[2].subtitle).toEqual({ text: '안녕', t: 1 });
+  });
+
+  it('records the look, the place and how far in the effect is, per frame (ADR-0017)', () => {
+    const p: Project = {
+      ...seed(60),
+      subtitles: [
+        {
+          id: 'sub_1',
+          text: '예능',
+          startFrame: 0,
+          endFrame: 60,
+          look: 'bold',
+          posX: 0.5,
+          posY: 0.15,
+          effect: 'rise',
+        },
+      ],
+    };
+    const plan = buildExportPlan(p);
+    expect(plan[0].subtitle).toEqual({
+      text: '예능',
+      look: 'bold',
+      posX: 0.5,
+      posY: 0.15,
+      effect: 'rise',
+      t: 1 / 8,
+    });
+    expect(plan[30].subtitle?.t).toBe(1);
+    expect(plan[59].subtitle?.t).toBeCloseTo(1 / 8);
   });
 
   it('burns a subtitle into a gap too — a hole in the picture is still time', () => {
     const p: Project = {
       ...seed(10),
-      subtitles: [{ id: 'sub_1', text: '검은 화면 위 글자', startFrame: 0, endFrame: 10 }],
+      subtitles: [
+        { id: 'sub_1', text: '검은 화면 위 글자', startFrame: 0, endFrame: 10 },
+      ],
     };
     const ed = createEditor(p);
     ed.setPlayhead(4);
@@ -123,7 +177,7 @@ describe('subtitles in the plan', () => {
     ed.dispatch('clip.move', { clipId: 'clip_2', startFrame: 6 });
     const plan = buildExportPlan(ed.project);
     expect(plan[5].assetId).toBeNull();
-    expect(plan[5].subtitle).toBe('검은 화면 위 글자');
+    expect(plan[5].subtitle?.text).toBe('검은 화면 위 글자');
   });
 });
 
@@ -134,7 +188,11 @@ describe('export plan — fades (ADR-0012)', () => {
     clips[0].fadeIn = 10;
     const plan = buildExportPlan(p);
     expect(plan[0].blend).toEqual({ assetId: null, sourceFrame: 0, weight: 1 });
-    expect(plan[9].blend).toEqual({ assetId: null, sourceFrame: 0, weight: 0.1 });
+    expect(plan[9].blend).toEqual({
+      assetId: null,
+      sourceFrame: 0,
+      weight: 0.1,
+    });
     expect(plan[10].blend).toBeNull();
     expect(plan[29].blend).toBeNull();
   });
@@ -148,8 +206,21 @@ describe('export plan — fades (ADR-0012)', () => {
           ? {
               ...t,
               clips: [
-                { id: 'c1', assetId: 'a', startFrame: 0, inFrame: 0, outFrame: 5, fadeOut: 2 },
-                { id: 'c2', assetId: 'a', startFrame: 8, inFrame: 5, outFrame: 10 },
+                {
+                  id: 'c1',
+                  assetId: 'a',
+                  startFrame: 0,
+                  inFrame: 0,
+                  outFrame: 5,
+                  fadeOut: 2,
+                },
+                {
+                  id: 'c2',
+                  assetId: 'a',
+                  startFrame: 8,
+                  inFrame: 5,
+                  outFrame: 10,
+                },
               ],
             }
           : t,
@@ -174,6 +245,11 @@ describe('export plan — the picture (ADR-0014)', () => {
     ed.dispatch('clip.rotate');
     const plan = buildExportPlan(ed.project);
     expect('transform' in plan[0]).toBe(false);
-    expect(plan[30].transform).toEqual({ zoom: 2, panX: 0, panY: 0, rotation: 90 });
+    expect(plan[30].transform).toEqual({
+      zoom: 2,
+      panX: 0,
+      panY: 0,
+      rotation: 90,
+    });
   });
 });

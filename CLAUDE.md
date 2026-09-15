@@ -233,6 +233,42 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **An effect shows only on the frames where the subtitle comes and goes.**
+  With the playhead mid-subtitle (where it usually is after typing), pressing
+  톡 or 올라오기 changes nothing on the preview; the status sentence now
+  says what the effect is and the panel hint says to play it, but nothing
+  parks the playhead on the subtitle's first frame or previews the motion.
+  A "play this subtitle" button, or a re-cue to its start on the choice,
+  is the next lever (novice, ADR-0017).
+- **A short subtitle's effect is capped to near nothing in silence.** The
+  way in is at most half the subtitle (ADR-0017), so a 0.3 s caption gets
+  four frames of 올라오기 each side and no sentence says so (novice).
+- **The subtitle panel has one sub-heading, 꾸미기, for four sections.** The
+  words, the timing line and the 재생 위치로 buttons have none; a
+  screen-reader user navigating by heading sees one substructure. Same
+  shape as the clip panel's fade-edge entry below (a11y).
+- **A checked radio differs from an unchecked one by colour alone** — a teal
+  border and ring, in the rule `FramePicker` and the subtitle rows share
+  (`styles.css`). UX.md says never colour alone; fix once in the shared
+  rule (a11y).
+- **Undo inside a radiogroup leaves focus on a radio that is no longer the
+  Tab stop.** Undo reverts the document without moving focus, so after
+  arrowing to 외침 and pressing Ctrl+Z, focus sits on an unchecked radio
+  with `tabIndex -1` and the next Tab skips the row. App-wide: undo also
+  says no sentence. The e2e moves focus to the ruler first (a11y).
+- **The palette does not list the nine subtitle choices.** The three
+  commands are arg-taking and hidden like `subtitle.setText`; whether
+  "자막 자리를 위로" belongs in the palette as a row is the owner's call
+  (ADR-0017).
+- **`Choices` in `SubtitlePanel.tsx` is the second copy of the radiogroup
+  keyboard code** (`FramePicker` the first). A third is the trigger to
+  extract it (reviewer, ADR-0017).
+- **`Preview` keys the subtitle overlay on the frame's JSON.** A
+  `JSON.stringify` per render and a parse when it changes; correct while
+  `subtitleFrameOf` builds its fields in one fixed order. A shallow-equal
+  memo would say the same thing more directly (reviewer).
+- **꾸미기 is a loose umbrella for 자리.** Decoration fits 모양 and 효과;
+  where the words sit is layout. Not misleading, just imprecise (novice).
 - **조용한 부분 없애기 wakes up in silence.** The toolbar button flips from
   "소리를 아직 읽는 중이에요" to runnable when a source's peaks land, and
   nothing announces it: `aria-disabled` and `title` change on an unfocused

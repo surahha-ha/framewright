@@ -26,9 +26,11 @@ Epic numbers follow `docs/HANDOVER.md`, which is the record of what is done.
 - [x] E9 — silence auto-cut (조용한 부분 없애기, one press, one undo step)
 - [x] e2e — Playwright across import, editing, subtitles, sound, picture,
       silence, export
-- [ ] next — E8's second item (style presets); owed regardless: proxy media,
-      Worker-based export, rotation metadata, a project list, golden-file
-      export QC
+- [ ] next — E8's second item, style presets = 예능 자막 (a subtitle's look,
+      place and effect; then calligraphy fonts; then dragging the words
+      anywhere on the picture); then E10 images and stickers; owed
+      regardless: proxy media, Worker-based export, rotation metadata, a
+      project list, golden-file export QC
 
 ## Architecture (key decisions)
 

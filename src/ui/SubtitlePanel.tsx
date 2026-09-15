@@ -13,7 +13,115 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/projectStore';
 import { formatTimecode } from '../engine/time';
 import { locateSubtitle, subtitleLength } from '../engine/subtitles';
+import {
+  EFFECT_HINT,
+  EFFECT_IDS,
+  EFFECT_LABEL,
+  LOOK_HINT,
+  LOOK_IDS,
+  LOOK_LABEL,
+  PLACE_IDS,
+  PLACE_LABEL,
+  SAME_EFFECT,
+  SAME_LOOK,
+  SAME_PLACE,
+  effectOf,
+  lookOf,
+  placeOf,
+} from '../engine/subtitleStyle';
 import { CommandButton } from './CommandButton';
+
+const NEXT: Record<string, 1 | -1> = {
+  ArrowRight: 1,
+  ArrowDown: 1,
+  ArrowLeft: -1,
+  ArrowUp: -1,
+};
+
+/**
+ * One row of choices for the selected subtitle: 모양, 자리 or 효과
+ * (ADR-0017). A radiogroup, for the reasons `FramePicker` gives: exactly
+ * one choice is current, the current one is chosen rather than unavailable,
+ * and the arrows move choice and focus together, one Tab stop. `current` is
+ * null when the subtitle is somewhere no preset names (E8-2c's drag will
+ * do that); then nothing is checked and the first choice is the Tab stop.
+ */
+function Choices<T extends string>({
+  id,
+  title,
+  ids,
+  label,
+  hint,
+  current,
+  choose,
+  same,
+}: {
+  id: string;
+  title: string;
+  ids: readonly T[];
+  label: Record<T, string>;
+  hint?: Record<T, string>;
+  current: T | null;
+  choose: (choice: T) => void;
+  same: (choice: T) => string;
+}) {
+  const setStatus = useStore((s) => s.setStatus);
+  const stop = current ?? ids[0];
+
+  function pick(choice: T) {
+    // Pressing what is already chosen changes nothing; say so rather than
+    // let a press do nothing in silence (CommandButton's rule).
+    if (choice === current) return setStatus(same(choice));
+    choose(choice);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, i: number) {
+    const step = NEXT[e.key];
+    if (!step) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const next = ids[(i + step + ids.length) % ids.length];
+    const buttons =
+      e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+        '[role="radio"]',
+      );
+    buttons?.[ids.indexOf(next)]?.focus();
+    pick(next);
+  }
+
+  return (
+    <div className="subtitle-choice">
+      <span className="subtitle-choice-label" id={`${id}-label`}>
+        {title}
+      </span>
+      <div role="radiogroup" aria-labelledby={`${id}-label`}>
+        {ids.map((choice, i) => (
+          <button
+            key={choice}
+            type="button"
+            role="radio"
+            aria-checked={choice === current}
+            tabIndex={choice === stop ? 0 : -1}
+            title={hint?.[choice]}
+            // The hint is the radio's description too, so a keyboard user
+            // hears what 톡 IS; `title` alone shows only under a mouse.
+            aria-describedby={hint ? `${id}-${choice}-hint` : undefined}
+            onClick={() => pick(choice)}
+            onKeyDown={(e) => onKeyDown(e, i)}
+          >
+            {label[choice]}
+          </button>
+        ))}
+      </div>
+      {hint &&
+        ids.map((choice) => (
+          <span key={choice} className="sr-only" id={`${id}-${choice}-hint`}>
+            {hint[choice]}
+          </span>
+        ))}
+    </div>
+  );
+}
 
 export function SubtitlePanel() {
   const project = useStore((s) => s.project);
@@ -118,6 +226,45 @@ export function SubtitlePanel() {
           <kbd>Esc</kbd> 입력 취소
         </span>
       </label>
+      {/* 예능 자막 (ADR-0017): how the words look, where they sit, how they
+          come and go. Three choices each; the document keeps a field per
+          row, absent for the first choice. */}
+      <h3 className="panel-subtitle">꾸미기</h3>
+      <div className="subtitle-choices">
+        <Choices
+          id="subtitle-look"
+          title="모양"
+          ids={LOOK_IDS}
+          label={LOOK_LABEL}
+          hint={LOOK_HINT}
+          current={lookOf(subtitle)}
+          choose={(look) => run('subtitle.setLook', { subtitleId: id, look })}
+          same={SAME_LOOK}
+        />
+        <Choices
+          id="subtitle-place"
+          title="자리"
+          ids={PLACE_IDS}
+          label={PLACE_LABEL}
+          current={placeOf(subtitle)}
+          choose={(place) =>
+            run('subtitle.setPlace', { subtitleId: id, place })
+          }
+          same={SAME_PLACE}
+        />
+        <Choices
+          id="subtitle-effect"
+          title="효과"
+          ids={EFFECT_IDS}
+          label={EFFECT_LABEL}
+          hint={EFFECT_HINT}
+          current={effectOf(subtitle)}
+          choose={(effect) =>
+            run('subtitle.setEffect', { subtitleId: id, effect })
+          }
+          same={SAME_EFFECT}
+        />
+      </div>
       <p className="subtitle-when">
         <span>
           {formatTimecode(subtitle.startFrame, fps)}부터{' '}
@@ -153,7 +300,8 @@ export function SubtitlePanel() {
       <p className="empty-hint">
         재생 위치를 옮긴 뒤 위 단추를 누르면 자막 전체가 그 자리로 가거나, 그
         자리에서 시작하거나 끝나요. 타임라인의 자막을 끌어서 옮기거나 양 끝을
-        끌어 길이를 조절할 수도 있어요.
+        끌어 길이를 조절할 수도 있어요. 꾸미기의 효과는 자막이 나타날 때와
+        사라질 때 잠깐 보여요 · 재생해서 확인해 보세요.
       </p>
     </section>
   );
