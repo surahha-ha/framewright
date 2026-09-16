@@ -223,6 +223,34 @@ test('shell commands that write, move or delete a protected file are denied; rea
   }
 });
 
+test('a private key is a path, not a `.key`/`.pem` property access in a code string', () => {
+  // The command that was wrongly denied on 2026-09-16: restoring a file whose
+  // sed script happens to mention `entry.key`. Nothing here is a key file.
+  for (const command of [
+    "cp src/ui/images.ts.bak src/ui/images.ts && sed -i 's/  return entry.key === keyOf(assetId) ? entry.bitmap : null;/  return entry.bitmap;/' src/ui/images.ts && npx vitest run src/ui/images.test.ts",
+    "sed -i 's/const k = obj.pem;/const k = obj.pemPath;/' src/ui/media.ts",
+    "perl -pi -e 's/  entry.key === x/  entry.id === x/' src/ui/images.ts",
+    "Set-Content -Path src/ui/images.ts -Value 'return entry.key === x'",
+  ]) {
+    assert.equal(shellDenial(shell(command)), null, String(command));
+  }
+  for (const command of [
+    'rm ./certs/server.key',
+    'npm test && rm secrets/id_rsa.pem',
+    'mv certs/server.key /tmp/elsewhere',
+    'Remove-Item certs\\server.key',
+    'rm "certs/server.key"',
+    'echo x > certs/server.key',
+  ]) {
+    assert.ok(shellDenial(shell(command)), String(command));
+  }
+  // An edit target is judged as a path, where every segment is a path segment.
+  for (const file of ['server.key', 'certs/id_rsa.pem', 'a/b/c.key']) {
+    assert.throws(() => checkedPath(file, root), /Protected/, file);
+  }
+  assert.doesNotThrow(() => checkedPath('src/ui/images.ts', root));
+});
+
 test('formatting handles spaces and shell metacharacters, ignored and deleted files', async (t) => {
   const temp = realpathSync(mkdtempSync(join(tmpdir(), 'fw-hook-format-')));
   t.after(() => rmSync(temp, { recursive: true, force: true }));

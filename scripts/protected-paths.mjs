@@ -19,7 +19,21 @@ const NAMES = [
   `\\.env(?:\\.${NAME}*)?`, // .env, .env.local, .env.production ...
   '\\.envrc',
   '\\.npmrc', // registry auth tokens
-  `${NAME}*\\.(?:pem|key)`, // private keys
+  // Private keys. The name has to start where a path starts — right after a
+  // separator, or at the start of what is being judged — so that `.key`/`.pem`
+  // hanging off an identifier in a code string (`entry.key`, `obj.pem` inside a
+  // sed script) is read as the property access it is, not as a key file.
+  // Known limitation, accepted: a bare key name with no directory in front of
+  // it (`rm server.pem`, `cp a.key b`, `mv id_rsa.key /tmp/x`) is no longer
+  // caught by the shell guard. In a command string the `a.key` of `cp a.key b`
+  // and the `entry.key` of `return entry.key` are the same token with the same
+  // boundaries either side, so no name pattern can separate them; separating
+  // them needs context — is this an argument position outside quotes? — which
+  // lives in the gap between the command and its argument in SHELL_WRITE_RE and
+  // would move the shell verdict for every protected name at once, so it was
+  // left alone. The edit hook still refuses `server.key` by name: the hole is
+  // on the shell path only.
+  `(?<![^\\\\/])${NAME}*\\.(?:pem|key)`,
   '\\.git', // directory, or the file a worktree keeps in its place
   '\\.claude{sep}settings(?:\\.local)?\\.json', // the hooks themselves
   '\\.codex{sep}(?:hooks\\.json|config\\.toml)',
