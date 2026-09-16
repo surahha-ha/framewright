@@ -615,6 +615,33 @@ describe('subtitle.setPosition (E8-2c)', () => {
       '자막을 옮겼어요 · 왼쪽에서 32% · 위에서 70%.',
     );
   });
+
+  it('refuses a move to where a non-normal-form document already draws — both axes by value', () => {
+    // A hand-edited `posY` 0.99 draws at the bottom (`isBottomY`), as the
+    // absent field does; writing the bottom is not a move and must not
+    // push an undo entry that changes nothing on screen.
+    const ed = editorWith(
+      seed(300, [{ ...sub('sub_1', 10, 50), posX: 0.5, posY: 0.99 }]),
+    );
+    expect(
+      ed.dispatch('subtitle.setPosition', {
+        subtitleId: 'sub_1',
+        posX: 0.5,
+        posY: 1,
+      }),
+    ).toBe(false);
+    expect(ed.undo()).toBe(false);
+    // A real move still goes through, and undo restores the odd bytes.
+    expect(
+      ed.dispatch('subtitle.setPosition', {
+        subtitleId: 'sub_1',
+        posX: 0.5,
+        posY: 0.5,
+      }),
+    ).toBe(true);
+    expect(ed.undo()).toBe(true);
+    expect(ed.project.subtitles[0]).toMatchObject({ posX: 0.5, posY: 0.99 });
+  });
 });
 
 describe('subtitle.setFont (ADR-0018)', () => {

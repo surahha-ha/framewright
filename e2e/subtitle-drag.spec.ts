@@ -262,6 +262,55 @@ test.describe('자막 끌기', () => {
     );
   });
 
+  test('a drag past the edge stays attached to the pointer: the way back moves at once', async ({
+    page,
+  }) => {
+    await withWords(page);
+    const c = await inkCentre(page);
+    await page.mouse.move(c.x, c.y);
+    await page.mouse.down();
+    // Down, 0.3 of the box PAST its bottom: the words stop at the bottom.
+    const far = c.box.y + c.box.height * 1.3;
+    await page.mouse.move(c.x, (c.y + far) / 2, { steps: 4 });
+    await page.mouse.move(c.x, far, { steps: 4 });
+    await expect(slider(page, '세로 자리')).toHaveValue('100');
+    // Back by a fifth of the box. Before ADR-0019's amendment the origin
+    // stayed at the press, so this step only ate into the 0.3 overshoot
+    // and the words did not move; now the origin came along with the
+    // clamped value and the words come back a fifth.
+    await page.mouse.move(c.x, far - c.box.height * 0.2, { steps: 4 });
+    await page.mouse.up();
+    await expect(slider(page, '세로 자리')).toHaveValue('80');
+    await expect(status(page)).toContainText(
+      '자막을 옮겼어요 · 가로 가운데 · 위에서 80%.',
+    );
+  });
+
+  test('the 자리 radios and the two sliders are one group, named by the word', async ({
+    page,
+  }) => {
+    await withWords(page);
+    // Off every preset the radios read as nothing checked and the value
+    // lives only in the sliders; the group is what says the two belong
+    // together (a11y review, E8-2c).
+    const place = page.getByRole('group', { name: '자리', exact: true });
+    await expect(place.getByRole('radiogroup', { name: '자리' })).toBeVisible();
+    await expect(
+      place.getByRole('slider', { name: '가로 자리' }),
+    ).toBeVisible();
+    await expect(
+      place.getByRole('slider', { name: '세로 자리' }),
+    ).toBeVisible();
+    await expect(place.locator('#subtitle-position-note')).toBeVisible();
+    // The sliders take a line of their own under the word; the word and
+    // its radios keep their places beside each other.
+    const word = (await place.locator('.subtitle-choice-label').boundingBox())!;
+    const radios = (await group(page, '자리').boundingBox())!;
+    const sliders = (await slider(page, '가로 자리').boundingBox())!;
+    expect(Math.abs(word.y - radios.y)).toBeLessThan(8);
+    expect(sliders.y).toBeGreaterThan(radios.y + radios.height - 1);
+  });
+
   test('a position survives a reload', async ({ page }) => {
     // `clear: false` — the init script that clears storage runs on EVERY
     // navigation, the reload included.

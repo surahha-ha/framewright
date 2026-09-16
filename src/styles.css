@@ -817,6 +817,16 @@ body {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* A row with more under its radios (the 자리 row's sliders): the extra
+   controls take a full line of their own beneath the word and the radios,
+   which keep their places — the radiogroup can shrink to nothing, so the
+   wrap never moves it. */
+.subtitle-choice.with-more {
+  flex-wrap: wrap;
+}
+.subtitle-choice.with-more > .subtitle-position {
+  flex-basis: 100%;
+}
 .subtitle-when {
   display: flex;
   flex-direction: column;
@@ -1430,12 +1440,30 @@ button[aria-disabled='true'] {
   outline: 2px solid var(--teal);
   outline-offset: 1px;
 }
-/* The current choice: the same look as an on switch elsewhere. */
+/* The current choice: the same look as an on switch elsewhere — and a
+   SHAPE, a filled dot in the corner, because UX.md says never colour alone
+   and the teal border and ring are colour (a11y review, E8-2a/b). Empty
+   `content`, so the radio's accessible name does not grow a glyph. */
+.frame-picker button,
+.subtitle-choice button {
+  position: relative;
+}
 .frame-picker button[aria-checked='true'],
 .subtitle-choice button[aria-checked='true'] {
   border-color: var(--teal);
   box-shadow: inset 0 0 0 1px var(--teal);
   cursor: default;
+}
+.frame-picker button[aria-checked='true']::before,
+.subtitle-choice button[aria-checked='true']::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--teal);
 }
 .frame-size {
   margin-left: 4px;

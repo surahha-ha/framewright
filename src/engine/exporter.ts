@@ -162,12 +162,15 @@ export async function exportProject(
   const missingFonts: SubtitleFont[] = [];
   const wantedFonts = fontsInPlan(plan);
   if (wantedFonts.length > 0) {
-    options.onProgress?.(0, plan.length, 'fonts');
-    for (const font of wantedFonts) {
+    // Counted per FACE, not per frame: with three faces on a cold cache the
+    // bar sat at 0% for seconds with only the phase word to say why.
+    options.onProgress?.(0, wantedFonts.length, 'fonts');
+    for (const [i, font] of wantedFonts.entries()) {
       // A load cannot be broken into, so the cancel is raced against it:
       // otherwise 취소 waits for a fetch that may never end.
       if (!(await raceAbort(fonts.load(font), options.signal)))
         missingFonts.push(font);
+      options.onProgress?.(i + 1, wantedFonts.length, 'fonts');
     }
   }
 

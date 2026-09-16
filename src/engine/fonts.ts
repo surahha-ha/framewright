@@ -21,12 +21,14 @@ export const FONT_LABEL: Record<FontId, string> = {
   pen: '손글씨',
   black: '굵은고딕',
 };
-/** What the face IS, for the radio's description and hover. */
+/** What the face IS, for the radio's description and hover. What it
+ *  looks like first, the product name after: a first-time user picks by
+ *  the look and has never heard the name (novice review, E8-2b). */
 export const FONT_HINT: Record<FontId, string> = {
   system: '기기에 있는 고딕 글꼴',
-  brush: '나눔붓 · 붓으로 쓴 글씨',
-  pen: '나눔손글씨 펜 · 펜으로 쓴 글씨',
-  black: '검은고딕 · 굵고 각진 글씨',
+  brush: '붓으로 쓴 글씨 · 나눔붓',
+  pen: '펜으로 쓴 글씨 · 나눔손글씨 펜',
+  black: '굵고 각진 글씨 · 검은고딕',
 };
 
 export interface FontFile {
@@ -163,8 +165,12 @@ export const FONT_RETRYING = (font: SubtitleFont) =>
   `${FONT_LABEL[font]} 글꼴을 다시 받는 중이에요 · 받으면 바로 바뀌어요.`;
 export const FONT_ARRIVED = (font: SubtitleFont) =>
   `${FONT_LABEL[font]} 글꼴을 받았어요.`;
+/** The file did not come. The way back is the same radio (ADR-0018), and
+ *  nothing else on screen says so — so the sentence does, from the start:
+ *  said during playback nothing is selected and there is no 글꼴 row on
+ *  screen yet, so the first step is choosing the subtitle (novice review). */
 export const FONT_FAILED = (font: SubtitleFont) =>
-  `${FONT_LABEL[font]} 글꼴을 받지 못했어요 · 기본 글꼴로 보여요.`;
+  `${FONT_LABEL[font]} 글꼴을 받지 못했어요 · 기본 글꼴로 보여요 · 자막을 고른 뒤 글꼴에서 ${FONT_LABEL[font]} 단추를 다시 누르면 다시 받아요.`;
 /** The export's warning for the faces it could not load. */
 export function missingFontsText(fonts: readonly SubtitleFont[]): string {
   if (fonts.length === 0) return '';

@@ -12,7 +12,6 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useStore } from '../store/projectStore';
@@ -24,30 +23,20 @@ import { AudioPlayer } from '../engine/audioPlayer';
 import { audioContext, getAudioBuffer, resumeAudio } from '../engine/audio';
 import { subtitleAt } from '../engine/subtitles';
 import { subtitleFrameOf } from '../engine/subtitleStyle';
-import {
-  drawSubtitle,
-  drawnBounds,
-  layoutBounds,
-  layoutOfFrame,
-  type SubtitleFrame,
-} from '../engine/subtitleRender';
-import { bottomCentreY, snapPosition } from '../engine/subtitlePosition';
-import { browserFonts, fontState, subscribeFonts } from './fonts';
-import {
-  FONT_ARRIVED,
-  FONT_FAILED,
-  FONT_FETCHING,
-  knownFont,
-} from '../engine/fonts';
+import { drawSubtitle, type SubtitleFrame } from '../engine/subtitleRender';
+import { useWordsDrag } from './useWordsDrag';
+import { useSubtitleFonts } from './useSubtitleFonts';
 import { evenDimensions } from '../engine/exportPlan';
 import { blendAt } from '../engine/fades';
 import { FeedPool } from '../engine/feeds';
 import { composeFrame, type BlendLayer } from '../engine/compose';
 import {
   AS_SHOT,
+  clipPanLimits,
   pictureTransform,
   type PictureTransform,
 } from '../engine/picture';
+import { dragAxis } from '../engine/stageDrag';
 import { TOGGLE_PLAY_EVENT } from './actions';
 import { clipCeiling } from './waveform';
 import { FramePicker } from './FramePicker';
@@ -94,17 +83,21 @@ export function Preview() {
   // Dragging on the stage moves the picture of the clip under the playhead:
   // pixels over the picture canvas's CSS size are fractions of the BOX,
   // which is what `clip.pan` takes. Every move is the command with a
-  // coalesce key, so the drag is one undo step (ADR-0006).
+  // coalesce key, so the drag is one undo step (ADR-0006). The pan stops at
+  // the clip's own limit, and the pointer stays attached there (`dragAxis`:
+  // the origin moves with a clamped value, so dragging back moves at once).
   const panDragRef = useRef<{
     clipId: string;
     pointerId: number;
-    startX: number;
-    startY: number;
+    originX: number;
+    originY: number;
     panX: number;
     panY: number;
     zoom: number;
     width: number;
     height: number;
+    limitX: number;
+    limitY: number;
     moved: boolean;
   } | null>(null);
   const underPlayhead = resolveAt(project, playhead)?.clip ?? null;
@@ -115,7 +108,7 @@ export function Preview() {
     // The words first (E8-2c): a press on them is unambiguous, so it
     // selects the subtitle AND starts its drag; the picture's pan below
     // needs a press-to-choose step because the picture is not.
-    if (beginWordsDrag(e)) return;
+    if (wordsDrag.onPointerDown(e)) return;
     if (!underPlayhead) return;
     // Only the SELECTED clip's picture moves, and only while it is the one
     // on screen. A drag that edited the clip under the playhead while the
@@ -132,48 +125,65 @@ export function Preview() {
     const rect = picture.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     const t = pictureTransform(underPlayhead);
+    const limits = clipPanLimits(project, underPlayhead);
     panDragRef.current = {
       clipId: underPlayhead.id,
       pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
+      originX: e.clientX,
+      originY: e.clientY,
       panX: t.panX,
       panY: t.panY,
       zoom: t.zoom,
       width: rect.width,
       height: rect.height,
+      limitX: limits.x,
+      limitY: limits.y,
       moved: false,
     };
     e.currentTarget.setPointerCapture(e.pointerId);
   }
 
   function onStagePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    if (moveWordsDrag(e)) return;
+    if (wordsDrag.onPointerMove(e)) return;
     const d = panDragRef.current;
-    if (!d) {
-      hoverWords(e);
+    if (!d || e.pointerId !== d.pointerId) return;
+    if (
+      !d.moved &&
+      Math.abs(e.clientX - d.originX) < 3 &&
+      Math.abs(e.clientY - d.originY) < 3
+    )
       return;
-    }
-    if (e.pointerId !== d.pointerId) return;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
-    if (!d.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
     d.moved = true;
+    // The pan scales with the zoom (ADR-0014): a pixel of drag is a pixel
+    // of the ZOOMED picture, so the picture follows the pointer — and stops
+    // with it at the limit the command would clamp to anyway.
+    const ax = dragAxis({
+      base: d.panX,
+      origin: d.originX,
+      pointer: e.clientX,
+      size: d.width * d.zoom,
+      min: -d.limitX,
+      max: d.limitX,
+    });
+    const ay = dragAxis({
+      base: d.panY,
+      origin: d.originY,
+      pointer: e.clientY,
+      size: d.height * d.zoom,
+      min: -d.limitY,
+      max: d.limitY,
+    });
+    d.originX = ax.origin;
+    d.originY = ay.origin;
     run(
       'clip.pan',
-      // The pan scales with the zoom (ADR-0014): a pixel of drag is a
-      // pixel of the ZOOMED picture, so the picture follows the pointer.
-      {
-        clipId: d.clipId,
-        x: d.panX + dx / (d.width * d.zoom),
-        y: d.panY + dy / (d.height * d.zoom),
-      },
+      { clipId: d.clipId, x: ax.value, y: ay.value },
       `pan:${d.clipId}`,
     );
   }
 
   function onStagePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
-    if (endWordsDrag(e)) return;
+    if (wordsDrag.onPointerUp(e)) return;
     const d = panDragRef.current;
     if (!d || e.pointerId !== d.pointerId) return;
     panDragRef.current = null;
@@ -339,160 +349,17 @@ export function Preview() {
   );
   const words = frame?.text ?? '';
 
-  // ---- MOVE THE WORDS (E8-2c, ADR-0019) ----
-  // A press inside the drawn block of the subtitle under the playhead drags
-  // it: pointer pixels over the overlay's CSS size are fractions of the
-  // BOX, which is what `subtitle.setPosition` takes; every move is the
-  // command under one coalesce key (one undo step, the pan's shape); the
-  // drop snaps near a preset. The subtitle is locked at press, so playback
-  // moving the playhead off it mid-drag changes nothing about the gesture.
-  const selectSubtitle = useStore((s) => s.selectSubtitle);
-  const wordsDragRef = useRef<{
-    subtitleId: string;
-    pointerId: number;
-    startX: number;
-    startY: number;
-    /** The block's drawn centre at press, as fractions of the box. */
-    baseX: number;
-    baseY: number;
-    /** The overlay's CSS size at press: a pixel of drag over it is a
-     *  fraction of the box. */
-    width: number;
-    height: number;
-    /** Where the bottom stack's centre is for these words, for the snap. */
-    bottomCentreY: number;
-    lastX: number;
-    lastY: number;
-    moved: boolean;
-    /** Whether the press changed the selection — a press that then does
-     *  not move has only that to say. */
-    chose: boolean;
-  } | null>(null);
-  const selectedSubtitleId = useStore((s) => s.selectedSubtitleId);
-  const [overWords, setOverWords] = useState(false);
-
-  /** The drawn block under the pointer, or null: the overlay's rect maps
-   *  the pointer onto the export grid the words were laid out on. */
-  function wordsUnder(e: ReactPointerEvent<HTMLDivElement>) {
-    const overlay = overlayRef.current;
-    const ctx = overlay?.getContext('2d');
-    if (!overlay || !ctx || !frame || !frame.text || !current) return null;
-    const rect = overlay.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
-    const layout = layoutOfFrame(ctx, frame, overlay.width, overlay.height);
-    if (!layout) return null;
-    // The hit is against the ink as DRAWN on this frame (an effect's first
-    // frames shift or shrink it); the drag's base is the block's REST
-    // centre, the one the stored fractions name, so the first move does
-    // not add the effect's offset to the document.
-    const drawn = drawnBounds(frame, layout, overlay.height);
-    const x = ((e.clientX - rect.left) * overlay.width) / rect.width;
-    const y = ((e.clientY - rect.top) * overlay.height) / rect.height;
-    if (x < drawn.left || x > drawn.right || y < drawn.top || y > drawn.bottom)
-      return null;
-    return { overlay, ctx, rect, layout, bounds: layoutBounds(layout) };
-  }
-
-  function beginWordsDrag(e: ReactPointerEvent<HTMLDivElement>): boolean {
-    const hit = wordsUnder(e);
-    if (!hit || !frame || !current) return false;
-    const { overlay, ctx, rect, bounds } = hit;
-    const bottom = layoutOfFrame(ctx, frame, overlay.width, overlay.height, {
-      posX: frame.posX,
-    });
-    wordsDragRef.current = {
-      subtitleId: current.id,
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      baseX: (bounds.left + bounds.right) / 2 / overlay.width,
-      baseY: (bounds.top + bounds.bottom) / 2 / overlay.height,
-      width: rect.width,
-      height: rect.height,
-      bottomCentreY: bottom
-        ? bottomCentreY(bottom, overlay.height)
-        : (bounds.top + bounds.bottom) / 2 / overlay.height,
-      lastX: 0,
-      lastY: 0,
-      moved: false,
-      chose: current.id !== selectedSubtitleId,
-    };
-    selectSubtitle(current.id);
-    e.currentTarget.setPointerCapture(e.pointerId);
-    return true;
-  }
-
-  function moveWordsDrag(e: ReactPointerEvent<HTMLDivElement>): boolean {
-    const d = wordsDragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return false;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
-    if (!d.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return true;
-    d.moved = true;
-    d.lastX = Math.min(1, Math.max(0, d.baseX + dx / d.width));
-    d.lastY = Math.min(1, Math.max(0, d.baseY + dy / d.height));
-    run(
-      'subtitle.setPosition',
-      { subtitleId: d.subtitleId, posX: d.lastX, posY: d.lastY },
-      `pos:${d.subtitleId}`,
-    );
-    return true;
-  }
-
-  function endWordsDrag(e: ReactPointerEvent<HTMLDivElement>): boolean {
-    const d = wordsDragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return false;
-    wordsDragRef.current = null;
-    if (d.moved) {
-      // The drop: near a preset, on it — under the same key, so the whole
-      // gesture stays one undo step.
-      const snapped = snapPosition(
-        { posX: d.lastX, posY: d.lastY },
-        d.bottomCentreY,
-      );
-      run(
-        'subtitle.setPosition',
-        { subtitleId: d.subtitleId, ...snapped },
-        `pos:${d.subtitleId}`,
-      );
-    } else if (d.chose) {
-      // The press picked another subtitle and the panel changed under the
-      // pointer; the picture's press says as much, so does this (a11y).
-      setStatus('화면의 자막을 골랐어요 · 끌면 자리가 옮겨져요.');
-    }
-    endGesture();
-    return true;
-  }
-
-  /** The cursor says the words can be dragged: `move` over the block. */
-  function hoverWords(e: ReactPointerEvent<HTMLDivElement>) {
-    const over = wordsUnder(e) !== null;
-    if (over !== overWords) setOverWords(over);
-  }
-
-  // A face (ADR-0018) is fetched the first time a frame under the playhead
-  // names one that is not on the page yet — a document reopened from
-  // storage — and the overlay redraws when any face lands.
-  const [fontsVersion, fontArrived] = useState(0);
-  useEffect(() => subscribeFonts(() => fontArrived((n) => n + 1)), []);
-  const wantedFont = knownFont(frame?.font);
-  const wantedRef = useRef(wantedFont);
-  wantedRef.current = wantedFont;
-  useEffect(() => {
-    if (!wantedFont || browserFonts.ready(wantedFont)) return;
-    // Only a face nobody has asked for yet: the panel's choice asks first
-    // and says its own sentences. What is left is the reopened document,
-    // and it says the same — the swap from the system face is otherwise a
-    // silent change of shape mid-subtitle.
-    if (fontState(wantedFont) !== undefined) return;
-    setStatus(FONT_FETCHING(wantedFont));
-    void browserFonts.load(wantedFont).then((ok) => {
-      // Said only while the words under the playhead still want the face,
-      // so it never buries a newer sentence about something else.
-      if (wantedRef.current !== wantedFont) return;
-      setStatus(ok ? FONT_ARRIVED(wantedFont) : FONT_FAILED(wantedFont));
-    });
-  }, [wantedFont, setStatus]);
+  // The faces the document names are fetched as soon as it is on screen,
+  // and the overlay redraws when one lands (ADR-0018, `useSubtitleFonts`).
+  const fontsVersion = useSubtitleFonts(project, frame, setStatus);
+  // ---- MOVE THE WORDS (E8-2c, ADR-0019) ---- the stage's other drag,
+  // asked first by each handler above (`useWordsDrag`).
+  const wordsDrag = useWordsDrag({
+    overlayRef,
+    frame,
+    current,
+    fontsVersion,
+  });
   // A LAYOUT effect: the picture is painted inside the rAF tick and the
   // playhead update that changes the frame is committed right after, so
   // drawing the words before that commit reaches the screen keeps both on
@@ -714,7 +581,7 @@ export function Preview() {
           (underPlayhead && underPlayhead.id === selectedClipId
             ? ' movable'
             : '') +
-          (overWords ? ' words' : '')
+          (wordsDrag.overWords ? ' words' : '')
         }
         ref={stageRef}
         onPointerDown={onStagePointerDown}

@@ -136,6 +136,32 @@ test.describe('예능 자막', () => {
     expect(await left('자리')).toBeCloseTo(await left('모양'), 0);
   });
 
+  test('a checked radio carries a mark of its own, not only a colour', async ({
+    page,
+  }) => {
+    await withWords(page);
+    // UX.md: never colour alone. The teal border and ring are colour; the
+    // dot drawn before a checked radio is a shape — present or absent —
+    // and it is empty content, so the radio's name does not grow a glyph.
+    const dot = (name: string) =>
+      radio(page, '모양', name).evaluate(
+        (el) => getComputedStyle(el, '::before').content,
+      );
+    expect(await dot('기본')).toBe('""');
+    expect(await dot('강조')).toBe('none');
+    await radio(page, '모양', '강조').click();
+    expect(await dot('강조')).toBe('""');
+    expect(await dot('기본')).toBe('none');
+    await expect(radio(page, '모양', '강조')).toHaveAccessibleName('강조');
+    // The same rule dresses the box's shape picker over the preview.
+    const shape = page
+      .getByRole('radiogroup', { name: '영상 모양' })
+      .locator('[aria-checked="true"]');
+    expect(
+      await shape.evaluate((el) => getComputedStyle(el, '::before').content),
+    ).toBe('""');
+  });
+
   test('위 puts the words in the top band, says so, and one undo puts them back', async ({
     page,
   }) => {

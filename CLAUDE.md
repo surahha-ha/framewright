@@ -233,37 +233,59 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
-- **`Preview.tsx` is ~780 lines and five concerns** — scrub, the playback
-  loop, audio scheduling, the picture's pan drag and now the words' drag
-  with its hit test (ADR-0019). The words' drag (`wordsUnder`,
-  `beginWordsDrag` … `hoverWords`) is the next extraction candidate, into
-  a hook of its own; the stage's two drags share one handler set on
-  purpose (reviewer).
-- **The stage lays the subtitle out on every hover move.** `hoverWords`
-  runs `layoutOfFrame` (font metrics, wrap, `measureText` per line) at
-  pointermove rate whenever the pointer is over the stage, to set the
-  cursor. Cheap for a caption, unmeasured on a slow machine; same class as
-  "`Preview` resolves the clip under the playhead on every render"
-  (reviewer).
-- **A words drag past the box's edge detaches from the pointer**, exactly
-  as the picture's pan does (see that entry): the stored fraction clamps
-  to [0, 1] while the drawn block stops at its margin, so dragging back
-  does nothing until the pointer has returned by the overshoot (novice).
+- **A words drag during playback goes blind.** The drag locks the
+  subtitle's id at press (ADR-0019) and every move lands on it, but
+  nothing stops playback on the press, so when the rAF loop carries the
+  playhead past the subtitle's end the overlay draws whatever is under the
+  playhead now while the pointer is still rewriting the locked subtitle's
+  position, unseen, until release. The pan has the same latent gap.
+  Stopping playback on a stage press is the obvious lever (QA, E8-2d).
+- **A face's "받았어요" is never said after the fact.** The playhead's
+  sentence settles only while the same face is still wanted under the
+  playhead; a user who moves on during the fetch and comes back later
+  finds the face already drawn and hears nothing — the promise of "받으면
+  바로 바뀌어요" is kept on screen, not in words (a11y, E8-2d).
+- **The 자리 group and its radiogroup share one name.** Both are
+  `aria-labelledby` the visible word, so a screen reader may say "자리
+  grouping, 자리 radio group" back to back on entry. Unverified against a
+  real AT; if it grates, the radiogroup's own name is the cheap fix, and
+  every spec's `radiogroup "자리"` locator follows it (a11y, E8-2d).
+- **No `forced-colors` rule anywhere.** The checked radio's dot, its
+  teal border and every other colour state vanish under Windows High
+  Contrast; app-wide and pre-existing, the dot is one more instance. One
+  shared `@media (forced-colors: active)` rule with an outline or a
+  border-style is the fix (a11y, E8-2d).
+- **The checked dot is 4px.** Legible in the owner's Chrome at 100%
+  (2026-09-16), but small, and a first-time user who notices it may read
+  it as a badge; the teal border stays the dominant cue (novice, E8-2d).
+- **A stage drag's limits are frozen at the press.** `R` (rotate) or a
+  box change pressed while the pointer is down changes the pan's limits
+  and the box's size under a running drag; the document is still clamped
+  by the command (`decidePan`), but `dragAxis` then rebases against stale
+  bounds and the pointer can detach for the rest of that one gesture
+  (reviewer, QA, E8-2d).
+- **A face that failed in one document stays failed for the next.**
+  `ui/fonts.ts`'s state map is a module singleton (see the other singleton
+  entries below): a restore or a new document naming that face skips the
+  quiet fetch because the state says `failed`, and only the radio's
+  retry asks again (QA, E8-2d).
+- **`Preview.tsx` is ~660 lines and three concerns** — scrub, the playback
+  loop with its audio scheduling, and the picture's pan drag. The words'
+  drag is a hook (`ui/useWordsDrag.ts`) and the faces another
+  (`ui/useSubtitleFonts.ts`) since 2026-09-16; the pan is the next
+  candidate, and E10's third stage drag is the rule-of-three trigger for
+  the DOM half the two share (reviewer, ADR-0019).
 - **After a drag on the stage, focus is wherever it was.** `.stage` is not
-  focusable and `endWordsDrag` moves focus nowhere, so a mouse-plus-screen-
-  reader user has no way to ask "where am I now" after the panel changed
-  under the pointer; the sentence is the only sign. The keyboard route (the
-  sliders) never enters this path (a11y).
+  focusable and the words drag's release moves focus nowhere, so a
+  mouse-plus-screen-reader user has no way to ask "where am I now" after
+  the panel changed under the pointer; the sentence is the only sign. The
+  keyboard route (the sliders) never enters this path. Moving focus after
+  a mouse gesture is focus theft unless the owner wants it — their call
+  (a11y).
 - **Every slider step says the whole position sentence.** "자막을 옮겼어요
   · 왼쪽에서 53% · 맨 아래." on each ArrowRight — the most verbose instance
   of the shared `RangeRow` pattern (the pan's is two clauses); arrival on
   a preset is already said shorter (a11y).
-- **The 자리 radios and the two sliders under them are not one group.**
-  Off every preset the radios read as nothing checked and the value lives
-  only in the sliders' `aria-valuetext`, a separate Tab stop, tied by the
-  word 자리 in each name and by the note; a group role or a heading would
-  say the relation (a11y). Same family as the panel's missing
-  sub-headings entry below.
 - **자리 here, 위치 there.** The subtitle's sliders are 가로 자리 · 세로
   자리, the picture's 가로 위치 · 세로 위치 — never on screen together,
   and the different word tells the two apart, but it is one more word to
@@ -273,32 +295,24 @@ file that moved. Then run `check:refs` and `typecheck`.
   true position. The keyboard route has no snap at all (`snapPosition` is
   applied at the pointer's drop only, by the plan) — the radios are the
   exact route (a11y, novice).
-- **`subtitle.setFont` is the fourth copy of the set-one-field command
-  shape** (`setLook`, `setPlace`, `setEffect` are the others): locate,
-  refuse the same value, one `fieldOps`, a `done` from the arg. `fieldOps`
-  is shared; the ~20-line wrapper around it is not. Past the rule of three;
-  a factory taking the field and the sentences is the fold (reviewer,
-  ADR-0018).
-- **The export's progress bar reads 0% through the whole fonts phase, then
-  0% again at audio.** One `onProgress(0, n, 'fonts')` before the loop,
-  nothing per face, and the audio phase starts from 0 too; with three
-  faces on a cold cache the bar sits still for seconds with only the
-  phase word. Same family as "잠시 뒤 다시 눌러 주세요 has no sense of how
-  long" (reviewer, QA, a11y, novice).
+- **The export's progress bar jumps back to 0% at the audio phase.** The
+  fonts phase counts per face now (1/3, 2/3 …), then the audio phase
+  starts from 0 over the plan's frames, and the bar goes backwards once.
+  Same family as "잠시 뒤 다시 눌러 주세요 has no sense of how long"
+  (reviewer, QA, a11y, novice).
 - **What a face looks like is hover-only for a sighted mouse user.**
-  `FONT_HINT` ("나눔붓 · 붓으로 쓴 글씨") is the radio's `title` and its
+  `FONT_HINT` ("붓으로 쓴 글씨 · 나눔붓") is the radio's `title` and its
   `aria-describedby`, so a screen reader hears it and a hover shows it; a
-  click-only user picks 붓글씨 / 손글씨 / 굵은고딕 sight unseen, and the
-  hint leads with the product name before the words that explain it. A
-  sample of the face in its own radio is out of scope by the plan (novice,
-  a11y).
-- **The preview never re-asks for a face that failed once.** `Preview`'s
-  lazy load skips a face whose state is `failed`, so a reopened document
-  whose face did not come (offline at the time) shows the system face for
-  the rest of the session unless the user presses that face's radio again
-  (the retry). `FONT_FAILED` does not say that the radio is the retry.
-- **The 글꼴 radios inherit the colour-only checked state** of the shared
-  `Choices` rule — see the `FramePicker` entry below; one fix there (a11y).
+  click-only user picks 붓글씨 / 손글씨 / 굵은고딕 sight unseen. A sample
+  of the face in its own radio is out of scope by the plan (novice, a11y).
+- **A face that failed is asked for once per session.** The document's
+  quiet fetch on open (ADR-0018, amended) and the playhead's sentence do
+  not retry; the radio pressed again is the retry, and the failed
+  sentence now says so. A reopened document whose face did not come
+  (offline at the time) shows the system face until that press — and,
+  after a reload in the same renderer, may show the face anyway from
+  Chrome's cache while the sentence says it did not come (TESTING.md,
+  "A reload does not forget a web font").
 - **An effect shows only on the frames where the subtitle comes and goes.**
   With the playhead mid-subtitle (where it usually is after typing), pressing
   톡 or 올라오기 changes nothing on the preview; the status sentence now
@@ -313,10 +327,6 @@ file that moved. Then run `check:refs` and `typecheck`.
   words, the timing line and the 재생 위치로 buttons have none; a
   screen-reader user navigating by heading sees one substructure. Same
   shape as the clip panel's fade-edge entry below (a11y).
-- **A checked radio differs from an unchecked one by colour alone** — a teal
-  border and ring, in the rule `FramePicker` and the subtitle rows share
-  (`styles.css`). UX.md says never colour alone; fix once in the shared
-  rule (a11y).
 - **Undo inside a radiogroup leaves focus on a radio that is no longer the
   Tab stop.** Undo reverts the document without moving focus, so after
   arrowing to 외침 and pressing Ctrl+Z, focus sits on an unchecked radio
@@ -420,10 +430,6 @@ file that moved. Then run `check:refs` and `typecheck`.
   so a picture whose share of the box on an axis is under 2.5% (a 40:1
   aspect mismatch) gets `min = max = 0`: an inert slider and the sentence
   "가로로는 0%까지만 옮길 수 있어요". Correct, unpolished (QA).
-- **A preview drag past the pan limit detaches from the pointer.** The
-  drag's base is the pan at press and `clip.pan` clamps, so dragging back
-  from beyond the limit does nothing until the pointer has returned by the
-  overshoot. The sound slider behaves the same at its ceiling.
 - **The strip's pictures ignore the clip's transform.** Thumbnails are the
   source frames as shot; a clip zoomed to 400% and turned still shows its
   original frames on the timeline, with only the 🔍↻✥ pill to say so. The

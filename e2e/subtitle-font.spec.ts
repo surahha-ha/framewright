@@ -4,8 +4,10 @@
 // `src/engine/fonts.test.ts`. What only a browser can answer: that choosing
 // a face fetches the file from the app's own origin and, once it lands,
 // changes the glyphs on the overlay; that 기본 draws the system face again,
-// to the pixel; that a face named by a reopened document is fetched for it;
-// and that an export waits for its faces and says nothing when they came.
+// to the pixel; that a face named by a reopened document is fetched when
+// the document opens (quietly) and a failed one is said once the words
+// reach it; and that an export waits for its faces and says nothing when
+// they came.
 import { test, expect, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -135,41 +137,86 @@ test.describe('자막 글꼴', () => {
     await expect.poll(() => inkBounds(page)).toEqual(system);
   });
 
-  test('a face named by a reopened document is fetched for it', async ({
+  test('a face named by a reopened document is fetched when the document opens, quietly, and the words are drawn in it at once', async ({
     page,
   }) => {
     // `clear: false` — the init script that clears storage runs on EVERY
     // navigation, the reload included, and would wipe what this test checks.
     await withWords(page, false);
+    const system = (await inkBounds(page))!;
     await radio(page, '글꼴', '손글씨').click();
     await expect(status(page)).toContainText('자막 글꼴을 손글씨로 바꿨어요');
     await page.waitForTimeout(800); // past the save debounce
     await page.reload();
     await expect(chips(page)).toHaveCount(1);
-    // A reload parks the playhead on frame 0, before the words, and nothing
-    // is fetched for a face no frame on screen names (ADR-0018: on the
-    // choice, or under the playhead — never at start).
-    expect(await faceReady(page, 'Nanum Pen Script')).toBe(false);
-    // Enter on the chip selects it AND seeks to its first frame; the
-    // preview now draws a frame that names the face, so it asks for it.
-    await chips(page).first().focus();
-    await page.keyboard.press('Enter');
-    // The preview says so — the swap from the system face is otherwise a
-    // silent change of shape mid-subtitle.
-    // (From the browser's cache the file can land before the first sentence
-    // is read, so either of the two is accepted here; the second is then
-    // required.)
-    await expect(status(page)).toContainText(
-      /손글씨 글꼴을 (받는 중이에요|받았어요)/,
-    );
+    // A reload parks the playhead on frame 0, before the words — and the
+    // face is fetched anyway, because the DOCUMENT names it (ADR-0018 as
+    // amended on 2026-09-16: what the document names, when it opens;
+    // still never a face nothing names). Nothing is said: the words are
+    // not on screen, so there is nothing to explain.
     await expect
       .poll(() => faceReady(page, 'Nanum Pen Script'), { timeout: 30_000 })
       .toBe(true);
-    await expect(status(page)).toContainText('손글씨 글꼴을 받았어요');
+    await expect(status(page)).not.toContainText('글꼴');
+    // Enter on the chip selects it AND seeks to its first frame: the words
+    // are drawn in the face from the first paint, with no swap and no
+    // sentence about a fetch.
+    await chips(page).first().focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => inkBounds(page)).not.toBeNull();
+    expect(await inkBounds(page)).not.toEqual(system);
+    await expect(status(page)).not.toContainText('글꼴을 받');
     await expect(radio(page, '글꼴', '손글씨')).toHaveAttribute(
       'aria-checked',
       'true',
     );
+  });
+
+  test('a face a reopened document could not fetch is said once the words reach it, with the way back', async ({
+    page,
+  }) => {
+    await withWords(page, false);
+    const system = (await inkBounds(page))!;
+    await radio(page, '글꼴', '손글씨').click();
+    await expect(status(page)).toContainText('자막 글꼴을 손글씨로 바꿨어요');
+    await page.waitForTimeout(800); // past the save debounce
+    // Routing also turns the HTTP cache off, so the reopened document's
+    // fetch fails even though the file just came for the choice above.
+    await page.route('**/fonts/*.ttf', (route) => route.abort());
+    await page.reload();
+    await expect(chips(page)).toHaveCount(1);
+    // The quiet fetch failed; on frame 0 nothing on screen wants the face,
+    // so nothing is said yet.
+    await expect(status(page)).not.toContainText('받지 못했어요');
+    // The words come under the playhead: NOW the failure is said, once,
+    // and the sentence names the retry — the radio is checked (the
+    // document says the face) and shows no other way back.
+    await chips(page).first().focus();
+    await page.keyboard.press('Enter');
+    await expect(status(page)).toContainText(
+      '손글씨 글꼴을 받지 못했어요 · 기본 글꼴로 보여요 · 자막을 고른 뒤 글꼴에서 손글씨 단추를 다시 누르면 다시 받아요.',
+      { timeout: 30_000 },
+    );
+    // The page has no such face: nothing in `document.fonts` is loaded.
+    // (The INK is not compared here: Chrome's renderer keeps the typeface
+    // the previous document fetched and finds it by name for the canvas
+    // even though this document never registered it, so after a reload
+    // the words can still come out in the face the page does not have —
+    // docs/TESTING.md, "Operational facts".)
+    expect(await faceReady(page, 'Nanum Pen Script')).toBe(false);
+    await expect(radio(page, '글꼴', '손글씨')).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await page.unroute('**/fonts/*.ttf');
+    await radio(page, '글꼴', '손글씨').click();
+    await expect(status(page)).toContainText(
+      '손글씨 글꼴을 다시 받는 중이에요',
+    );
+    await expect
+      .poll(() => faceReady(page, 'Nanum Pen Script'), { timeout: 30_000 })
+      .toBe(true);
+    await expect.poll(() => inkBounds(page)).not.toEqual(system);
   });
 
   test('a document naming a face this build does not know still draws its words, in the system face', async ({

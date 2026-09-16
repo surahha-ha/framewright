@@ -264,4 +264,28 @@ test.describe('picture', () => {
     await expect(panXSlider(page)).toHaveValue('0');
     await expect(mark(page)).toHaveCount(0);
   });
+
+  test('a drag past the pan limit stays attached to the pointer: the way back moves at once', async ({
+    page,
+  }) => {
+    await withClip(page);
+    const picture = page.locator('.stage-picture');
+    const box = (await picture.boundingBox())!;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    // Right by 0.8 of the box: the pan stops at its limit, half a box.
+    await page.mouse.move(cx + box.width * 0.4, cy, { steps: 5 });
+    await page.mouse.move(cx + box.width * 0.8, cy, { steps: 5 });
+    await expect(panXSlider(page)).toHaveValue('50');
+    // Back by a fifth. Before ADR-0019's amendment the origin stayed at
+    // the press, so this step only ate into the 0.3 overshoot and the
+    // picture did not move; now the origin came along with the clamped
+    // value and the picture comes back a fifth.
+    await page.mouse.move(cx + box.width * 0.6, cy, { steps: 5 });
+    await page.mouse.up();
+    await expect(panXSlider(page)).toHaveValue('30');
+    await expect(status(page)).toContainText('오른쪽으로 30%');
+  });
 });

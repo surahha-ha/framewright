@@ -103,3 +103,28 @@ dragged at all.
 - Not built, deliberately: rotating or scaling the words, guides drawn on
   the stage (the snap is the guide), Escape cancelling a stage drag (the
   pan has none; both or neither), multi-select, images (E10).
+
+## Amendment (2026-09-16) — the pointer stays attached at the edge
+
+**Changed:** both stage drags — the words and the picture's pan
+(ADR-0014) — clamp their value on every move and, when it WAS clamped,
+move the drag's origin so that pointer and value coincide again
+(`engine/stageDrag.ts`, `dragAxis`, pure and unit-tested). Before, the
+origin stayed at the press: past the edge the pointer ran ahead of the
+stored value, and dragging back did nothing until the pointer had
+returned by the whole overshoot (the novice reviewer's E8-2c finding,
+and the pan's before it).
+
+**What did not change.** The value written is the same clamped value;
+the coalesce key, the snap at the drop, the one undo step, the base
+being the block's rest centre. The pan's limit is the clip's own
+(`clipPanLimits`), the same one the command clamps to, so the drag never
+asks for a value the command would refuse.
+
+**Also this day:** the words drag moved out of `Preview.tsx` into
+`ui/useWordsDrag.ts` (the file was 790 lines and five concerns), with
+the frame's layout measured once and kept until the frame, the overlay's
+size or the fonts on the page change — a hover move only tests a point
+against it. The stage's one handler set stays in `Preview` and asks the
+hook first; the two stage drags are still a pair, and a third (E10's
+images) is still the trigger to extract the DOM half they share.

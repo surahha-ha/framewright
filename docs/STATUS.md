@@ -10,13 +10,37 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-15 07:14 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-16 01:55 UTC — `npm run verify` **GREEN**
 
-- unit 684 passed · e2e 137 passed
+- unit 692 passed · e2e 142 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
+
+### E8-2d, the E8-2 debt pass, is built and green in the working tree (2026-09-16), NOT yet committed
+
+The owner decided on 2026-09-16: E8-2 debt first, then E10. The unit is
+ten fixes to what the E8-2a/b/c persona rounds left, by the rule table in
+"E8-2d execution plan" below; the record step by step is "E8-2d progress"
+/ "E8-2d issues"; what the persona round left this time is in CLAUDE.md
+"Known tech debt" (the seven entries at the top). Two contracts changed
+and are recorded as dated amendments: ADR-0018 ("never at start" → every
+face the document names is fetched, quietly, when the document opens)
+and ADR-0019 (a stage drag stays attached to the pointer at the edge —
+`engine/stageDrag.ts`). `Preview.tsx` went from 790 to 657 lines; the
+words drag is `ui/useWordsDrag.ts`, the faces `ui/useSubtitleFonts.ts`.
+Gate GREEN: unit 692 · e2e 142 (was 684 · 137). Personas: 0 blockers; 3
+of 4 majors fixed in the same round, 1 (the export bar's jump back to 0%
+at the audio phase) kept as debt with the reason. Visual pass in the
+owner's Chrome (Browser 1, foreground tab, netstat-confirmed local): the
+checked dot legible on all five radio rows, the 자리 row with nothing
+checked off a preset and its sliders beneath, a two-leg drag past the
+bottom edge and back landing at 위에서 80% with the sentence, one undo
+back to 아래; no finding. **Uncommitted:** every file of the unit (see
+"E8-2d progress" for the list) plus this file; the owner's own edits
+(`AGENTS.md`, `CLAUDE.md`'s ui-ux-guide bullet, `docs/UX.md`) and the two
+stray logs are still theirs.
 
 ### E9, silence auto-cut, is committed and pushed (`a313567`, 2026-09-14)
 
@@ -363,7 +387,7 @@ staged by hunk so the owner's ui-ux-guide bullet stayed out). This file
 carries the post-commit rewrite of three passages (docs only), which can
 ride along with whichever commit comes next. **Not pushed — ask first.**
 
-### E8-2c, 자막 끌기, is built in this tree — NOT yet committed
+### E8-2c, 자막 끌기, is committed and pushed (`12523cc`, 2026-09-15)
 
 Built in Claude Code on the evening of 2026-09-15, right after E8-2b was
 pushed: the words on the preview can be dragged anywhere (a press on the
@@ -380,24 +404,194 @@ tree's handoff run. New files: `src/engine/subtitlePosition.ts` (+test),
 Changed: `subtitleCommands.ts` (+test), `subtitleStyle.ts` (+test),
 `subtitleRender.ts` (+test), `ui/Preview.tsx`, `ui/SubtitlePanel.tsx`,
 `ui/ClipPanel.tsx`, `styles.css`, `docs/TESTING.md`, `docs/adr/README.md`,
-CLAUDE.md's debt list, this file. **Waiting on the owner: approval for
-ONE commit** (see "Blocked").
+CLAUDE.md's debt list, this file. **Committed with the owner's approval
+as `12523cc` and pushed the same evening** (ONE commit, the E8-2b
+recipe: `CLAUDE.md` staged by hunk so the owner's ui-ux-guide bullet
+stayed out). This file carries the post-commit rewrite of three passages
+(docs only), which can ride along with whichever commit comes next.
 
 ## Next single step
 
-**Commit E8-2c with the owner's approval — ONE commit, the E8-2b recipe
-(`CLAUDE.md` staged by hunk so the owner's ui-ux-guide bullet stays out;
-`AGENTS.md`, `docs/UX.md`, `debug.log`, `e9-baseline.log` stay out) —
-ask before pushing, then plan the next unit:** E10 images / stickers
-(the last item of the owner's 예능 자막 definition), or a polish pass
-over the E8-2 debt (the words drag's edge detach, the reopened
-document's font prefetch, the 자리 radios + sliders as one group); the
-owner's call. **The E8-2c plan below is done; kept as the record.**
-Context that held when it was written: `5b56e41` is on
-`origin/main`. The owner's own uncommitted edits (`AGENTS.md`,
-`CLAUDE.md`'s ui-ux-guide bullet, `docs/UX.md`) and the two stray logs
-(`debug.log`, `e9-baseline.log`) are still in the tree, theirs.
-**E8-2c:** drag the
+**Commit E8-2d (with the owner's approval — announced, not assumed),
+then plan E10 images / stickers in this file before building it.** The
+owner decided the order on 2026-09-16: E8-2 debt first, then E10. E8-2d
+is built and green in the tree (the section at the top of "Where we
+are"); the commit recipe that worked for E8-2b/c: stage the unit's files
+and docs, `CLAUDE.md` by hunk (drop the hunk containing 'ui-ux-guide',
+which is the owner's), leave `AGENTS.md`, `docs/UX.md` and the two logs
+out, write the message with the Write tool and commit with `-F` so the
+Korean subject survives, ask before pushing. **E10** is the last item of
+the owner's 예능 자막 definition ("What 'style presets' means" below):
+images / stickers on the picture. It will be the stage's THIRD drag, the
+rule-of-three trigger ADR-0019's amendment names for extracting the DOM
+half the pan and the words share — plan that extraction as E10's first
+step, not its last. Open questions for the plan: where an image lives in
+the document (its own list like subtitles, ADR-0011), how it is imported
+(the media bin's input, or a paste), whether it is drawn on the words'
+overlay or a layer of its own, and what the export plan carries for it.
+
+**The E8-2d plan below is done; kept as the record.**
+
+### E8-2d execution plan — E8-2 부채 정리
+
+**What this is.** Not a feature: the persona findings E8-2a/b/c left in
+CLAUDE.md "Known tech debt" that are worth fixing before E10 adds a
+third draggable thing to the stage. Two of them change a contract
+(ADR-0018's "never at start", ADR-0019's drag arithmetic) and are
+recorded as dated amendments to those ADRs, not new ADRs. Everything
+else is a fix under the existing rules.
+
+**Facts the plan stands on (measured 2026-09-16):** `Preview.tsx` is 790
+lines; the words drag is lines 342–471 (`wordsDragRef`, `wordsUnder`,
+`beginWordsDrag`, `moveWordsDrag`, `endWordsDrag`, `hoverWords`,
+`overWords`) and the fonts effect 473–495. `moveWordsDrag` clamps
+`baseX + dx / width` to [0, 1] and keeps the press as origin, so past
+the edge the pointer runs ahead of the stored value; `clip.pan` clamps
+inside the command (`within` → `roundPan`) with the same effect on the
+picture. `subtitle.setLook / setPlace / setEffect / setFont` are four
+copies of one ~20-line command shape around `fieldOps`. The `[aria-
+checked='true']` rule in `styles.css` (shared by `FramePicker` and
+`Choices`) is a teal border and inset ring only. The export's fonts
+phase reports `onProgress(0, n, 'fonts')` once.
+
+| #   | Debt entry (CLAUDE.md)                                        | Rule after this unit                                                                                                                                                                                                                                                                                                                                                                      | Where                                                                                   | Proof                                                                                                             |
+| --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 1   | a words drag / a pan past the edge detaches from the pointer  | **The pointer stays attached at a limit.** On every move the value is clamped and, when it was, the drag's origin is moved so that the pointer and the clamped value coincide; dragging back moves at once. One pure helper, `dragAxis`, for both stage drags (ADR-0019 amended).                                                                                                         | `engine/stageDrag.ts` (new, test-first); `ui/useWordsDrag.ts`; the pan in `Preview.tsx` | unit (4); e2e: words dragged 0.4 past the left edge then back 0.1 have moved back 0.1; the same for the picture   |
+| 2   | a reopened document's face is fetched only under the playhead | **A document's faces are fetched when the document is opened** — on load, on a version restore, and when an edit first names a face nobody asked for — silently; the playhead path keeps its sentences for a face still in flight, and says the failed sentence once when the words reach a face that did not come (ADR-0018 amended: "never at start" → "only what the document names"). | `ui/useSubtitleFonts.ts` (new, out of `Preview.tsx`)                                    | e2e: after a reload the face is fetched with no sentence, and Enter on the chip draws it at once; the failed path |
+| 3   | the 자리 radios and the two sliders are not one group         | **One group named 자리** contains the radiogroup and the sliders: `Choices` takes children rendered inside its row, the row is `role="group"` labelled by the same word.                                                                                                                                                                                                                  | `ui/SubtitlePanel.tsx`                                                                  | e2e: `getByRole('group', { name: '자리' })` holds the radiogroup and both sliders                                 |
+| 4   | `Preview.tsx` ~780 lines, the words drag the extraction       | **The words drag is a hook**, `useWordsDrag`, returning the three handlers (each answering whether it took the event) and `overWords`; the fonts effects are a second hook. The stage's handler set stays in `Preview` and calls both. `Preview.tsx` under 620 lines.                                                                                                                     | `ui/useWordsDrag.ts`, `ui/useSubtitleFonts.ts`                                          | typecheck, check:refs, the existing e2e                                                                           |
+| 5   | the stage lays the subtitle out on every hover move           | **The layout is measured once per frame**, cached in the hook by frame identity, overlay size and `fontsVersion`; a hover move only tests a point against it.                                                                                                                                                                                                                             | `ui/useWordsDrag.ts`                                                                    | the existing hit-test e2e (an effect's first frame)                                                               |
+| 6   | `setFont` is the fourth copy of the set-one-field shape       | **One factory**, `setFieldCommand({ id, label, current, changes, done })`, and the four commands are four calls to it. Behaviour identical — the existing unit tests are the proof and none changes.                                                                                                                                                                                      | `engine/subtitleCommands.ts`                                                            | unit: the existing `setLook / setPlace / setEffect / setFont` tests unchanged                                     |
+| 7   | a checked radio differs by colour alone                       | **A checked radio carries a shape**: a small filled dot in its corner (`::before`, empty content so the name is unchanged), on the shared rule so `FramePicker` gets it too.                                                                                                                                                                                                              | `styles.css`                                                                            | e2e: the checked radio's `::before` has content, an unchecked one none                                            |
+| 8   | the face hint leads with the product name                     | **The hint leads with what the face looks like**: "붓으로 쓴 글씨 · 나눔붓".                                                                                                                                                                                                                                                                                                              | `engine/fonts.ts`                                                                       | unit (`fonts.test.ts`, if it reads the hint)                                                                      |
+| 9   | `FONT_FAILED` does not say the radio is the retry             | **The failed sentence names the way back**: "… 기본 글꼴로 보여요 · 글꼴에서 붓글씨를 다시 누르면 다시 받아요."                                                                                                                                                                                                                                                                           | `engine/fonts.ts`                                                                       | unit; the existing e2e (a substring)                                                                              |
+| 10  | the export bar reads 0% through the fonts phase               | **One progress call per face** (`onProgress(i, n, 'fonts')` as each lands).                                                                                                                                                                                                                                                                                                               | `engine/exporter.ts`                                                                    | reads right; no new test (the phase is e2e-only)                                                                  |
+
+**Left as debt on purpose** (design calls, the owner's): focus after a
+stage drag (moving focus after a mouse gesture is focus theft unless the
+owner wants it); the 세로 slider's 0 above the 위 preset and no snap on
+the keyboard route; every slider step saying the whole sentence (the
+shared `RangeRow` pattern); 자리 vs 위치; 꾸미기 as the umbrella; the
+palette not listing the nine choices.
+
+**Steps, in order:** (1) engine, test-first — `stageDrag.ts`, the
+factory fold, the two sentences, the export progress; (2) the two hooks
+out of `Preview.tsx`, the pan's attach, the panel's group, the CSS dot;
+(3) e2e for rules 1, 2, 3, 7 and the rewrite of "a face named by a
+reopened document is fetched for it" (its expectation flips: the face IS
+fetched after the reload — a contract change, so a new assertion set,
+not a loosened one); (4) ADR-0018 / ADR-0019 amendments, TESTING rows,
+CLAUDE.md debt entries removed; (5) gate, four personas, visual pass if a
+Chrome is connected, `npm run handoff`.
+
+### E8-2d progress
+
+Built in Claude Code on 2026-09-16 (KST), the plan's steps in order:
+
+1. **Engine, test-first — done.** `src/engine/stageDrag.ts` (new,
+   `dragAxis`; 5 tests including the no-extent / NaN contract for the
+   third caller E10 will add); `setFieldCommand` in `subtitleCommands.ts`
+   folding `setLook / setPlace / setEffect / setFont` (the existing 34
+   command tests unchanged and green — the proof the behaviour is
+   identical); `FONT_HINT` leads with the look ("붓으로 쓴 글씨 · 나눔붓")
+   and `FONT_FAILED` names the way back ("… · 자막을 고른 뒤 글꼴에서 붓글씨
+   단추를 다시 누르면 다시 받아요.", 2 tests in `fonts.test.ts`);
+   `exporter.ts` reports the fonts phase per face; `decidePosition`
+   compares both axes through the normal form (a hand-edited `posY` 0.99
+   is the bottom, not a move; 1 test).
+2. **UI — done.** `ui/useWordsDrag.ts` (the words drag out of `Preview`,
+   the layout measured once per frame / overlay size / `fontsVersion`,
+   `dragAxis` on both axes), `ui/useSubtitleFonts.ts` (the document's
+   quiet fetch, the playhead's sentences, the failed sentence once per
+   face, a settle that says nothing when the status line has moved on),
+   the pan in `Preview.tsx` through `dragAxis` with `clipPanLimits`
+   captured at press; `Choices` in `SubtitlePanel.tsx` takes children and
+   is then `role="group"`, the 자리 row holding the sliders; the checked
+   radio's `::before` dot and `.subtitle-choice.with-more` in
+   `styles.css`. `Preview.tsx` 790 → 657 lines.
+3. **E2e — done.** `subtitle-drag.spec.ts` +2 (a drag 0.3 past the bottom
+   then back 0.2 lands at 80; the 자리 group holds the radiogroup, both
+   sliders and the note, the sliders on their own line), `picture.spec.ts`
+   +1 (the pan: 0.8 right stops at 50, back 0.2 lands at 30),
+   `subtitle-style.spec.ts` +1 (the dot: `::before` content `""` on the
+   checked radio, `none` on the others, the name unchanged; the 영상 모양
+   picker too), `subtitle-font.spec.ts`: the reopened-document test
+   rewritten for the amended contract (fetched after the reload with no
+   sentence; Enter on the chip draws the face at once) and +1 for the
+   failed reopen (the quiet fetch aborted; the sentence with the way back
+   once the words reach it; the retry lands).
+4. **Docs — done.** ADR-0018 and ADR-0019 "Amendment (2026-09-16)"
+   sections; TESTING.md rows (글꼴, the words drag, group "자리", the dot)
+   and the operational fact "A reload does not forget a web font";
+   CLAUDE.md: ten debt entries removed or rewritten, seven added from
+   this round.
+5. **Gate, personas, visual — done.** `npm run verify` GREEN twice (before
+   and after the persona fixes): unit 692 · e2e 142. Four personas, 0
+   blockers, findings below. Visual pass in the owner's Chrome, no
+   finding.
+
+Files of the unit, for the commit: `src/engine/stageDrag.ts`,
+`src/engine/stageDrag.test.ts`, `src/engine/subtitleCommands.ts`,
+`src/engine/subtitleCommands.test.ts`, `src/engine/fonts.ts`,
+`src/engine/fonts.test.ts`, `src/engine/exporter.ts`,
+`src/ui/useWordsDrag.ts`, `src/ui/useSubtitleFonts.ts`,
+`src/ui/Preview.tsx`, `src/ui/SubtitlePanel.tsx`, `src/styles.css`,
+`e2e/subtitle-drag.spec.ts`, `e2e/picture.spec.ts`,
+`e2e/subtitle-style.spec.ts`, `e2e/subtitle-font.spec.ts`,
+`docs/adr/0018-…md`, `docs/adr/0019-…md`, `docs/TESTING.md`,
+`docs/STATUS.md`, and `CLAUDE.md` minus the owner's ui-ux-guide hunk.
+
+### E8-2d issues
+
+- **Major (novice), fixed:** `FONT_FAILED`'s way back pointed at a 글꼴
+  row that is not on screen when the sentence is said during playback
+  (nothing selected, no panel). The sentence now starts with "자막을 고른
+  뒤". Unit test and the e2e's full-sentence assertion updated.
+- **Major (QA), fixed:** a font fetch settling late overwrote a newer
+  status sentence from an unrelated edit made meanwhile. Both settles
+  (`useSubtitleFonts`, `SubtitlePanel.fetchFace`) now say their sentence
+  only while the status line still shows the wait they put there; a
+  failure skipped that way is not marked as said, so the words reaching
+  the face again say it then.
+- **Minor (QA), fixed:** `dragAxis` had no contract for `size` 0 or a
+  non-finite pointer (NaN would have poisoned the origin for the rest of
+  the gesture). Guarded and tested, since E10's third drag will call it.
+- **Minor (QA), fixed:** `decidePosition` compared `posY` raw, so a
+  document with a hand-edited near-bottom value took an undo entry for a
+  write that changed nothing on screen. Both axes now go through the
+  normal form (unit test).
+- **Major (novice), kept as debt with the reason:** the export bar now
+  climbs through the fonts phase and then jumps back to 0% at the audio
+  phase, where before it sat at 0% through both and the jump was
+  invisible. The fonts fix is right; the audio phase starting from 0 is
+  the pre-existing entry, rewritten to say the bar goes backwards once.
+- **Major (a11y), kept as debt:** "받았어요" is never said after the fact
+  for a user who moved on during the fetch. **Major (QA), kept as
+  debt:** a words drag during playback goes blind once the playhead
+  leaves the subtitle (E8-2c's locked-id design; stopping playback on a
+  stage press is the lever). Both in CLAUDE.md's top entries.
+- **Minors kept as debt (CLAUDE.md):** the group and its radiogroup
+  sharing one name (unverified against a real AT); no `forced-colors`
+  rule anywhere; the dot's size; a drag's limits frozen at the press
+  (`R` mid-drag); a failed face's state carried across documents by the
+  singleton loader.
+- **A test assumption that was wrong, and a fact learned:** the failed
+  reopen e2e first asserted the words return to the system face's ink
+  after the aborted fetch; they did not — Chrome finds the typeface the
+  previous document fetched by family name for the canvas even though
+  the new `document.fonts` is empty. The test now proves the page's state
+  from `document.fonts`; TESTING.md records the fact.
+- **`Preview.tsx` landed at 657 lines, not under the plan's 620.** The
+  pan drag and the overlay effects stayed; the pan is the next extraction
+  (CLAUDE.md entry).
+- **The owner's Chrome had the project open in another tab** during the
+  visual pass ("다른 탭에서 같은 프로젝트를 편집하고 있어요 · 이 탭의 변경은
+  저장되지 않아요" joined the status line), so the pass's edit could not
+  reach storage and was undone in memory anyway. The dev server was not
+  running and was started for the pass (this session's process).
+
+**The E8-2c plan below is done; kept as the record.** Context that held
+when it was written: `5b56e41` was on `origin/main`. **E8-2c:** drag the
 words anywhere on the stage — the owner's end goal for 예능 자막; `posX` /
 `posY` box fractions are already the fields (ADR-0017), the preview
 already has a pointer drag for the picture (`.stage`), and the two
@@ -1292,31 +1486,35 @@ plan's steps, in order, with the gate at each point:
 
 ## Blocked / needs the owner
 
-1. **E8-2c is uncommitted and waits for the owner's approval of ONE
-   commit** (announced at the end of the 2026-09-15 evening session; the
-   tree is `main` @ `5b56e41` = `origin/main` plus the unit). What goes
-   in and what stays out is in "Next single step". Ask again before
-   pushing. The owner's own uncommitted edits to `AGENTS.md`, `CLAUDE.md`
-   (the ui-ux-guide bullet) and `docs/UX.md` stay theirs to commit.
-2. **The visual pass's trace in the owner's Chrome:** nothing left in the
+1. **E8-2d is built, green and UNCOMMITTED** (2026-09-16). It needs the
+   owner's go to commit (the file list is in "E8-2d progress"), and then
+   to push. The owner's own uncommitted edits to `AGENTS.md`, `CLAUDE.md`
+   (the ui-ux-guide bullet) and `docs/UX.md` stay theirs and are left
+   out of that commit; `debug.log` and `e9-baseline.log` are stray.
+2. **The next unit is E10 images / stickers** (the owner's order,
+   2026-09-16), to be planned in this file first — see "Next single step"
+   for the open questions and the extraction it should start with.
+3. **The visual pass's trace in the owner's Chrome:** nothing left in the
    document (verified identical); the playhead was left on frame 10 and
    the three faces are now in that browser's HTTP cache. The tab was
    hidden throughout, so no pixels were seen — if the owner wants a look
    at the faces on the colour bars, a foreground tab and one press of
    붓글씨 on 자막 1 is the whole test.
-3. **A prefetch on load of the faces a reopened document names** would
-   close the window in which its words show in the system face until the
-   playhead reaches them (said, since the persona round; ADR-0018
-   "Consequences"). It is a change to "never at start"; the owner's call.
-4. **Two auto snapshots and one file** from the visual pass: 자동 저장
+4. **Done in E8-2d:** the faces a reopened document names are fetched
+   when it opens (ADR-0018, amended 2026-09-16); the window is closed.
+   Two product calls the round raised are the owner's: whether a stage
+   press should stop playback (the blind-drag entry in CLAUDE.md), and
+   whether the export bar should be one monotonic bar across phases
+   rather than restarting per phase.
+5. **Two auto snapshots and one file** from the visual pass: 자동 저장
    10:26 / 10:29 (2026-09-11) in the browser's 이전 상태, and
    `Downloads/Untitled.mp4`. Delete or keep.
-5. **Product calls still open from the reframe unit (E8-2 no longer waits
+6. **Product calls still open from the reframe unit (E8-2 no longer waits
    on them):** should 세로 imply 채우기 for every clip (today: per clip,
    deliberately, ADR-0015 "Consequences"); should the box change be
    reachable from the toolbar or only the preview row and the palette;
    should a 4:3 preset exist.
-6. **Unchanged from E7:** playback and an export with a transformed clip
+7. **Unchanged from E7:** playback and an export with a transformed clip
    watched; the sound unit's listening list; the auto snapshots from the
    2026-09-10 visual passes in the browser's 이전 상태; the turn's own
    STATUS sentence (the panel note says the black now, the sentence does

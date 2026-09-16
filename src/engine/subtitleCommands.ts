@@ -478,71 +478,71 @@ function fieldOps(
   };
 }
 
-export const setSubtitleLookCommand: Command<SubtitleLookArgs> = {
+/**
+ * The "choose one value for one field" command, written once (ADR-0017,
+ * ADR-0018): locate the subtitle, refuse the choice it already has, one
+ * `fieldOps`, a sentence from the choice. The look, the place, the effect
+ * and the face were four copies of this shape; the face was the one past
+ * the rule of three. `current` reads the subtitle's choice in the arg's
+ * own terms (an absent field IS the first choice), `changes` writes it.
+ */
+function setFieldCommand<A extends { subtitleId: string }>(spec: {
+  id: string;
+  label: string;
+  /** The subtitle's present choice, in the terms `wanted` uses. */
+  current: (subtitle: Subtitle) => unknown;
+  wanted: (args: A) => unknown;
+  changes: (args: A) => Partial<Omit<Subtitle, 'id'>>;
+  done: (args: A, after: EditorCtx) => string;
+}): Command<A> {
+  return {
+    id: spec.id,
+    label: spec.label,
+    hidden: true,
+    requiresArgs: true,
+    done: (_before, after, args) => spec.done(args as A, after),
+    canRun(ctx, args) {
+      if (!args) return false;
+      const found = locateSubtitle(ctx.project, args.subtitleId);
+      return !!found && spec.current(found.subtitle) !== spec.wanted(args);
+    },
+    run(ctx, args) {
+      const found = locateSubtitle(ctx.project, args.subtitleId);
+      if (!found) throw new Error(`${spec.id}: no such subtitle`);
+      if (spec.current(found.subtitle) === spec.wanted(args)) {
+        throw new Error(`${spec.id}: no change`);
+      }
+      return fieldOps(found.subtitle, spec.changes(args));
+    },
+  };
+}
+
+export const setSubtitleLookCommand = setFieldCommand<SubtitleLookArgs>({
   id: 'subtitle.setLook',
   label: '자막 모양 고르기',
-  hidden: true,
-  requiresArgs: true,
-  done: (_before, _after, args) =>
-    describeLook((args as SubtitleLookArgs).look),
-  canRun(ctx, args) {
-    if (!args) return false;
-    const found = locateSubtitle(ctx.project, args.subtitleId);
-    return !!found && lookOf(found.subtitle) !== args.look;
-  },
-  run(ctx, args) {
-    const found = locateSubtitle(ctx.project, args.subtitleId);
-    if (!found) throw new Error('subtitle.setLook: no such subtitle');
-    if (lookOf(found.subtitle) === args.look) {
-      throw new Error('subtitle.setLook: no change');
-    }
-    return fieldOps(found.subtitle, { look: lookField(args.look) });
-  },
-};
+  current: lookOf,
+  wanted: (a) => a.look,
+  changes: (a) => ({ look: lookField(a.look) }),
+  done: (a) => describeLook(a.look),
+});
 
-export const setSubtitlePlaceCommand: Command<SubtitlePlaceArgs> = {
+export const setSubtitlePlaceCommand = setFieldCommand<SubtitlePlaceArgs>({
   id: 'subtitle.setPlace',
   label: '자막 자리 고르기',
-  hidden: true,
-  requiresArgs: true,
-  done: (_before, _after, args) =>
-    describePlace((args as SubtitlePlaceArgs).place),
-  canRun(ctx, args) {
-    if (!args) return false;
-    const found = locateSubtitle(ctx.project, args.subtitleId);
-    return !!found && placeOf(found.subtitle) !== args.place;
-  },
-  run(ctx, args) {
-    const found = locateSubtitle(ctx.project, args.subtitleId);
-    if (!found) throw new Error('subtitle.setPlace: no such subtitle');
-    if (placeOf(found.subtitle) === args.place) {
-      throw new Error('subtitle.setPlace: no change');
-    }
-    return fieldOps(found.subtitle, placeFields(args.place));
-  },
-};
+  current: placeOf,
+  wanted: (a) => a.place,
+  changes: (a) => placeFields(a.place),
+  done: (a) => describePlace(a.place),
+});
 
-export const setSubtitleEffectCommand: Command<SubtitleEffectArgs> = {
+export const setSubtitleEffectCommand = setFieldCommand<SubtitleEffectArgs>({
   id: 'subtitle.setEffect',
   label: '자막 효과 고르기',
-  hidden: true,
-  requiresArgs: true,
-  done: (_before, _after, args) =>
-    describeEffect((args as SubtitleEffectArgs).effect),
-  canRun(ctx, args) {
-    if (!args) return false;
-    const found = locateSubtitle(ctx.project, args.subtitleId);
-    return !!found && effectOf(found.subtitle) !== args.effect;
-  },
-  run(ctx, args) {
-    const found = locateSubtitle(ctx.project, args.subtitleId);
-    if (!found) throw new Error('subtitle.setEffect: no such subtitle');
-    if (effectOf(found.subtitle) === args.effect) {
-      throw new Error('subtitle.setEffect: no change');
-    }
-    return fieldOps(found.subtitle, { effect: effectField(args.effect) });
-  },
-};
+  current: effectOf,
+  wanted: (a) => a.effect,
+  changes: (a) => ({ effect: effectField(a.effect) }),
+  done: (a) => describeEffect(a.effect),
+});
 
 export interface SubtitlePositionArgs {
   subtitleId: string;
@@ -562,12 +562,13 @@ function decidePosition(
   if (!found) return null;
   const next = normalizePosition(args);
   const { subtitle } = found;
-  // Compared by VALUE: a preset wrote `posX` 0.5, the normal form writes
-  // nothing for it, and neither is a move.
-  if (
-    (next.posX ?? 0.5) === (subtitle.posX ?? 0.5) &&
-    next.posY === subtitle.posY
-  )
+  // Compared by VALUE, both axes through the normal form: a preset wrote
+  // `posX` 0.5 and a hand edit `posY` 0.99, the normal form writes nothing
+  // for either, and neither is a move (QA review: the Y side used to
+  // compare the raw field, so the first touch of such a subtitle pushed an
+  // undo entry that changed nothing on screen).
+  const now = normalizePosition(subtitle);
+  if ((next.posX ?? 0.5) === (now.posX ?? 0.5) && next.posY === now.posY)
     return null;
   return { subtitle, next };
 }
@@ -595,30 +596,19 @@ export const setSubtitlePositionCommand: Command<SubtitlePositionArgs> = {
 /** The face the words are set in (ADR-0018). The same shape as the look:
  *  one field, an exact inverse, the face already set refused. Loading the
  *  file is the panel's and the preview's business, not the document's. */
-export const setSubtitleFontCommand: Command<SubtitleFontArgs> = {
+export const setSubtitleFontCommand = setFieldCommand<SubtitleFontArgs>({
   id: 'subtitle.setFont',
   label: '자막 글꼴 고르기',
-  hidden: true,
-  requiresArgs: true,
-  done: (_before, after, args) => {
-    const { subtitleId, font } = args as SubtitleFontArgs;
-    const found = locateSubtitle(after.project, subtitleId);
-    return describeFont(font, found ? lookOf(found.subtitle) : 'plain');
+  current: fontOf,
+  wanted: (a) => a.font,
+  changes: (a) => ({ font: fontField(a.font) }),
+  // With the subtitle's look: on 강조 / 외침 the sentence says the face
+  // keeps its own weight.
+  done: (a, after) => {
+    const found = locateSubtitle(after.project, a.subtitleId);
+    return describeFont(a.font, found ? lookOf(found.subtitle) : 'plain');
   },
-  canRun(ctx, args) {
-    if (!args) return false;
-    const found = locateSubtitle(ctx.project, args.subtitleId);
-    return !!found && fontOf(found.subtitle) !== args.font;
-  },
-  run(ctx, args) {
-    const found = locateSubtitle(ctx.project, args.subtitleId);
-    if (!found) throw new Error('subtitle.setFont: no such subtitle');
-    if (fontOf(found.subtitle) === args.font) {
-      throw new Error('subtitle.setFont: no change');
-    }
-    return fieldOps(found.subtitle, { font: fontField(args.font) });
-  },
-};
+});
 
 export const SUBTITLE_COMMANDS: Command<any>[] = [
   addSubtitleCommand,

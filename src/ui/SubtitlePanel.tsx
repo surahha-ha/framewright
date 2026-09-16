@@ -9,7 +9,7 @@
 // stands aside for a textarea (`isTypingTarget`), so typing `c` here writes a
 // c and does not split the clip. Shift+Enter breaks a line; Escape puts the
 // draft back to what the document says.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/projectStore';
 import { formatTimecode } from '../engine/time';
 import { locateSubtitle, subtitleLength } from '../engine/subtitles';
@@ -78,6 +78,7 @@ function Choices<T extends string>({
   current,
   choose,
   same,
+  children,
 }: {
   id: string;
   title: string;
@@ -87,6 +88,12 @@ function Choices<T extends string>({
   current: T | null;
   choose: (choice: T) => void;
   same: (choice: T) => string;
+  /** More controls for the same word, under the radios (the 자리 row's
+   *  two sliders): the row is then one GROUP named by the word, so a
+   *  screen reader hears that the radios and the sliders are one thing —
+   *  off every preset the radios read as nothing checked and the value
+   *  lives only in the sliders (a11y review, E8-2c). */
+  children?: ReactNode;
 }) {
   const setStatus = useStore((s) => s.setStatus);
   const stop = current ?? ids[0];
@@ -113,7 +120,11 @@ function Choices<T extends string>({
   }
 
   return (
-    <div className="subtitle-choice">
+    <div
+      className={'subtitle-choice' + (children ? ' with-more' : '')}
+      role={children ? 'group' : undefined}
+      aria-labelledby={children ? `${id}-label` : undefined}
+    >
       <span className="subtitle-choice-label" id={`${id}-label`}>
         {title}
       </span>
@@ -142,6 +153,7 @@ function Choices<T extends string>({
             {hint[choice]}
           </span>
         ))}
+      {children}
     </div>
   );
 }
@@ -216,17 +228,21 @@ export function SubtitlePanel() {
     if (!id || !run('subtitle.setFont', { subtitleId: id, font })) return;
     const face = fontField(font);
     if (!face || browserFonts.ready(face)) return;
-    setStatus(describeFont(font, lookOf(subtitle), true));
-    void fetchFace(id, face);
+    const said = describeFont(font, lookOf(subtitle), true);
+    setStatus(said);
+    void fetchFace(id, face, said);
   }
 
   /** Says how the fetch ended — unless the subtitle no longer wants that
-   *  face by then (a second choice, an undo, a delete), when the sentence
-   *  would be about nothing on screen and would bury a newer one. */
-  function fetchFace(subtitleId: string, face: SubtitleFont) {
+   *  face by then (a second choice, an undo, a delete), or the status line
+   *  has moved on to something else the user did meanwhile: either way the
+   *  sentence would be about nothing on screen and would bury a newer one.
+   *  `said` is the wait this press put on the status line. */
+  function fetchFace(subtitleId: string, face: SubtitleFont, said: string) {
     return browserFonts.load(face).then((ok) => {
-      const now = locateSubtitle(useStore.getState().project, subtitleId);
-      if (!now || now.subtitle.font !== face) return;
+      const s = useStore.getState();
+      const now = locateSubtitle(s.project, subtitleId);
+      if (!now || now.subtitle.font !== face || s.status !== said) return;
       setStatus(ok ? FONT_ARRIVED(face) : FONT_FAILED(face));
     });
   }
@@ -237,7 +253,9 @@ export function SubtitlePanel() {
   function sameFont(font: FontId): string {
     const face = fontField(font);
     if (id && face && fontState(face) === 'failed') {
-      void fetchFace(id, face);
+      // `Choices` puts this sentence on the status line; the settle
+      // compares against it.
+      void fetchFace(id, face, FONT_RETRYING(face));
       return FONT_RETRYING(face);
     }
     return SAME_FONT(font);
@@ -331,39 +349,41 @@ export function SubtitlePanel() {
             run('subtitle.setPlace', { subtitleId: id, place })
           }
           same={SAME_PLACE}
-        />
-        {/* The keyboard's route to what a drag on the preview does (E8-2c):
-            two sliders in the words' own language (fractions of the box,
-            as percents), and one sentence that says where the words are —
-            the sliders' description, and what the 자리 row cannot say when
-            nothing in it is checked. */}
-        <div className="subtitle-position">
-          <RangeRow
-            label="가로 자리"
-            min={0}
-            max={100}
-            step={1}
-            value={slider.x}
-            valueText={positionXText(subtitle.posX)}
-            describedBy={positionNoteId}
-            onChange={(v) => slide(v, slider.y)}
-          />
-          <RangeRow
-            label="세로 자리"
-            min={0}
-            max={100}
-            step={1}
-            value={slider.y}
-            valueText={positionYText(subtitle.posY)}
-            describedBy={positionNoteId}
-            onChange={(v) => slide(slider.x, v)}
-          />
-          <span className="clip-edge-note dim" id={positionNoteId}>
-            {placeOf(subtitle)
-              ? `${PLACE_LABEL[placeOf(subtitle)!]} 자리에 있어요 · 화면의 자막을 끌거나 슬라이더로 옮길 수 있어요`
-              : positionText(subtitle)}
-          </span>
-        </div>
+        >
+          {/* The keyboard's route to what a drag on the preview does
+              (E8-2c): two sliders in the words' own language (fractions of
+              the box, as percents), and one sentence that says where the
+              words are — the sliders' description, and what the radios
+              cannot say when nothing in them is checked. Inside the 자리
+              row, so the radios and the sliders are one group. */}
+          <div className="subtitle-position">
+            <RangeRow
+              label="가로 자리"
+              min={0}
+              max={100}
+              step={1}
+              value={slider.x}
+              valueText={positionXText(subtitle.posX)}
+              describedBy={positionNoteId}
+              onChange={(v) => slide(v, slider.y)}
+            />
+            <RangeRow
+              label="세로 자리"
+              min={0}
+              max={100}
+              step={1}
+              value={slider.y}
+              valueText={positionYText(subtitle.posY)}
+              describedBy={positionNoteId}
+              onChange={(v) => slide(slider.x, v)}
+            />
+            <span className="clip-edge-note dim" id={positionNoteId}>
+              {placeOf(subtitle)
+                ? `${PLACE_LABEL[placeOf(subtitle)!]} 자리에 있어요 · 화면의 자막을 끌거나 슬라이더로 옮길 수 있어요`
+                : positionText(subtitle)}
+            </span>
+          </div>
+        </Choices>
         <Choices
           id="subtitle-effect"
           title="효과"

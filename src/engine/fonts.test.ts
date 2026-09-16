@@ -3,7 +3,9 @@
 // covered by `e2e/subtitle-font.spec.ts`).
 import { describe, expect, it } from 'vitest';
 import {
+  FONT_FAILED,
   FONT_FETCHING,
+  FONT_HINT,
   FONT_IDS,
   NO_FONTS,
   SUBTITLE_FONT_FILES,
@@ -164,5 +166,27 @@ describe('the sentences', () => {
     expect(missingFontsText(['pen', 'black'])).toBe(
       ' ⚠ 손글씨, 굵은고딕 글꼴을 받지 못해 기본 글꼴로 그렸어요.',
     );
+  });
+
+  it('name the way back when a face did not come — the same radio is the retry', () => {
+    // The radio stays checked after a failure (the document already says
+    // the face), so nothing on screen shows there IS a way back.
+    // "자막을 고른 뒤" first: during playback nothing is selected and the
+    // 글꼴 row is not on screen, so the sentence must start there.
+    expect(FONT_FAILED('brush')).toBe(
+      '붓글씨 글꼴을 받지 못했어요 · 기본 글꼴로 보여요 · 자막을 고른 뒤 글꼴에서 붓글씨 단추를 다시 누르면 다시 받아요.',
+    );
+    expect(FONT_FAILED('black')).toContain(
+      '자막을 고른 뒤 글꼴에서 굵은고딕 단추를 다시 누르면',
+    );
+  });
+
+  it('describe a face by what it looks like first, the product name after', () => {
+    for (const id of ['brush', 'pen', 'black'] as const) {
+      const [look, name] = FONT_HINT[id].split(' · ');
+      expect(look).toMatch(/글씨$/);
+      expect(name).not.toMatch(/글씨$/);
+    }
+    expect(FONT_HINT.brush).toBe('붓으로 쓴 글씨 · 나눔붓');
   });
 });

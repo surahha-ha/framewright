@@ -117,6 +117,42 @@ would wait for a fetch that may never end.
   that waited.
 - `ExportResult` grew a field (`missingFonts`). `exportProject` without a
   loader (a test) reports every face missing and draws the fallback.
-- The word 글꼴 hints name the face ("나눔붓 · 붓으로 쓴 글씨"); the radio
-  itself does not draw a sample in the face. That is a draw-time change
-  to `Choices` and is out of scope.
+- The word 글꼴 hints name the face ("붓으로 쓴 글씨 · 나눔붓" — what it
+  looks like first, since 2026-09-16); the radio itself does not draw a
+  sample in the face. That is a draw-time change to `Choices` and is out
+  of scope.
+
+## Amendment (2026-09-16) — what the document names is fetched when it opens
+
+**Changed:** "never at app start" becomes **"only what the document
+names, and that as soon as the document is on screen."** The faces the
+opened document's subtitles name are fetched on load, on a version
+restore, and when an edit first names a face nobody has asked for —
+quietly, because the words are not under the playhead yet and there is
+nothing on screen to explain (`ui/useSubtitleFonts.ts`). A face nothing
+names is still never fetched, so a project without a face costs what it
+did: nothing.
+
+**Why.** The consequence recorded above — a reopened document draws its
+words in the system face until the playhead reaches them and the file
+lands, then swaps shape mid-subtitle — was the one thing a first-time
+user saw first on reopening, and the sentence that explained it was a
+patch over a window the app could simply close. The cost is one request
+per named face per reopen, a cache hit in every browser but the first.
+
+**What stays.** The panel's choice still asks first and says its own
+sentences; the export still waits for every face in its plan; the retry
+is still the same radio pressed again. The playhead path keeps its
+sentences for a face still in flight from the document's quiet ask
+("받는 중이에요", then how it ended) and now says the FAILED sentence
+once, when the words first reach a face that did not come, with the way
+back in it: "… 기본 글꼴로 보여요 · 글꼴에서 붓글씨 단추를 다시 누르면 다시
+받아요."
+
+**A fact measured while proving it** (`e2e/subtitle-font.spec.ts`, the
+failed-reopen test): after a reload in the same renderer, Chrome finds a
+typeface the PREVIOUS document fetched by its family name for the canvas,
+even though `document.fonts` of the new document has nothing — so a
+failed fetch on a reopen can still draw the words in the face. The
+sentence describes what the page knows; the pixels may be kinder. Not a
+defect of the app's, and not something the app can see.
