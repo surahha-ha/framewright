@@ -10,7 +10,7 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-16 01:55 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-16 03:01 UTC — `npm run verify` **GREEN**
 
 - unit 692 passed · e2e 142 passed
 
@@ -18,7 +18,34 @@ repo does not.
 
 ## Where we are
 
-### E8-2d, the E8-2 debt pass, is built and green in the working tree (2026-09-16), NOT yet committed
+### E10 step 1 is done in the working tree, uncommitted (2026-09-16)
+
+`src/ui/useStageDrag.ts` (new, 163 lines) is the one hook for the stage's
+two drags — `useStageDrag<T>({ press, move, release }) → { onPointerDown,
+onPointerMove, onPointerUp, active }` — owning the drag ref, pointer
+capture, the 3px threshold, the two `dragAxis` calls with the origin
+rebase, and the up/cancel teardown. Two callers: the picture's pan in
+`src/ui/Preview.tsx` (657 → 602 lines) and the words in
+`src/ui/useWordsDrag.ts` (253 → 207). Zero behaviour change; proof:
+`check:refs`, `typecheck`, unit 692/692, `npm run e2e:chrome` on
+`e2e/subtitle-drag.spec.ts` (9) + `e2e/picture.spec.ts` (5) = 14/14, no
+test edited. Personas on the diff: framewright-reviewer 0 findings;
+tester-qa 0 blockers, 2 minors (no re-entrancy guard on `onPointerDown`,
+`setPointerCapture` unguarded), both verified pre-existing in `39be4b4`
+and carried into the hook unchanged on purpose — now the top entry of
+CLAUDE.md "Known tech debt". The plan's targets "under 580 / under 200"
+were missed by ~20 lines each because the pan's and the words' rationale
+comments (the ADR-0006 / 0014 / 0019 references) were kept — accepted.
+**The three source files are uncommitted; the owner is to be asked
+before the commit** (the file list and recipe are under "Next single
+step").
+
+### E8-2d, the E8-2 debt pass, is committed and pushed (`39be4b4`, 2026-09-16)
+
+**Committed with the owner's approval and pushed the same morning;
+`origin/main` = `39be4b4`.** The paragraph below was written before the
+commit and is kept as the record; "uncommitted" in it is no longer true
+of the unit's files — only the owner's own edits remain in the tree.
 
 The owner decided on 2026-09-16: E8-2 debt first, then E10. The unit is
 ten fixes to what the E8-2a/b/c persona rounds left, by the rule table in
@@ -412,25 +439,417 @@ stayed out). This file carries the post-commit rewrite of three passages
 
 ## Next single step
 
-**Commit E8-2d (with the owner's approval — announced, not assumed),
-then plan E10 images / stickers in this file before building it.** The
-owner decided the order on 2026-09-16: E8-2 debt first, then E10. E8-2d
-is built and green in the tree (the section at the top of "Where we
-are"); the commit recipe that worked for E8-2b/c: stage the unit's files
-and docs, `CLAUDE.md` by hunk (drop the hunk containing 'ui-ux-guide',
-which is the owner's), leave `AGENTS.md`, `docs/UX.md` and the two logs
-out, write the message with the Write tool and commit with `-F` so the
-Korean subject survives, ask before pushing. **E10** is the last item of
-the owner's 예능 자막 definition ("What 'style presets' means" below):
-images / stickers on the picture. It will be the stage's THIRD drag, the
-rule-of-three trigger ADR-0019's amendment names for extracting the DOM
-half the pan and the words share — plan that extraction as E10's first
-step, not its last. Open questions for the plan: where an image lives in
-the document (its own list like subtitles, ADR-0011), how it is imported
-(the media bin's input, or a paste), whether it is drawn on the words'
-overlay or a layer of its own, and what the export plan carries for it.
+**Commit E10 step 1** once the owner says so — files:
+`src/ui/useStageDrag.ts`, `src/ui/Preview.tsx`, `src/ui/useWordsDrag.ts`,
+`CLAUDE.md` by hunk (drop the hunk containing 'ui-ux-guide', which is
+the owner's), `docs/STATUS.md`; leave `AGENTS.md`, `docs/UX.md`,
+`debug.log` and `e9-baseline.log` out. Then **E10 step 2 — engine,
+test-first** (see "E10 execution plan", step 2, below): `engine/spans.ts`
+per the plan's row 3, with `subtitles.ts` delegating and its 28 tests
+unchanged; then `types` / `ops` / `persistence` (schema 3) / `project`
+for `Project.images` per row 2; then `engine/images.ts` and
+`engine/imageCommands.ts` per rows 4, 6, 7 and 8. The owner decided the
+order on 2026-09-16: E8-2 debt first, then E10; the E10 plan is written
+(below) and its four open questions are answered there. E8-2d is on
+`origin/main` as `39be4b4`; what is uncommitted is step 1's three source
+files, this file (the E10 plan, the step-1 record above and the
+post-commit rewrite of three passages) and CLAUDE.md's debt list (one
+entry added, two rewritten), plus the owner's own edits (`AGENTS.md`,
+`CLAUDE.md`'s ui-ux-guide bullet, `docs/UX.md`) and the two stray logs,
+which stay theirs. The commit recipe that has now worked four times:
+stage the files named above, `CLAUDE.md` by hunk (drop the hunk
+containing 'ui-ux-guide', which is the owner's), leave `AGENTS.md`,
+`docs/UX.md` and the two logs out, write the message with the Write
+tool and commit with `-F` so the Korean subject survives, ask before
+pushing.
 
-**The E8-2d plan below is done; kept as the record.**
+**The E10 plan follows. The E8-2d plan after it is done; kept as the
+record.**
+
+### E10 execution plan — 이미지·스티커
+
+**What this is.** The last item of the owner's 예능 자막 definition
+("What 'style presets' means" below): an image (a PNG / JPEG / WebP
+sticker, a logo) on the picture for a range of timeline frames, dragged
+anywhere on the stage, sized by one slider, deleted, undone, exported.
+It is a NEW KIND OF THING on the timeline — the third after clips and
+subtitles — and the stage's THIRD drag after the picture's pan
+(ADR-0014) and the words (ADR-0019). ADR-0019's amendment names that
+third drag as the rule-of-three trigger for the DOM half the pan and
+the words duplicate; so **step 1 of this unit is that extraction, on
+the two callers that exist, with no behaviour change and the fourteen
+existing stage e2e tests as the proof — before a line of image code.**
+The rest mirrors the shape subtitles took (ADR-0011: its own list, its
+own ops and commands, one draw for both surfaces, a lane, a panel), so
+a reader who knows how a subtitle works knows how an image works.
+ADR-0020 records the decisions. The MVP is deliberately small: no
+rotation, no effect, no multi-select, no lane drag, one image on
+screen at a time (see "Left as debt on purpose").
+
+**Facts the plan stands on (measured 2026-09-16, tree at `39be4b4`,
+gate unit 692 · e2e 142):**
+
+- `ui/Preview.tsx` is 657 lines. The pan drag is lines 89–191:
+  `panDragRef` (89–102: clipId, pointerId, originX/Y, panX/Y, zoom,
+  width, height, limitX/Y, moved), `onStagePointerDown` (106–144: the
+  words asked first at 111, press-to-choose at 118–122,
+  `getBoundingClientRect` at 125, `setPointerCapture` at 143),
+  `onStagePointerMove` (146–183: the 3px threshold 150–155, two
+  `dragAxis` calls 160–175, origin rebase 176–177, `run('clip.pan', …,
+'pan:<id>')` 178–182), `onStagePointerUp` (185–191: null the ref,
+  `endGesture`). The overlay canvas is 596–602 (`.stage-subtitle`,
+  `role="img"` named by its words); the `place()` effect that sizes it
+  over the picture is 387–405; `missingMedia` at 193 is
+  `project.assets.some((a) => !getDecodeService(a.id))`.
+- `ui/useWordsDrag.ts` is 253 lines: `dragRef` 74–97 (the same ten
+  fields plus `bottomCentreY`, `lastX/Y`, `chose`), `onPointerDown`
+  149–175 (the hit test, `selectSubtitle`, `setPointerCapture`),
+  `onPointerMove` 179–223 (hover when idle 181–187, threshold 188–193,
+  two `dragAxis` calls 197–212, rebase 213–214, `run('subtitle.
+setPosition', …, 'pos:<id>')` 217–221), `onPointerUp` 227–250 (the
+  snap at the drop 234–242, the press-only sentence 243–247,
+  `endGesture`). Only `engine/stageDrag.ts` (42 lines, `dragAxis`, 5
+  tests including the no-extent / NaN contract "since E10's third
+  drag will call it") is shared. Everything else in the two lists
+  above is written twice.
+- `engine/types.ts` (146 lines): `Asset.kind` is already `'video' |
+'audio' | 'image'` (line 33) and nothing creates an `'image'`;
+  `AssetMeta` has `width` / `height`; `Subtitle` is 116–135, `Project`
+  137–146 with `subtitles: Subtitle[]`. `engine/ops.ts` (149): the
+  three subtitle ops are 19–25, `dropUndefined` applies to
+  `updateSubtitle`. `engine/persistence.ts`: `CURRENT_SCHEMA = 2` (line
+  12), `upgradeProject` 64–68 fills `subtitles`. `engine/project.ts`
+  (23) has no `images`.
+- `engine/subtitles.ts` (397 lines, 28 tests): `subtitleAt` (25),
+  `locateSubtitle` (33), `subtitlePlan` (48), `subtitleLimits` (74),
+  `rippleSubtitles` (207–243), `splitSubtitleAt` (253–275),
+  `subtitleDiffOps` (289–333). `rippleSubtitles` reads only
+  `startFrame` / `endFrame` and spreads the rest — generic in all but
+  its name; `splitSubtitleAt` mints `sub_<n>`; `subtitleDiffOps` emits
+  the three subtitle op kinds. Four commands ripple the words with
+  them: `clip.deleteRipple` (`commands.ts` 234–237), `timeline.
+closeGaps` (429–432, 451), `clip.paste` (761–772) and the silence
+  cut (`silence.ts` 332–335).
+- `engine/subtitleCommands.ts` (628 lines, 35 tests): 14 commands
+  (613–628); `edgeToPlayhead` (287–353) and `subtitleToPlayheadCommand`
+  (361–408) are the keyboard's timing route; `setFieldCommand`
+  (489–518) is subtitle-typed (`locateSubtitle`, `updateSubtitle`).
+- `engine/exportPlan.ts` (101): `ExportFrame.subtitle: SubtitleFrame |
+null` (23) from `subtitleFrameAt` (40) — one answer per frame for
+  both surfaces. `engine/compose.ts` (101): `composeFrame(ctx, width,
+height, primary, blend, subtitle, transform)` (78–101) draws black,
+  the footage, the blend, then the words last (100); 11 tests with a
+  fake context that records `drawImage`. `engine/exporter.ts` (392):
+  the fonts phase 157–175 loads every face `fontsInPlan` names before
+  frame 0 through the `FontLoader` seam (`engine/fonts.ts` 104–114,
+  `NO_FONTS`; the browser half `ui/fonts.ts`, 70 lines) and reports
+  `missingFonts`; `composeFrame` is called at 337–345 with
+  `entry.subtitle`; `ui/ExportButton.tsx` (127) hands in
+  `fonts: browserFonts` (38) and names the phases (41–50).
+- `ui/MediaBin.tsx` (320): `accept="video/*"` (281); `onFile` (112–249)
+  copies the bytes, `openSource` (demux), `persistMedia` → OPFS by
+  content hash, re-links by name (149–186), else `editor.importAsset`
+  (a hand-written patch, not a registry command — the ADR-0009 debt
+  entry; it also inserts a clip and sets the timeline on the first
+  import, `command.ts` 254–311); the asset rows (303–316) show 🎬 or ⚠
+  by `getDecodeService`. `ui/media.ts` (258): `loadSavedMedia`
+  (184–189) rebuilds a `File` typed `'video/mp4'`; `restoreSavedMedia`
+  (215–248) → `attachFileToAsset` → `demuxVideo`, so an image asset
+  with an `opfsKey` would restore as "lost". `getDecodeService` is the
+  "media is here" test in three places: `Preview.tsx` 193,
+  `MediaBin.tsx` 47, `ExportButton.tsx` 23. `App.tsx` 40–50 frees four
+  per-asset caches (`retainOnly*`) when an asset leaves the document.
+- Selection is two exclusive ids: `Editor.selectedClipId` /
+  `selectedSubtitleId` (`command.ts` 13–18, `pruneSelection` 103–114,
+  `selects` / `selectsSubtitle` 173–182), mirrored by
+  `projectStore.ts` (513 lines; `selectSubtitle` 455–462) and read by
+  `EditorCtx` (`commands.ts` 35–52). `ui/Timeline.tsx` (881): `contentPx`
+  (234–245) grows for a subtitle past the video's end; `SubtitleLane`
+  is mounted at 854–859. `ui/SubtitleLane.tsx` 377, `ui/SubtitlePanel.tsx`
+  440, `ui/RangeRow.tsx` 53.
+- `styles.css` (1491): `.stage canvas.stage-subtitle` 305–310 (absolute,
+  `pointer-events: none`), `.stage.movable` 1394, `.stage.words` 1401.
+  `docs/TESTING.md` (442): the DOM contract table is 329–385;
+  `docs/adr/README.md` (48) lists 0001–0019.
+- e2e that must stay green through step 1 and after: `e2e/subtitle-
+drag.spec.ts` (341 lines, 9 tests) reads the ALPHA of `.stage-
+subtitle` as its oracle (`inkBounds` 47–72) and relies on the hit
+  order words → pan (187–214); `e2e/picture.spec.ts` (291 lines, 5
+  tests) presses the picture's CENTRE to pan (243–290) — the default
+  place an image would sit. `e2e/fixtures/` holds two mp4 and no image;
+  Playwright's `setInputFiles` takes `{ name, mimeType, buffer }`, so
+  the spec can carry a 2-colour PNG as a constant.
+
+**The four open questions, answered.**
+
+- **(a) Where an image lives — its own list, `Project.images:
+StageImage[]`, exactly as ADR-0011 argued for subtitles.** A `Clip` is
+  a window onto source frames (`assetId`, `inFrame`, `outFrame`) and
+  every reader of `track.clips` — drag bounds, trim limits, the plan,
+  the strips, the clipboard, `resolveAt` — reads those three; an image
+  has an asset but no frames inside it. `{ id: 'img_<n>', assetId,
+startFrame, endFrame (exclusive), posX?, posY?, size? }`, sorted by
+  start, never overlapping (one on screen at a time, the subtitle's
+  rule — a taste call, below). Not a taste call otherwise: it is the
+  architecture the repo already chose once.
+- **(b) How it comes in — the media bin's input, `accept="video/*,
+image/*"`, the bytes kept in OPFS by the same content key, and ONE
+  command `image.import` that adds the asset AND places the image at
+  the playhead for 2 s in one undo step (import = place).** A dropped
+  sticker that lands only in a list and then needs a second gesture is
+  one step more than a first-time user expects; a subtitle appears on
+  the press. Re-use is the row's own button 재생 위치에 넣기
+  (`image.add { assetId }`). No paste in this unit (a paste target,
+  a clipboard image type and a name for the asset are three more
+  decisions). **Taste call for the owner: import = place, or bin then
+  a button.**
+- **(c) Where it draws — its own canvas `.stage-image` between the
+  picture and the words; z-order picture < image < words, in the
+  preview and in `composeFrame`.** The words' canvas is the subtitle
+  e2e's pixel oracle and is `role="img"` named by its words; an image
+  drawn there would change both. A caption stays readable over a
+  sticker, which is the variety-show convention. The stage's hit test
+  follows the draw order backwards: words → image → pan. **Taste call
+  for the owner: words above images (recommended) or images above
+  words.**
+- **(d) What the export carries — `ExportFrame.image: ImageFrame |
+null` per frame, built by `imageFrameAt` exactly as `subtitle` is
+  by `subtitleFrameAt`; the exporter opens every bitmap the plan names
+  BEFORE frame 0 (an 'images' phase, like the fonts phase) through an
+  `ImageSource` seam (`engine/images.ts`, browser half `ui/images.ts`,
+  the `FontLoader` shape), draws it through the same `imageRect` the
+  preview hit-tests with, and reports the ones it could not open in
+  `missingImages` (drawn as nothing, not counted as missing frames).**
+  Not a taste call: one answer per frame is ADR-0011's rule.
+
+**Owner's calls, taken as recommended until told otherwise (confirm at
+the end of the unit):**
+
+- One image on screen at a time — no overlap, the subtitle's rule.
+- Import = place — a dropped image lands on the stage at the playhead
+  for 2 s, in one undo step.
+- Words draw above images.
+
+**Step 1 — the stage drag as one hook.** `ui/useStageDrag.ts` (new):
+
+```ts
+type StageEvent = ReactPointerEvent<HTMLDivElement>;
+export interface StagePress<T> {
+  /** What the press landed on and what the release needs to know. */
+  target: T;
+  /** The value at press, fractions of the box, per axis. */
+  base: { x: number; y: number };
+  /** CSS px per whole box on each axis (the pan's is width × zoom). */
+  size: { x: number; y: number };
+  min: { x: number; y: number };
+  max: { x: number; y: number };
+}
+export function useStageDrag<T>(spec: {
+  /** The hit test. Null = not this drag's press (the caller may have
+   *  selected something and said so; the next handler is asked). */
+  press(e: StageEvent): StagePress<T> | null;
+  /** Every move past the threshold: the caller's coalesced command
+   *  (`run(cmd, args, key)`), clamped by `dragAxis` already. */
+  move(target: T, value: { x: number; y: number }): void;
+  /** The release or a cancel: the snapped last write when it moved,
+   *  the press-only sentence when it did not. `endGesture` follows. */
+  release(target: T, moved: boolean, last: { x: number; y: number }): void;
+}): {
+  onPointerDown(e: StageEvent): boolean;
+  onPointerMove(e: StageEvent): boolean;
+  onPointerUp(e: StageEvent): boolean;
+  active: boolean;
+};
+```
+
+The hook owns what is written twice today: the drag-state ref
+(pointerId, origin, base, size, limits, last, moved), `button !== 0`,
+`setPointerCapture`, the 3px threshold, the two `dragAxis` calls and
+the origin rebase, the pointerId check on every event, the teardown on
+up / cancel and `endGesture`. **Per caller stays:** the hit test and
+what it needs to measure (the pan: the selected-clip check, the
+press-to-choose sentence, the picture canvas's rect, `pictureTransform`,
+`clipPanLimits`; the words: the cached layout, `drawnBounds`, the rest
+centre as base, `selectSubtitle`, `bottomCentreY` in `target`; the
+image: `imageRect` from the asset's recorded size, `selectImage`), the
+limits (±`clipPanLimits` / [0, 1] / [0, 1]), the command and its
+coalesce key (`clip.pan` · `pan:<id>`, `subtitle.setPosition` ·
+`pos:<id>`, `image.setPosition` · `imgpos:<id>`), the snap at the drop
+(`snapPosition` / none / the centre only), the press-only sentence
+(none / "화면의 자막을 골랐어요 · 끌면 자리가 옮겨져요." / "화면의
+이미지를 골랐어요 · 끌면 자리가 옮겨져요."), and the hover cursor
+(`overWords` stays in `useWordsDrag`: an idle move is a hit test, not a
+drag). `useWordsDrag` and the pan become two `useStageDrag` callers;
+`Preview` keeps its one handler set and asks words, then image (step
+4), then pan. Proof: `typecheck`, `check:refs`, and the 14 stage tests
+in `subtitle-drag.spec.ts` + `picture.spec.ts` unchanged and green —
+no new e2e, because no behaviour changes. `Preview.tsx` ends under
+580 lines, `useWordsDrag.ts` under 200.
+
+| #   | Debt entry / question                                                                          | Rule after this unit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Where                                                                                                                                                                                                                                                                                                                                                                                                     | Proof                                                                                                                                                                                                                                                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ADR-0019 amendment: the stage's third drag is the trigger to extract the DOM half              | **One stage drag, three callers.** Press-with-capture, the 3px threshold, `dragAxis` on both axes with the origin rebase, and the up/cancel teardown exist once, in `useStageDrag`; a caller supplies only its hit test, its limits, its command + key, its snap and its sentence (the signature above). Written first, on the two callers that exist, with zero behaviour change.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | `ui/useStageDrag.ts` (new); `ui/useWordsDrag.ts`, the pan in `ui/Preview.tsx`; later `ui/useImageDrag.ts`                                                                                                                                                                                                                                                                                                 | none new — typecheck, check:refs, the 14 existing stage e2e tests green before and after (a refactor's proof is the tests it does not change)                                                                                                                                                                                               |
+| 2   | (a) where an image lives                                                                       | **An image is its own list, `Project.images`, never a clip** (ADR-0011's argument, applied). `StageImage { id 'img_<n>', assetId, startFrame, endFrame, posX?, posY?, size? }`; absent = the centre and a quarter of the box's width; sorted, non-overlapping, `[start, end)`. Three ops `insertImage / removeImage / updateImage` (with `dropUndefined`); schema 3, `upgradeProject` fills `images: []` into every project and version.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `engine/types.ts`, `engine/ops.ts`, `engine/persistence.ts`, `engine/project.ts`                                                                                                                                                                                                                                                                                                                          | unit: ops round-trip, `upgradeProject` on a schema-2 save and on a version snapshot, `deserialize` refuses schema 4                                                                                                                                                                                                                         |
+| 3   | the timing arithmetic (`subtitleAt / Plan / Limits / ripple / split / diff`) is subtitle-typed | **Timing arithmetic exists once, for spans — a small shared span module, not a rename.** `engine/spans.ts`: `spanAt`, `locateSpan`, `spanPlan`, `spanLimits`, `rippleSpans`, `splitSpanAt(list, at, makeId)`, `spanDiffOps(before, after, ops)` over `{ id, startFrame, endFrame }`. Honestly: `subtitleAt` / `locateSubtitle` / `rippleSubtitles` are already generic over `{ id, startFrame, endFrame }`, but `spanPlan` / `spanLimits` take `(list, total, defaultLen)` instead of a `Project`, `splitSpanAt` takes a `makeId`, and `spanDiffOps` takes an op factory because the subtitle version hard-codes the `insertSubtitle / removeSubtitle / updateSubtitle` op kinds (`engine/ops.ts`). `subtitles.ts` keeps its names as thin calls into it, so no caller or sentence changes; the 28 `subtitles.test.ts` tests unchanged are the proof. Shared on the SECOND use, on purpose: the ripple algorithm carries the ordering invariants the repo already documents as drift-prone (split before ripple, redo-deterministic order, the `subtitles.ts` header comments), which is exactly what must not be copied — the `framewright-reviewer` persona confirmed this on 2026-09-16. **Images follow the footage exactly as the words do** (ripple delete, close gaps, paste with a split at the paste point, the silence cut). | `engine/spans.ts` (new, test-first); `engine/subtitles.ts`; `engine/images.ts` (new); `commands.ts` ×3, `silence.ts` (three lines each: the image diff beside the word diff)                                                                                                                                                                                                                              | unit: the 28 `subtitles.test.ts` tests UNCHANGED and green (the proof the delegation changed nothing); `spans.test.ts` for the generic edge cases; `images.test.ts` for plan / limits at the video's end and beside a neighbour; one ripple test per command with an image in the cut                                                       |
+| 4   | (b) how an image is imported                                                                   | **An image is an asset like a video** — `Asset.kind: 'image'` (the union already admits it), `meta.width/height` recorded at import, the bytes in OPFS under the content key, swept and restored by the same code — **and its import is a registry command, not a hand-written patch:** `image.import { name, opfsKey?, width, height }` adds the asset and inserts the image at the playhead's `spanPlan` (2 s, `secToFrame`) in ONE undo step, ids `asset_<n>` / `img_<n+1>`, the inverse never rewinding `nextId` (the `importAsset` reason). `image.add { assetId }` places an imported one again. Refused with a sentence before any video ("먼저 영상을 불러오세요."), on a frame that has one ("이 자리에는 이미 이미지가 있어요 …"), and a file `createImageBitmap` cannot open changes and stores nothing ("이 파일은 이미지로 열 수 없어요."). A dropped image whose asset is missing after a reload re-links by name, like a video.                                                                                                                                                                                                                                                                                                                                                                                         | `engine/imageCommands.ts` (new); `ui/MediaBin.tsx` (accept, the branch in `onFile`, 🖼 rows with 재생 위치에 넣기); `ui/media.ts` (`restoreSavedMedia` branches on `kind`); `ui/images.ts` (new: `createImageBitmap`, the cache, `subscribeImages`, `retainOnlyImages` closing every bitmap, `releaseImage`); `App.tsx`; the three `missingMedia` sites through one `isMediaReady(asset)` in `ui/media.ts` | unit: `image.import` / `image.add` patches, ids, refusals; e2e: a PNG dropped on the bin makes one chip and ink on `.stage-image` at the centre, survives a reload with no ⚠, and `Ctrl+Z` once removes both the chip and the row                                                                                                           |
+| 5   | (c) which layer, what z-order                                                                  | **One draw for both surfaces, under the words.** `engine/imageRender.ts`: `imageRect(frame, srcW, srcH, boxW, boxH)` — centre at `pos × box`, width `size × boxW`, height by the asset's aspect, nothing clamped (the centre is; an image may hang off the edge) — and `drawImageFrame`. `composeFrame` gains `image` after `transform` and draws it after the blend, before the words; the preview draws it on `.stage-image`, a third canvas placed over the picture by the same `place()`, `role="img"` "이미지: <name>" when showing, `aria-hidden` when blank, redrawn on the frame, the bitmap landing (`imagesVersion`), and the box's size. The hit test is `imageRect` from `meta.width/height`, so a press works before the bitmap arrives.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | `engine/imageRender.ts` (new); `engine/compose.ts`; `ui/Preview.tsx`; `styles.css` (`.stage canvas.stage-image`, `.stage.image` cursor `grab`)                                                                                                                                                                                                                                                            | unit: `imageRect` (aspect, size, an off-edge centre), `compose.test.ts` order — image drawn after the blend and before the words, none when null; e2e: `.stage-subtitle` ink unchanged with an image on screen (the subtitle-drag oracle stays clean)                                                                                       |
+| 6   | the stage's third drag                                                                         | **A press on the drawn image selects it and drags its centre** through `useStageDrag` — limits [0, 1], one command `image.setPosition { imageId, posX?, posY? }` under `imgpos:<id>` (whole percents, 0.5 stored as ABSENT on both axes — the image's normal form, in `images.ts`, not the subtitle's: an image at the bottom edge is 0.97, not the bottom stack), the drop snapped within `SNAP` of the centre only, the pointer attached at the edge; a press that only chose says "화면의 이미지를 골랐어요 · 끌면 자리가 옮겨져요."; hit order words → image → pan. The sentence: "이미지를 옮겼어요 · 왼쪽에서 32% · 위에서 70%." / "이미지를 가운데로 옮겼어요."                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `ui/useImageDrag.ts` (new, ~80 lines: the third caller); `ui/Preview.tsx`; `engine/images.ts`, `engine/imageCommands.ts`; `command.ts` / `commands.ts` / `projectStore.ts` (`selectedImageId`, `selectImage`, `selectsImage`, `pruneSelection`)                                                                                                                                                           | unit: the normal form, the centre snap, `decidePosition`'s no-change refusal by value; e2e: a drag moves the ink by the drag and is one undo step; past the bottom edge and back a fifth lands at 위에서 80% (the `dragAxis` contract, third caller); a press on the words over an image drags the words; a press off both pans the picture |
+| 7   | resize                                                                                         | **One slider, 크기, is the image's size** — `image.setSize { imageId, size }` under `size:<id>`, 5–100 step 5 (percent of the box's width), 25 when absent and 0.25 written back as absent; "이미지 크기를 40%로 바꿨어요." No handles on the stage in this unit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | `engine/imageCommands.ts`; `ui/ImagePanel.tsx` (new: heading 이미지, the file name, 크기, 가로 자리 · 세로 자리 with `#image-position-note`, the timing line, three 재생 위치로 buttons, 이미지 지우기)                                                                                                                                                                                                   | unit: clamp, round, the no-change refusal; e2e: `End` on 크기 says 100% and the ink spans the box's width                                                                                                                                                                                                                                   |
+| 8   | timing without a lane drag                                                                     | **An image is timed by the keyboard's route only, in this unit:** `image.moveToPlayhead / startToPlayhead / endToPlayhead` (the subtitle's `edgeToPlayhead` shape, a second copy — the sentences differ; see debt) on `ImageLane`'s chips (`.image-lane`, `.image`, `aria-label` "이미지 N, name, tc부터 길이 tc, N프레임", `aria-pressed`, Enter parks the playhead, Delete removes — the chip answers Delete itself, the subtitle's debt shape). `image.remove` on the selected image, in the panel and on the chip.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `ui/ImageLane.tsx` (new, ~150 lines: chips and focus-keeping, no drag); `ui/Timeline.tsx` (mount, `contentPx`, the hint's last sentence); `styles.css`                                                                                                                                                                                                                                                    | unit: the three commands' limits and refusals; e2e: 끝을 재생 위치로 lengthens the chip; Delete on the chip removes it and focus lands on the ruler                                                                                                                                                                                         |
+| 9   | (d) the export                                                                                 | **The plan carries the image per frame; the exporter opens every bitmap the plan names before frame 0.** `ExportFrame.image: ImageFrame \| null` from `imageFrameAt`; `imagesInPlan(plan)` → `options.images?: ImageSource` (`{ ready, get, load }`, `NO_IMAGES` in Node) loaded one by one with `onProgress(i, n, 'images')` ("이미지 여는 중"), raced against the abort like a face; a bitmap that does not open is in `missingImages` and the frame draws no image — never a missing frame. The sentence: " ⚠ logo.png 이미지를 열지 못해 그리지 않았어요." **The bitmap has one owner, the `ui/images.ts` cache:** `ImageSource.get()` hands the exporter the same long-lived cached `ImageBitmap` the preview draws; the exporter never closes one and `cleanup()` gains no image step. A `load` that resolves after an export was aborted still lands in the cache (harmless) and is reclaimed by `retainOnlyImages` on the next document change, which `close()`s every bitmap it drops.                                                                                                                                                                                                                                                                                                                                        | `engine/exportPlan.ts`, `engine/images.ts`, `engine/exporter.ts`, `ui/ExportButton.tsx`                                                                                                                                                                                                                                                                                                                   | unit: `buildExportPlan` records the image on its frames and null outside `[start, end)`; `imagesInPlan` once per asset in first-use order; e2e: an export with an image has 90 frames and no ⚠ (the load path is e2e-only)                                                                                                                  |
+| 10  | the record                                                                                     | **ADR-0020 — "An image is its own thing on the stage: under the words, dragged by the one stage drag"**; README row; TESTING.md contract rows (`.stage-image`, `.image-lane` / `.image`, heading 이미지, sliders 크기 / 가로 자리 / 세로 자리 as the image's when an image is selected, `#image-position-note`); CLAUDE.md debt: the two "third stage drag is the trigger" entries and the `Preview.tsx` size entry rewritten, the new round's findings added; HANDOVER's E10 line.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `docs/adr/0020-….md` (new), `docs/adr/README.md`, `docs/TESTING.md`, `CLAUDE.md`, `docs/HANDOVER.md`, this file                                                                                                                                                                                                                                                                                           | none (docs)                                                                                                                                                                                                                                                                                                                                 |
+
+**Left as debt on purpose** (named in ADR-0020's Consequences and in
+CLAUDE.md): rotation and flip; an effect on the way in (the subtitle's
+서서히 / 톡 / 올라오기 — the `t` field and `effectState` would carry over
+once someone asks); animation and animated GIF / WebP (drawn as their
+first frame); **two images on one frame** (the non-overlap rule is the
+subtitle's, and the owner's taste — overlap needs a z-order between
+images, stacked chips and a top-most hit test, the multi-select
+family); multi-select; **a drag on the image lane** (move / trim by the
+chip, the THIRD timeline drag of the clip's and the subtitle's shape —
+the trigger to extract that DOM half in its own unit, the way this one
+extracts the stage's); resize by handles on the stage; snap to
+anything but the centre, and guides; paste from the clipboard; a
+sample of the image in its media-bin row; `selectedImageId` as a third
+exclusive selection field (the third case of "one thing selected at a
+time" — folding the three into one `selection` is a wide rename,
+deferred to its own unit, "right before something risky"); `image.
+*ToPlayhead` as the second copy of `edgeToPlayhead` (a shared span
+command factory is the third-case trigger); Delete on a chip handled by
+the chip (the subtitle's existing entry, now two instances); a huge
+bitmap (a 6000px PNG is held at full size in memory and drawn scaled —
+no downscale at import); an SVG without intrinsic size, which
+`createImageBitmap` refuses (the refusal sentence covers it); an image
+asset evicted from OPFS says 다시 선택 필요 like a video and re-links
+by name only; `importAsset` (the video path) is still not a registry
+command; the palette lists 이미지 넣기 only as the bin's row (the
+command needs an asset); `clip.move` and the trims do not ripple
+images, exactly as they do not ripple subtitles (ADR-0011's rule —
+symmetric, not new); an undone `image.import` leaves the bytes in OPFS
+until the sweep on the next open, which is ADR-0009's existing
+behaviour for every asset.
+
+**Steps, in order:**
+
+1. **Done 2026-09-16** — `ui/useStageDrag.ts` 163 lines, `Preview.tsx`
+   657 → 602, `useWordsDrag.ts` 253 → 207, the 14 stage e2e green on
+   `e2e:chrome` with none edited, personas 0 blockers and 2 QA minors →
+   CLAUDE.md debt; the "under 580 / under 200" targets missed by ~20
+   lines each (rationale comments kept), accepted. As planned:
+   **The extraction, no behaviour change.** `ui/useStageDrag.ts`
+   written; the pan in `Preview.tsx` and `useWordsDrag.ts` rewritten
+   onto it; `Preview.tsx` under 580 lines. `check:refs`, `typecheck`,
+   `npm test`, then `npm run e2e:chrome -- subtitle-drag picture` — 14
+   tests, all green, none edited. Ending state: two callers, one DOM
+   half. **Step 1 ends by announcing the extraction as its own commit
+   and waiting for the owner (the one hard stop), so that a context cut
+   after it lands on a clean tree.**
+2. **Engine, test-first.** `types` / `ops` / `persistence` (schema 3) /
+   `project`; `engine/spans.ts` with `subtitles.ts` delegating (its 28
+   tests untouched); `engine/images.ts` (span queries, the normal form,
+   the centre snap, `imageFrameAt`, `imagesInPlan`, `ImageSource` +
+   `NO_IMAGES`, the sentences); `engine/imageRender.ts`;
+   `engine/imageCommands.ts` (8 commands: import, add, remove,
+   setPosition, setSize, moveToPlayhead, startToPlayhead,
+   endToPlayhead) registered in `BUILTIN_COMMANDS`; the image diff
+   beside the word diff in the four ripple sites; `ExportFrame.image`;
+   `composeFrame`'s eighth argument; the exporter's images phase and
+   `missingImages`. Ending state: `npm test` green with ~60 new tests;
+   nothing on screen yet.
+3. **Media.** `ui/images.ts` (the browser loader and cache, bitmaps
+   closed on release); `ui/media.ts` (`isMediaReady`, the restore
+   branch by `kind`); `ui/MediaBin.tsx` (accept, the image branch of
+   `onFile`, the row and its button); `App.tsx` (`retainOnlyImages`);
+   the three `missingMedia` sites; `ExportButton` (`images:
+browserImages`, the phase word, the ⚠ sentence). Ending state: a
+   dropped PNG is an asset, stored, restored after a reload, and placed
+   in the document — invisible until step 4.
+4. **The stage.** `.stage-image` canvas and its draw effect in
+   `Preview.tsx`; `ui/useImageDrag.ts` as the third `useStageDrag`
+   caller; hit order words → image → pan; `selectedImageId` through
+   `Editor`, `EditorCtx`, `Command.selectsImage`, the store; the cursor
+   rule. Ending state: the image is seen, dragged, one undo step.
+5. **The lane and the panel.** `ui/ImageLane.tsx` under the subtitle
+   lane; `Timeline.tsx` mount + `contentPx` + one sentence in the hint;
+   `ui/ImagePanel.tsx` beside `SubtitlePanel` in `App.tsx`; `styles.css`.
+   Ending state: every rule in the table reachable by mouse and by
+   keyboard.
+6. **e2e `e2e/image.spec.ts`** (the PNG as a buffer constant): import →
+   chip + ink at the centre; drag + sentence + one undo; the edge
+   contract (80%); 크기 End; the sliders by keyboard; words over an
+   image win the press, off both the pan; Delete on the chip; a reload
+   keeps the image with no ⚠; an export has 90 frames and no ⚠.
+   Ending state: `npm run e2e:chrome` green, the two older stage specs
+   still untouched.
+7. **Docs.** ADR-0020, README row, TESTING.md rows, CLAUDE.md debt,
+   HANDOVER, "E10 progress" / "E10 issues" under this plan.
+8. **Gate.** `npm run verify` green.
+9. **Persona review**, four in parallel with the changed-file list and
+   a focus each: `tester-qa` (ripple with an image across a cut, undo
+   of an import, a reload mid-restore, the export with a lost bitmap),
+   `tester-a11y` (the third `role="img"`, the lane's names, the panel's
+   group, focus after Delete), `tester-novice` (import = place, the
+   quarter-width default, 크기 as a word, the two 자리 rows now on
+   screen for two things), `framewright-reviewer` (`useStageDrag`'s
+   seam, `spans.ts` shared and not copied — its shape already confirmed
+   on 2026-09-16 (row 3), the third selection id, bitmap lifetime:
+   one owner, the `ui/images.ts` cache). Blockers fixed, gate again, the rest into
+   "Known tech debt".
+10. **Visual pass in Chrome** if one is connected (`list_connected_
+browsers`; foreground tab): a PNG with transparency over footage at
+    the centre, dragged to a corner, sized to 100%, a reload, the export
+    played back; every finding ships with an assertion. Then `npm run
+handoff`, this file rewritten, and ONE commit with the owner's
+    approval by the recipe in "Next single step" (announce first).
+
+**Files E10 adds (new):** `src/ui/useStageDrag.ts`, `src/engine/
+spans.ts` (+test), `src/engine/images.ts` (+test), `src/engine/
+imageRender.ts` (+test), `src/engine/imageCommands.ts` (+test),
+`src/ui/images.ts`, `src/ui/useImageDrag.ts`, `src/ui/ImageLane.tsx`,
+`src/ui/ImagePanel.tsx`, `e2e/image.spec.ts`, `docs/adr/0020-an-image-
+is-its-own-thing-on-the-stage.md`.
+
+**Files E10 touches (line counts today):** `src/ui/Preview.tsx` (657),
+`src/ui/useWordsDrag.ts` (253), `src/engine/types.ts` (146),
+`src/engine/ops.ts` (149), `src/engine/persistence.ts` (140),
+`src/engine/project.ts` (23), `src/engine/subtitles.ts` (397),
+`src/engine/commands.ts` (923), `src/engine/silence.ts`,
+`src/engine/command.ts` (313), `src/engine/exportPlan.ts` (101),
+`src/engine/compose.ts` (101), `src/engine/compose.test.ts` (its
+positional `composeFrame` calls gain the `image` argument),
+`src/engine/exporter.ts` (392),
+`src/store/projectStore.ts` (513), `src/ui/MediaBin.tsx` (320),
+`src/ui/media.ts` (258), `src/ui/ExportButton.tsx` (127),
+`src/ui/Timeline.tsx` (881), `src/App.tsx` (95), `src/styles.css`
+(1491), `docs/TESTING.md` (442), `docs/adr/README.md` (48), `CLAUDE.md`,
+`docs/HANDOVER.md` (223), `docs/STATUS.md`; their tests
+(`subtitles.test.ts` unchanged by design, `compose.test.ts` 11 → +2,
+`exportPlan.test.ts` 12 → +2, `persistence.test.ts` 12 → +2).
+
+**Golden-rule tensions, named so they are not found later:** (rule 9)
+`useStageDrag` is the third case and is extracted — allowed; `spans.ts`
+is a SECOND case and is shared anyway, because `rippleSubtitles`
+/ `subtitleDiffOps` are already generic in everything but their names
+and a copied ripple is the kind that drifts — the `framewright-reviewer`
+persona confirmed on 2026-09-16 that sharing beats copying here; the
+module is small and its shape is fixed in row 3; `selectedImageId` is the third
+exclusive selection id and is NOT folded (a wide rename, its own unit).
+(rule 8) `ImageBitmap` never enters `src/engine/**`: `ImageSource` is
+the seam, `ui/images.ts` the browser half, the fonts' shape. (rule 6)
+An `ImageBitmap` is not a `VideoFrame` but holds memory the same way,
+and it has ONE owner, the `ui/images.ts` cache: `ImageSource.get()`
+hands the exporter the same long-lived cached bitmap the preview
+draws, the exporter never closes one and `cleanup()` gains no image
+step; a `load` that resolves after an aborted export lands in the
+cache (harmless) and is reclaimed by `retainOnlyImages` on the next
+document change, which `close()`s every bitmap it drops — that and
+`releaseImage` are the only callers of `close()`. (rule 4)
+`image.import` mints `asset_<n>` / `img_<n+1>` from `nextId` and its
+inverse does not rewind it, for `importAsset`'s reason. (rule 2)
+`image.import` is a registry command where `importAsset` is not — the
+new kind takes the right shape and the old debt stays named. (rule 7)
+bitmaps are opened before frame 0, so the file and the screen agree.
 
 ### E8-2d execution plan — E8-2 부채 정리
 
@@ -1486,11 +1905,12 @@ plan's steps, in order, with the gate at each point:
 
 ## Blocked / needs the owner
 
-1. **E8-2d is built, green and UNCOMMITTED** (2026-09-16). It needs the
-   owner's go to commit (the file list is in "E8-2d progress"), and then
-   to push. The owner's own uncommitted edits to `AGENTS.md`, `CLAUDE.md`
-   (the ui-ux-guide bullet) and `docs/UX.md` stay theirs and are left
-   out of that commit; `debug.log` and `e9-baseline.log` are stray.
+1. **Nothing to push: `39be4b4` (E8-2d) is on `origin/main`** (committed
+   and pushed 2026-09-16 with approval). The owner's own uncommitted
+   edits to `AGENTS.md`, `CLAUDE.md` (the ui-ux-guide bullet) and
+   `docs/UX.md` stay theirs to commit; this file's post-commit rewrite
+   (docs only) rides with the next commit. `debug.log` and
+   `e9-baseline.log` are stray.
 2. **The next unit is E10 images / stickers** (the owner's order,
    2026-09-16), to be planned in this file first — see "Next single step"
    for the open questions and the extraction it should start with.

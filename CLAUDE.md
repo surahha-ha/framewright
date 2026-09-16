@@ -233,6 +233,17 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **`useStageDrag.onPointerDown` has no re-entrancy guard, and its
+  `setPointerCapture` is unguarded.** A second pointer pressing the same
+  target while a drag is on overwrites the drag ref, so the first
+  pointer's release — and the words' snap at the drop — is silently
+  dropped; and `setPointerCapture` is called after the ref is written,
+  so a throw (the element removed mid-press) leaves the ref non-null
+  with no capture until the next successful gesture on that key. Both
+  pre-existing in the pan and the words code before the extraction, and
+  carried into the hook unchanged on purpose; now one place, so the fix
+  is one guard and one try/catch, and the image drag (E10 row 6) is the
+  moment to add them with a jsdom PointerEvent test (QA, E10-1).
 - **A words drag during playback goes blind.** The drag locks the
   subtitle's id at press (ADR-0019) and every move lands on it, but
   nothing stops playback on the press, so when the rAF loop carries the
@@ -269,12 +280,13 @@ file that moved. Then run `check:refs` and `typecheck`.
   entries below): a restore or a new document naming that face skips the
   quiet fetch because the state says `failed`, and only the radio's
   retry asks again (QA, E8-2d).
-- **`Preview.tsx` is ~660 lines and three concerns** — scrub, the playback
-  loop with its audio scheduling, and the picture's pan drag. The words'
-  drag is a hook (`ui/useWordsDrag.ts`) and the faces another
-  (`ui/useSubtitleFonts.ts`) since 2026-09-16; the pan is the next
-  candidate, and E10's third stage drag is the rule-of-three trigger for
-  the DOM half the two share (reviewer, ADR-0019).
+- **`Preview.tsx` is ~600 lines and two concerns** — scrub, and the
+  playback loop with its audio scheduling. The words' drag is a hook
+  (`ui/useWordsDrag.ts`) and the faces another (`ui/useSubtitleFonts.ts`)
+  since 2026-09-16; the pan's DOM half is in `ui/useStageDrag.ts` with
+  the words' since the same day (E10 step 1), and the pan's remaining
+  ~60 lines in `Preview` are its hit test, its limits and its sentence.
+  The playback loop is what remains to pull out (reviewer, ADR-0019).
 - **After a drag on the stage, focus is wherever it was.** `.stage` is not
   focusable and the words drag's release moves focus nowhere, so a
   mouse-plus-screen-reader user has no way to ask "where am I now" after
@@ -576,10 +588,11 @@ file that moved. Then run `check:refs` and `typecheck`.
   `SubtitleLane.tsx` for subtitles, with the same ~120 lines of pointer
   handling around shared engine arithmetic. The third draggable thing OF
   THAT SHAPE (threshold, plan, commit at release) is the trigger to extract
-  the DOM half. The stage has its own pair of another shape — the picture's
-  pan and the words (ADR-0019): pointer capture, a coalesced command per
-  move — sharing one handler set with a hit test; a third stage drag is
-  that pair's trigger.
+  the DOM half. The stage's pair of another shape — the picture's pan and
+  the words (ADR-0019): pointer capture, a coalesced command per move —
+  shares `ui/useStageDrag.ts` since 2026-09-16 (E10 step 1); the timeline
+  pair is still two copies, and its trigger is still a third timeline
+  drag.
 - **Delete on a subtitle chip is a key the component handles itself**, not a
   binding (`SubtitleLane.onChipKey`). The keymap binds a chord to ONE action
   and Delete belongs to `clip.deleteRipple`; so this is exactly the shape E6

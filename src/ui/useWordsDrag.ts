@@ -10,12 +10,10 @@
 // Out of `Preview.tsx` because the stage has two drags and a playback loop
 // in one file; the stage's ONE handler set stays there and asks this hook
 // first (a press on the words is unambiguous, the picture's is not), so
-// each handler answers whether it took the event.
-import {
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from 'react';
+// each handler answers whether it took the event. The gesture itself —
+// capture, threshold, `dragAxis`, teardown — is `useStageDrag`; this hook
+// is the hit test, the base, the command and the snap.
+import { useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { useStore } from '../store/projectStore';
 import type { Subtitle } from '../engine/types';
@@ -27,9 +25,8 @@ import {
   type SubtitleLayout,
 } from '../engine/subtitleRender';
 import { bottomCentreY, snapPosition } from '../engine/subtitlePosition';
-import { dragAxis } from '../engine/stageDrag';
+import { useStageDrag, type StageEvent } from './useStageDrag';
 
-type StageEvent = ReactPointerEvent<HTMLDivElement>;
 type Box = { left: number; right: number; top: number; bottom: number };
 
 /** The frame's layout, measured once and kept until the frame, the
@@ -50,6 +47,16 @@ interface Measured {
   rest: Box;
 }
 
+/** What a press on the words locks for the rest of the gesture. */
+interface Pressed {
+  subtitleId: string;
+  /** Where the bottom stack's centre is for these words, for the snap. */
+  bottomCentreY: number;
+  /** Whether the press changed the selection — a press that then does
+   *  not move has only that to say. */
+  chose: boolean;
+}
+
 export function useWordsDrag({
   overlayRef,
   frame,
@@ -65,36 +72,11 @@ export function useWordsDrag({
   fontsVersion: number;
 }) {
   const run = useStore((s) => s.run);
-  const endGesture = useStore((s) => s.endGesture);
   const setStatus = useStore((s) => s.setStatus);
   const selectSubtitle = useStore((s) => s.selectSubtitle);
   const selectedSubtitleId = useStore((s) => s.selectedSubtitleId);
   const [overWords, setOverWords] = useState(false);
   const measuredRef = useRef<Measured | null>(null);
-  const dragRef = useRef<{
-    subtitleId: string;
-    pointerId: number;
-    /** The pointer coordinates the offset is measured from. They MOVE when
-     *  the value clamps at the box's edge (`dragAxis`), so the pointer
-     *  stays attached to the words instead of running ahead of them. */
-    originX: number;
-    originY: number;
-    /** The block's rest centre at press, as fractions of the box. */
-    baseX: number;
-    baseY: number;
-    /** The overlay's CSS size at press: a pixel of drag over it is a
-     *  fraction of the box. */
-    width: number;
-    height: number;
-    /** Where the bottom stack's centre is for these words, for the snap. */
-    bottomCentreY: number;
-    lastX: number;
-    lastY: number;
-    moved: boolean;
-    /** Whether the press changed the selection — a press that then does
-     *  not move has only that to say. */
-    chose: boolean;
-  } | null>(null);
 
   function measure(
     overlay: HTMLCanvasElement,
@@ -144,109 +126,81 @@ export function useWordsDrag({
     return { overlay, ctx, rect, rest: m.rest };
   }
 
+  const drag = useStageDrag<Pressed>({
+    // A press on the words selects the subtitle and starts its drag in the
+    // same press: the block's rest centre is the base, the overlay's CSS
+    // size the box, and the value stays inside [0, 1].
+    press(e) {
+      const hit = wordsUnder(e);
+      if (!hit || !frame || !current) return null;
+      const { overlay, ctx, rect, rest } = hit;
+      const bottom = layoutOfFrame(ctx, frame, overlay.width, overlay.height, {
+        posX: frame.posX,
+      });
+      const restY = (rest.top + rest.bottom) / 2 / overlay.height;
+      const pressed: Pressed = {
+        subtitleId: current.id,
+        bottomCentreY: bottom ? bottomCentreY(bottom, overlay.height) : restY,
+        chose: current.id !== selectedSubtitleId,
+      };
+      selectSubtitle(current.id);
+      return {
+        target: pressed,
+        base: { x: (rest.left + rest.right) / 2 / overlay.width, y: restY },
+        size: { x: rect.width, y: rect.height },
+        min: { x: 0, y: 0 },
+        max: { x: 1, y: 1 },
+      };
+    },
+    move(t, v) {
+      run(
+        'subtitle.setPosition',
+        { subtitleId: t.subtitleId, posX: v.x, posY: v.y },
+        `pos:${t.subtitleId}`,
+      );
+    },
+    release(t, moved, last) {
+      if (moved) {
+        // The drop: near a preset, on it — under the same key, so the whole
+        // gesture stays one undo step.
+        const snapped = snapPosition(
+          { posX: last.x, posY: last.y },
+          t.bottomCentreY,
+        );
+        run(
+          'subtitle.setPosition',
+          { subtitleId: t.subtitleId, ...snapped },
+          `pos:${t.subtitleId}`,
+        );
+      } else if (t.chose) {
+        // The press picked another subtitle and the panel changed under the
+        // pointer; the picture's press says as much, so does this (a11y).
+        setStatus('화면의 자막을 골랐어요 · 끌면 자리가 옮겨져요.');
+      }
+    },
+  });
+
   /** A press on the words: selects the subtitle and starts its drag in the
    *  same press. True when it did. */
   function onPointerDown(e: StageEvent): boolean {
-    const hit = wordsUnder(e);
-    if (!hit || !frame || !current) return false;
-    const { overlay, ctx, rect, rest } = hit;
-    const bottom = layoutOfFrame(ctx, frame, overlay.width, overlay.height, {
-      posX: frame.posX,
-    });
-    const restY = (rest.top + rest.bottom) / 2 / overlay.height;
-    dragRef.current = {
-      subtitleId: current.id,
-      pointerId: e.pointerId,
-      originX: e.clientX,
-      originY: e.clientY,
-      baseX: (rest.left + rest.right) / 2 / overlay.width,
-      baseY: restY,
-      width: rect.width,
-      height: rect.height,
-      bottomCentreY: bottom ? bottomCentreY(bottom, overlay.height) : restY,
-      lastX: 0,
-      lastY: 0,
-      moved: false,
-      chose: current.id !== selectedSubtitleId,
-    };
-    selectSubtitle(current.id);
-    e.currentTarget.setPointerCapture(e.pointerId);
-    return true;
+    return drag.onPointerDown(e);
   }
 
   /** A move: the drag when one is on (true), else the cursor (false, so the
    *  caller may go on to its own drag). */
   function onPointerMove(e: StageEvent): boolean {
-    const d = dragRef.current;
-    if (!d || e.pointerId !== d.pointerId) {
-      if (!d) {
-        const over = wordsUnder(e) !== null;
-        if (over !== overWords) setOverWords(over);
-      }
-      return false;
+    if (drag.onPointerMove(e)) return true;
+    if (!drag.active) {
+      const over = wordsUnder(e) !== null;
+      if (over !== overWords) setOverWords(over);
     }
-    if (
-      !d.moved &&
-      Math.abs(e.clientX - d.originX) < 3 &&
-      Math.abs(e.clientY - d.originY) < 3
-    )
-      return true;
-    d.moved = true;
-    // Clamped to the box; at the edge the origin comes along, so dragging
-    // back moves at once (ADR-0019, amended).
-    const ax = dragAxis({
-      base: d.baseX,
-      origin: d.originX,
-      pointer: e.clientX,
-      size: d.width,
-      min: 0,
-      max: 1,
-    });
-    const ay = dragAxis({
-      base: d.baseY,
-      origin: d.originY,
-      pointer: e.clientY,
-      size: d.height,
-      min: 0,
-      max: 1,
-    });
-    d.originX = ax.origin;
-    d.originY = ay.origin;
-    d.lastX = ax.value;
-    d.lastY = ay.value;
-    run(
-      'subtitle.setPosition',
-      { subtitleId: d.subtitleId, posX: d.lastX, posY: d.lastY },
-      `pos:${d.subtitleId}`,
-    );
-    return true;
+    return false;
   }
 
   /** The release (or a cancel): the snapped drop, or the one sentence a
    *  press that only chose has to say. True when a words drag ended. */
   function onPointerUp(e: StageEvent): boolean {
-    const d = dragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return false;
-    dragRef.current = null;
-    if (d.moved) {
-      // The drop: near a preset, on it — under the same key, so the whole
-      // gesture stays one undo step.
-      const snapped = snapPosition(
-        { posX: d.lastX, posY: d.lastY },
-        d.bottomCentreY,
-      );
-      run(
-        'subtitle.setPosition',
-        { subtitleId: d.subtitleId, ...snapped },
-        `pos:${d.subtitleId}`,
-      );
-    } else if (d.chose) {
-      // The press picked another subtitle and the panel changed under the
-      // pointer; the picture's press says as much, so does this (a11y).
-      setStatus('화면의 자막을 골랐어요 · 끌면 자리가 옮겨져요.');
-    }
-    endGesture();
-    return true;
+    return drag.onPointerUp(e);
   }
 
   return { onPointerDown, onPointerMove, onPointerUp, overWords };

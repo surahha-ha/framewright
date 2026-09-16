@@ -7,13 +7,7 @@
 //     cannot carry on (ADR-0012).
 // The playback loop reads live state through refs — a captured closure would
 // keep playing the pre-edit document and would fight the user's seeking.
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type PointerEvent as ReactPointerEvent,
-} from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useStore } from '../store/projectStore';
 import { getDecodeService } from '../engine/registry';
 import { frameToSec, secToFrame, formatTimecode } from '../engine/time';
@@ -36,7 +30,7 @@ import {
   pictureTransform,
   type PictureTransform,
 } from '../engine/picture';
-import { dragAxis } from '../engine/stageDrag';
+import { useStageDrag, type StageEvent } from './useStageDrag';
 import { TOGGLE_PLAY_EVENT } from './actions';
 import { clipCeiling } from './waveform';
 import { FramePicker } from './FramePicker';
@@ -74,7 +68,6 @@ export function Preview() {
   // stage tells the user to go and find the file the app is already opening.
   const restoring = useStore((s) => s.mediaRestoring);
   const run = useStore((s) => s.run);
-  const endGesture = useStore((s) => s.endGesture);
   const select = useStore((s) => s.select);
   const fps = project.timeline.fps;
   const total = timelineDuration(project);
@@ -82,112 +75,64 @@ export function Preview() {
   // ---- MOVE THE PICTURE (ADR-0014) ----
   // Dragging on the stage moves the picture of the clip under the playhead:
   // pixels over the picture canvas's CSS size are fractions of the BOX,
-  // which is what `clip.pan` takes. Every move is the command with a
-  // coalesce key, so the drag is one undo step (ADR-0006). The pan stops at
-  // the clip's own limit, and the pointer stays attached there (`dragAxis`:
-  // the origin moves with a clamped value, so dragging back moves at once).
-  const panDragRef = useRef<{
-    clipId: string;
-    pointerId: number;
-    originX: number;
-    originY: number;
-    panX: number;
-    panY: number;
-    zoom: number;
-    width: number;
-    height: number;
-    limitX: number;
-    limitY: number;
-    moved: boolean;
-  } | null>(null);
+  // which is what `clip.pan` takes, one undo step under a coalesce key
+  // (ADR-0006), stopped at the clip's own limit with the pointer attached
+  // (`useStageDrag`). The gesture is the hook's; this is the hit test, the
+  // limits and the command.
   const underPlayhead = resolveAt(project, playhead)?.clip ?? null;
   const selectedClipId = useStore((s) => s.selectedClipId);
+  const panDrag = useStageDrag<string>({
+    press(e) {
+      if (!underPlayhead) return null;
+      // Only the SELECTED clip's picture moves, and only while it is the one
+      // on screen. A drag that edited the clip under the playhead while the
+      // panel showed another was the novice reviewer's blocker: the first
+      // press on a different clip chooses it and says so; the next drag
+      // moves it.
+      if (underPlayhead.id !== selectedClipId) {
+        select(underPlayhead.id);
+        setStatus('지금 보이는 클립을 골랐어요 · 다시 끌면 화면이 옮겨져요.');
+        return null;
+      }
+      const picture = canvasRef.current;
+      if (!picture) return null;
+      const rect = picture.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return null;
+      const t = pictureTransform(underPlayhead);
+      const limits = clipPanLimits(project, underPlayhead);
+      // The pan scales with the zoom (ADR-0014): a pixel of drag is a pixel
+      // of the ZOOMED picture, so the picture follows the pointer — and
+      // stops with it at the limit the command would clamp to anyway.
+      return {
+        target: underPlayhead.id,
+        base: { x: t.panX, y: t.panY },
+        size: { x: rect.width * t.zoom, y: rect.height * t.zoom },
+        min: { x: -limits.x, y: -limits.y },
+        max: { x: limits.x, y: limits.y },
+      };
+    },
+    move(clipId, v) {
+      run('clip.pan', { clipId, x: v.x, y: v.y }, `pan:${clipId}`);
+    },
+    release() {}, // nothing to snap, nothing to say: the last move is the drop
+  });
 
-  function onStagePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (e.button !== 0) return;
-    // The words first (E8-2c): a press on them is unambiguous, so it
-    // selects the subtitle AND starts its drag; the picture's pan below
-    // needs a press-to-choose step because the picture is not.
+  // The stage's one handler set. The words first (E8-2c): a press on them
+  // is unambiguous, so it selects the subtitle AND starts its drag; the
+  // picture's pan needs a press-to-choose step because the picture is not.
+  function onStagePointerDown(e: StageEvent) {
     if (wordsDrag.onPointerDown(e)) return;
-    if (!underPlayhead) return;
-    // Only the SELECTED clip's picture moves, and only while it is the one
-    // on screen. A drag that edited the clip under the playhead while the
-    // panel showed another was the novice reviewer's blocker: the first
-    // press on a different clip chooses it and says so; the next drag
-    // moves it.
-    if (underPlayhead.id !== selectedClipId) {
-      select(underPlayhead.id);
-      setStatus('지금 보이는 클립을 골랐어요 · 다시 끌면 화면이 옮겨져요.');
-      return;
-    }
-    const picture = canvasRef.current;
-    if (!picture) return;
-    const rect = picture.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const t = pictureTransform(underPlayhead);
-    const limits = clipPanLimits(project, underPlayhead);
-    panDragRef.current = {
-      clipId: underPlayhead.id,
-      pointerId: e.pointerId,
-      originX: e.clientX,
-      originY: e.clientY,
-      panX: t.panX,
-      panY: t.panY,
-      zoom: t.zoom,
-      width: rect.width,
-      height: rect.height,
-      limitX: limits.x,
-      limitY: limits.y,
-      moved: false,
-    };
-    e.currentTarget.setPointerCapture(e.pointerId);
+    panDrag.onPointerDown(e);
   }
 
-  function onStagePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+  function onStagePointerMove(e: StageEvent) {
     if (wordsDrag.onPointerMove(e)) return;
-    const d = panDragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return;
-    if (
-      !d.moved &&
-      Math.abs(e.clientX - d.originX) < 3 &&
-      Math.abs(e.clientY - d.originY) < 3
-    )
-      return;
-    d.moved = true;
-    // The pan scales with the zoom (ADR-0014): a pixel of drag is a pixel
-    // of the ZOOMED picture, so the picture follows the pointer — and stops
-    // with it at the limit the command would clamp to anyway.
-    const ax = dragAxis({
-      base: d.panX,
-      origin: d.originX,
-      pointer: e.clientX,
-      size: d.width * d.zoom,
-      min: -d.limitX,
-      max: d.limitX,
-    });
-    const ay = dragAxis({
-      base: d.panY,
-      origin: d.originY,
-      pointer: e.clientY,
-      size: d.height * d.zoom,
-      min: -d.limitY,
-      max: d.limitY,
-    });
-    d.originX = ax.origin;
-    d.originY = ay.origin;
-    run(
-      'clip.pan',
-      { clipId: d.clipId, x: ax.value, y: ay.value },
-      `pan:${d.clipId}`,
-    );
+    panDrag.onPointerMove(e);
   }
 
-  function onStagePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+  function onStagePointerUp(e: StageEvent) {
     if (wordsDrag.onPointerUp(e)) return;
-    const d = panDragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return;
-    panDragRef.current = null;
-    endGesture();
+    panDrag.onPointerUp(e);
   }
   // The document remembers clips whose media is not loaded (e.g. after reload).
   const missingMedia = project.assets.some((a) => !getDecodeService(a.id));
