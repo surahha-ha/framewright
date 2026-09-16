@@ -6,12 +6,28 @@
 // edges can be dragged, and every limit it runs into is named. This module is
 // the arithmetic for that — where a new one may go, how far an edge may travel
 // — kept in the engine so it is unit-tested in Node like `drag.ts`.
+//
+// The timing half of that is not the words' own: it is true of anything that
+// sits on the timeline for a range of frames, and it lives once, in
+// `spans.ts`. What is left here is what makes it a SUBTITLE — the document it
+// reads (a Project, not a bare list), the two seconds a new one lasts, the
+// `sub_<n>` id, the three subtitle op kinds, the sentences. Everything below
+// that delegates keeps its name and its shape, so no caller changes.
 
 import type { Project, Subtitle } from './types';
 import { snapFrame, videoDuration } from './timeline';
 import { formatTimecode, secToFrame } from './time';
 import type { DragBounds, DragLimit, DragMode } from './drag';
 import type { Op } from './ops';
+import {
+  locateSpan,
+  rippleSpans,
+  spanAt,
+  spanDiffOps,
+  spanLimits,
+  spanPlan,
+  splitSpanAt,
+} from './spans';
 
 /** How long a freshly placed subtitle lasts. Two seconds is roughly one short
  *  spoken sentence; the user drags it from there. */
@@ -23,45 +39,34 @@ export function subtitleLength(s: Subtitle): number {
 
 /** The subtitle shown on this frame, if any. Half-open like everything else. */
 export function subtitleAt(project: Project, frame: number): Subtitle | null {
-  for (const s of project.subtitles) {
-    if (s.startFrame > frame) break; // sorted: nothing later can cover it
-    if (frame < s.endFrame) return s;
-  }
-  return null;
+  return spanAt(project.subtitles, frame);
 }
 
 export function locateSubtitle(
   project: Project,
   id: string | null,
 ): { index: number; subtitle: Subtitle } | null {
-  if (!id) return null;
-  const index = project.subtitles.findIndex((s) => s.id === id);
-  return index < 0 ? null : { index, subtitle: project.subtitles[index] };
+  const found = locateSpan(project.subtitles, id);
+  return found ? { index: found.index, subtitle: found.span } : null;
 }
 
 /**
  * Where "자막 넣기" puts a new subtitle: at the playhead, for the default
  * length, cut short by whichever comes first — the next subtitle or the end of
  * the picture. Null when there is no room at all: off the end of the video, or
- * on a frame that already has a subtitle (edit that one instead).
+ * on a frame that already has a subtitle (edit that one instead). The
+ * two seconds become frames here, through `time.ts`; `spanPlan` counts frames.
  */
 export function subtitlePlan(
   project: Project,
   playhead: number,
 ): { startFrame: number; endFrame: number; index: number } | null {
-  const total = videoDuration(project);
-  if (playhead < 0 || playhead >= total) return null;
-  if (subtitleAt(project, playhead)) return null;
-  // The list is sorted and nothing covers the playhead, so every subtitle that
-  // starts at or before it also ends at or before it.
-  const index = project.subtitles.filter(
-    (s) => s.startFrame <= playhead,
-  ).length;
-  const next = project.subtitles[index];
-  const ceiling = next ? Math.min(next.startFrame, total) : total;
-  const wanted =
-    playhead + secToFrame(DEFAULT_SUBTITLE_SEC, project.timeline.fps);
-  return { startFrame: playhead, endFrame: Math.min(wanted, ceiling), index };
+  return spanPlan(
+    project.subtitles,
+    videoDuration(project),
+    secToFrame(DEFAULT_SUBTITLE_SEC, project.timeline.fps),
+    playhead,
+  );
 }
 
 /**
@@ -80,18 +85,7 @@ export function subtitleLimits(
   minEnd: number;
   maxEnd: number;
 } | null {
-  const found = locateSubtitle(project, id);
-  if (!found) return null;
-  const { index, subtitle } = found;
-  const prev = project.subtitles[index - 1];
-  const next = project.subtitles[index + 1];
-  const total = videoDuration(project);
-  return {
-    minStart: prev ? prev.endFrame : 0,
-    maxStart: subtitle.endFrame - 1,
-    minEnd: subtitle.startFrame + 1,
-    maxEnd: next ? next.startFrame : Math.max(total, subtitle.endFrame),
-  };
+  return spanLimits(project.subtitles, videoDuration(project), id);
 }
 
 /** How far the dragged boundary may travel, and why it stops — `planDrag`
@@ -186,150 +180,55 @@ export function subtitleDragCommand(
 }
 
 /**
- * Move the subtitles the way a ripple edit moved the footage under them.
- *
- * A subtitle captions particular frames. When a ripple delete pulls the
- * footage after a cut to the left, or a paste pushes it right, the words have
- * to go with the pictures they were written for — a caption that stays put
- * while the shot slides out from under it is silently wrong, which is the
- * worst kind.
- *
- * `delta < 0` removes the span `[at, at − delta)`: a subtitle wholly inside it
- * is dropped (its footage is gone), one straddling an edge keeps the part
- * that survives, everything after slides left. `delta > 0` inserts `delta`
- * frames at `at`: everything starting at or after `at` slides right. A
- * subtitle straddling `at` is NOT handled here — it has to become two, and
- * that needs an id, so a caller runs `splitSubtitleAt` first (the paste
- * command does). Left alone it would caption the new footage with words
- * meant for the old, and the old footage would lose them; stretched it
- * would do the first half of that.
+ * Move the subtitles the way a ripple edit moved the footage under them: the
+ * words go with the pictures they were written for. `rippleSpans` holds the
+ * rule and the reasoning — including why a subtitle straddling the insert
+ * point is NOT handled there but split first (`splitSubtitleAt`, which the
+ * paste command runs before this).
  */
 export function rippleSubtitles(
   subtitles: Subtitle[],
   at: number,
   delta: number,
 ): Subtitle[] {
-  if (delta === 0) return subtitles;
-  if (delta > 0) {
-    return subtitles.map((s) =>
-      s.startFrame >= at
-        ? {
-            ...s,
-            startFrame: s.startFrame + delta,
-            endFrame: s.endFrame + delta,
-          }
-        : s,
-    );
-  }
-  const cutEnd = at - delta;
-  const out: Subtitle[] = [];
-  for (const s of subtitles) {
-    if (s.endFrame <= at) {
-      out.push(s);
-      continue;
-    }
-    // Before the cut: stays. Inside it: collapses to the cut point. After
-    // it: slides left by the cut's length.
-    const startFrame =
-      s.startFrame < at
-        ? s.startFrame
-        : s.startFrame >= cutEnd
-          ? s.startFrame + delta
-          : at;
-    const endFrame = s.endFrame > cutEnd ? s.endFrame + delta : at;
-    if (endFrame > startFrame) out.push({ ...s, startFrame, endFrame });
-  }
-  return out;
+  return rippleSpans(subtitles, at, delta);
 }
 
 /**
- * Cut the one subtitle that straddles `at` — starts before it, ends after it
- * — into two: the head keeps its id and ends at `at`, the tail is a new
- * subtitle with the same words from `at` on. Used before a paste ripples the
- * footage after `at` to the right, so each half can stay with the frames it
- * captioned. Nothing straddles an EDGE (`at` equal to a start or an end), so
- * those are untouched. Returns the counter to store after the new id.
+ * Cut the one subtitle that straddles `at` into two: the head keeps its id and
+ * ends at `at`, the tail is a new subtitle with the same words — and the same
+ * look, place and effect (ADR-0017) — from `at` on. The id is this list's own
+ * `sub_<n>`, minted from the document's counter so redo is deterministic.
+ * Returns the counter to store after it; unmoved when nothing straddled.
  */
 export function splitSubtitleAt(
   subtitles: Subtitle[],
   at: number,
   nextId: number,
 ): { subtitles: Subtitle[]; nextId: number } {
-  const index = subtitles.findIndex(
-    (s) => s.startFrame < at && at < s.endFrame,
-  );
-  if (index < 0) return { subtitles, nextId };
-  const s = subtitles[index];
-  const head: Subtitle = { ...s, endFrame: at };
-  // The tail is the same subtitle from `at` on: every field but the id and
-  // the range comes with it, the look, place and effect included (ADR-0017).
-  const tail: Subtitle = {
-    ...s,
-    id: `sub_${nextId}`,
-    startFrame: at,
-    endFrame: s.endFrame,
-  };
-  const out = subtitles.slice();
-  out.splice(index, 1, head, tail);
-  return { subtitles: out, nextId: nextId + 1 };
+  const { spans, split } = splitSpanAt(subtitles, at, () => `sub_${nextId}`);
+  return { subtitles: spans, nextId: split ? nextId + 1 : nextId };
 }
 
 /**
  * The ops that take `before` to `after`, with their inverses — for a command
- * that moved the footage and now has to move the words. Ids are the key: a
- * subtitle may be re-timed, removed (a cut swallowed it) or added (the tail
- * of a split). Never re-ordered by id, which is what keeps the index
- * arithmetic below honest.
- *
- * Forward: re-time (by id, order-free), then remove from the highest
- * `before` index down (so each index still means what it meant), then insert
- * from the lowest `after` index up (so each lands where `after` has it).
- * Inverse: exactly backwards.
+ * that moved the footage and now has to move the words. The order that keeps
+ * the index arithmetic honest is `spanDiffOps`'; the three op kinds are this
+ * list's (`ops.ts`).
  */
 export function subtitleDiffOps(
   before: Subtitle[],
   after: Subtitle[],
 ): { forward: Op[]; inverse: Op[] } {
-  const inAfter = new Map(after.map((s) => [s.id, s]));
-  const inBefore = new Set(before.map((s) => s.id));
-
-  const retime: Op[] = [];
-  const untime: Op[] = [];
-  const removals: Op[] = [];
-  const reinserts: Op[] = [];
-  before.forEach((old, index) => {
-    const now = inAfter.get(old.id);
-    if (!now) {
-      removals.push({ kind: 'removeSubtitle', index });
-      reinserts.push({ kind: 'insertSubtitle', index, subtitle: old });
-      return;
-    }
-    if (now.startFrame === old.startFrame && now.endFrame === old.endFrame) {
-      return;
-    }
-    retime.push({
+  return spanDiffOps<Subtitle, Op>(before, after, {
+    insert: (index, subtitle) => ({ kind: 'insertSubtitle', index, subtitle }),
+    remove: (index) => ({ kind: 'removeSubtitle', index }),
+    retime: (subtitleId, startFrame, endFrame) => ({
       kind: 'updateSubtitle',
-      subtitleId: old.id,
-      changes: { startFrame: now.startFrame, endFrame: now.endFrame },
-    });
-    untime.push({
-      kind: 'updateSubtitle',
-      subtitleId: old.id,
-      changes: { startFrame: old.startFrame, endFrame: old.endFrame },
-    });
+      subtitleId,
+      changes: { startFrame, endFrame },
+    }),
   });
-  const inserts: Op[] = [];
-  const uninserts: Op[] = [];
-  after.forEach((s, index) => {
-    if (inBefore.has(s.id)) return;
-    inserts.push({ kind: 'insertSubtitle', index, subtitle: s });
-    uninserts.push({ kind: 'removeSubtitle', index });
-  });
-
-  return {
-    forward: [...retime, ...removals.reverse(), ...inserts],
-    inverse: [...uninserts.reverse(), ...reinserts, ...untime],
-  };
 }
 
 /**

@@ -27,6 +27,7 @@ import { videoTrack } from './timeline';
 import { frameToSec, sampleToFrame, secToSample } from './time';
 import { carriedFields } from './clipboard';
 import { rippleSubtitles, subtitleDiffOps } from './subtitles';
+import { imageDiffOps, rippleImages } from './images';
 import type { Pyramid } from './waveform';
 
 /** A bucket is quiet when its peak is below this: -40 dBFS, as a linear
@@ -326,16 +327,25 @@ export function silencePatch(project: Project, plan: SilencePlan): Patch {
 
   // The words: each cut rippled where it sits once the cuts before it are
   // made, on a running copy — the same shape as `timeline.closeGaps`.
+  // ...and the pictures, on their own running copy through the same cuts: an
+  // image over a pause goes with it, one after a pause slides left (ADR-0020).
   let words = project.subtitles;
+  let pictures = project.images;
   let removed = 0;
   for (const cut of plan.cuts) {
     words = rippleSubtitles(words, cut.startFrame - removed, -cut.length);
+    pictures = rippleImages(pictures, cut.startFrame - removed, -cut.length);
     removed += cut.length;
   }
   const diff = subtitleDiffOps(project.subtitles, words);
+  const pics = imageDiffOps(project.images, pictures);
 
   return {
-    forward: [...steps.map((s) => s.forward), ...diff.forward],
-    inverse: [...diff.inverse, ...steps.map((s) => s.inverse).reverse()],
+    forward: [...steps.map((s) => s.forward), ...diff.forward, ...pics.forward],
+    inverse: [
+      ...pics.inverse,
+      ...diff.inverse,
+      ...steps.map((s) => s.inverse).reverse(),
+    ],
   };
 }

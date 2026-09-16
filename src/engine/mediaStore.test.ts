@@ -22,6 +22,7 @@ function project(assets: Array<{ id: string; opfsKey?: string }>): Project {
     timeline: { fps: { num: 30, den: 1 }, width: 1920, height: 1080 },
     tracks: [{ id: 'v1', type: 'video', clips: [] }],
     subtitles: [],
+    images: [],
     assets: assets.map((a) => ({
       id: a.id,
       kind: 'video' as const,

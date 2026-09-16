@@ -233,6 +233,37 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **`image.setPosition` given one axis erases the other.** Both `posX`
+  and `posY` are optional; the axis left out normalises to `undefined`,
+  `dropUndefined` deletes the key from the patch, and absent means the
+  centre — so writing one axis snaps the image back to the middle on the
+  other. Deliberate: it is `subtitle.setPosition`'s exact semantics, and
+  a test pins it now. But the image panel's 가로 자리 / 세로 자리 sliders
+  (E10 step 5) are precisely where a naive one-slider-one-axis wiring
+  trips over it. Every caller must read the current value and pass both
+  axes (QA, E10-2).
+- **`looksLikeProject` validates neither `subtitles` nor `images`
+  element shape.** It checks `tracks` / `assets` / `timeline` / `nextId`
+  and nothing else, so a saved document holding `images: [{}]` or
+  `images: ["garbage"]` reaches the live project unvalidated. Pre-existing
+  for subtitles; images inherited it verbatim. Malformed entries mostly
+  degrade quietly, but a duplicate or undefined id would corrupt
+  `spanDiffOps`'s id-keyed maps on the next ripple (QA, E10-2).
+- **`image.*ToPlayhead` is the second copy of `edgeToPlayhead`** — and it
+  brought a second `fieldOps` and a second `moveOps` / `edgeOps` with it.
+  Accepted by the plan on purpose, because the sentences differ and the
+  two are read by different panels; a shared span-command factory is what
+  the third case triggers (reviewer, E10 row 8).
+- **`Command.disabledReason` sees only `ctx`, never the args.** That is
+  why `imageTimingReason` is a free function taking the image's id and
+  which edge is meant, rather than widening the interface for every
+  command in the repo. Step 4's selection wiring calls it unchanged
+  (E10-2).
+- **`createProject` still writes `schemaVersion: 1` on the document
+  object.** Dead since schema 2: `serialize` always writes
+  `CURRENT_SCHEMA` into the envelope and `deserialize` reads only the
+  envelope's number — verified by grep at every read site. Harmless, and
+  one line to remove whenever someone is in there anyway (E10-2).
 - **`useStageDrag.onPointerDown` has no re-entrancy guard, and its
   `setPointerCapture` is unguarded.** A second pointer pressing the same
   target while a drag is on overwrites the drag ref, so the first
@@ -307,9 +338,14 @@ file that moved. Then run `check:refs` and `typecheck`.
   true position. The keyboard route has no snap at all (`snapPosition` is
   applied at the pointer's drop only, by the plan) — the radios are the
   exact route (a11y, novice).
-- **The export's progress bar jumps back to 0% at the audio phase.** The
-  fonts phase counts per face now (1/3, 2/3 …), then the audio phase
-  starts from 0 over the plan's frames, and the bar goes backwards once.
+- **The export's progress bar goes backwards twice.** The fonts phase
+  counts per face (1/3, 2/3 …); then the images phase restarts from 0
+  over the pictures the plan names; then the audio phase restarts from 0
+  again over the plan's frames. Each phase is honest about its own work
+  and none of them knows what the others cost, so an export with a face
+  and an image drops the bar to 0% twice before any frame is written.
+  One bar weighted across the phases is the fix, and whether to have one
+  is already an open product call for the owner.
   Same family as "잠시 뒤 다시 눌러 주세요 has no sense of how long"
   (reviewer, QA, a11y, novice).
 - **What a face looks like is hover-only for a sighted mouse user.**

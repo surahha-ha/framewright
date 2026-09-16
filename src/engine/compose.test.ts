@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { composeFrame, type FrameContext } from './compose';
 import { AS_SHOT, type PictureTransform } from './picture';
+import type { ImageLayer } from './imageRender';
 
 function fakeCtx() {
   const calls: string[] = [];
@@ -188,5 +189,46 @@ describe('composeFrame — where the clip puts its picture (ADR-0014)', () => {
     );
     expect(calls[1]).toBe('img a 160,0 320x180 a=1');
     expect(calls[2]).toBe('img b -160,-90 640x360 a=0.5');
+  });
+});
+
+describe('composeFrame — the image on the picture (ADR-0020)', () => {
+  const image = (over: Partial<ImageLayer> = {}): ImageLayer => ({
+    assetId: 'asset_1',
+    srcWidth: 160,
+    srcHeight: 90,
+    picture: pic('logo'),
+    ...over,
+  });
+
+  it('draws the image after the blend and before the words', () => {
+    const { ctx, calls } = fakeCtx();
+    composeFrame(
+      ctx,
+      320,
+      180,
+      pic('a'),
+      { frame: null, weight: 0.5 },
+      { text: '안녕', t: 1 },
+      AS_SHOT,
+      image(),
+    );
+    expect(calls).toEqual([
+      'rect 0,0 320x180 a=1 #000',
+      'img a 0,0 320x180 a=1',
+      'rect 0,0 320x180 a=0.5 #000',
+      'img logo 120,67.5 80x45 a=1',
+      expect.stringMatching(/^rect .* rgba\(0, 0, 0, 0\.62\)$/),
+      'text 안녕',
+    ]);
+  });
+
+  it('draws nothing for it when there is no image on the frame', () => {
+    const { ctx, calls } = fakeCtx();
+    composeFrame(ctx, 320, 180, pic('a'), null, null, AS_SHOT, null);
+    expect(calls).toEqual([
+      'rect 0,0 320x180 a=1 #000',
+      'img a 0,0 320x180 a=1',
+    ]);
   });
 });

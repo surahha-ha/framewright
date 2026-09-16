@@ -13,7 +13,7 @@ import { createProject } from './project';
 import { applyOps } from './ops';
 import { timelineDuration, videoTrack } from './timeline';
 import { FPS_2997, FPS_30 } from './time';
-import type { Clip, Project, Subtitle } from './types';
+import type { Clip, Project, StageImage, Subtitle } from './types';
 import {
   SILENCE_MIN_SEC,
   SILENCE_PAD_SEC,
@@ -162,7 +162,11 @@ function clip(
   return { id, assetId: 'asset_1', startFrame, inFrame, outFrame, ...extra };
 }
 
-function withClips(clips: Clip[], subtitles: Subtitle[] = []): Project {
+function withClips(
+  clips: Clip[],
+  subtitles: Subtitle[] = [],
+  images: StageImage[] = [],
+): Project {
   const p = createProject();
   return {
     ...p,
@@ -174,8 +178,15 @@ function withClips(clips: Clip[], subtitles: Subtitle[] = []): Project {
         name: 'a.mp4',
         meta: { durationSec: 3 },
       },
+      {
+        id: 'asset_2',
+        kind: 'image',
+        name: 'logo.png',
+        meta: { width: 400, height: 200 },
+      },
     ],
     subtitles,
+    images,
     tracks: p.tracks.map((t) => (t.type === 'video' ? { ...t, clips } : t)),
   };
 }
@@ -357,6 +368,38 @@ describe('silencePatch — the cut as one patch', () => {
       { id: 'sub_1', text: '앞', startFrame: 0, endFrame: 30 },
       { id: 'sub_3', text: '뒤', startFrame: 46, endFrame: 66 },
     ]);
+  });
+
+  it('takes the pictures with the footage too', () => {
+    const image = (
+      id: string,
+      startFrame: number,
+      endFrame: number,
+      over: Partial<StageImage> = {},
+    ): StageImage => ({
+      id,
+      assetId: 'asset_2',
+      startFrame,
+      endFrame,
+      ...over,
+    });
+    const p = withClips(
+      [clip('clip_1', 0, 0, 90)],
+      [],
+      [
+        image('img_1', 0, 30),
+        image('img_2', 40, 55),
+        image('img_3', 70, 90, { size: 0.4 }),
+      ],
+    );
+    const { after, patch } = cut(p);
+    // img_2 sat wholly over the pause: gone with it. img_3 slid left by the
+    // 24 frames removed before it, and kept the size it was given.
+    expect(after.images).toEqual([
+      image('img_1', 0, 30),
+      image('img_3', 46, 66, { size: 0.4 }),
+    ]);
+    expect(applyOps(after, patch.inverse)).toEqual(p);
   });
 
   it('is undone exactly by its inverse', () => {

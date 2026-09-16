@@ -80,6 +80,46 @@ describe('serialize / deserialize', () => {
     ).toHaveLength(1);
   });
 
+  it('gives a schema-2 document (no image list) an empty one, versions included', () => {
+    // A project saved before images existed has the `subtitles` key and no
+    // `images` key at all. Same rule as the list before it: it must come back
+    // present on the live document AND on every snapshot in the history.
+    const { images: _dropped, ...legacyProject } = createProject();
+    void _dropped;
+    const raw = JSON.stringify({
+      schemaVersion: 2,
+      project: legacyProject,
+      versions: [{ id: 'v1', kind: 'auto', ts: 5, project: legacyProject }],
+      generation: 3,
+    });
+    const state = deserialize(raw);
+    expect(state).not.toBeNull();
+    expect(state!.project.images).toEqual([]);
+    expect(state!.project.subtitles).toEqual([]);
+    expect(state!.versions[0].project.images).toEqual([]);
+    // ...and a current document keeps the images it has.
+    const withOne = {
+      ...createProject(),
+      images: [
+        { id: 'img_1', assetId: 'asset_1', startFrame: 0, endFrame: 60 },
+      ],
+    };
+    expect(deserialize(serialize(withOne, [], 1))!.project.images).toHaveLength(
+      1,
+    );
+  });
+
+  it('writes schema 3, and refuses a schema-4 document rather than corrupting it', () => {
+    expect(CURRENT_SCHEMA).toBe(3);
+    expect(JSON.parse(serialize(createProject(), [], 1)).schemaVersion).toBe(3);
+    const fromTheFuture = JSON.stringify({
+      schemaVersion: 4,
+      project: createProject(),
+      versions: [],
+    });
+    expect(deserialize(fromTheFuture)).toBeNull();
+  });
+
   it('refuses data written by a NEWER app version rather than corrupting it', () => {
     const raw = JSON.stringify({
       schemaVersion: CURRENT_SCHEMA + 1,

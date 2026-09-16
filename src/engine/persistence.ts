@@ -6,10 +6,12 @@
 import type { Project } from './types';
 
 /**
- * 1 → 2: the document gained a `subtitles` list. An older file simply has none,
- * so reading it means filling the list in — see `upgradeProject`.
+ * 1 → 2: the document gained a `subtitles` list.
+ * 2 → 3: it gained an `images` list (ADR-0020).
+ * An older file simply has none of the list it predates, so reading it means
+ * filling that list in — see `upgradeProject`.
  */
-export const CURRENT_SCHEMA = 2;
+export const CURRENT_SCHEMA = 3;
 
 export interface Version {
   id: string;
@@ -62,9 +64,12 @@ function looksLikeProject(value: unknown): value is Project {
  * one have the list yet".
  */
 export function upgradeProject(project: Project): Project {
-  return Array.isArray(project.subtitles)
+  const withWords = Array.isArray(project.subtitles)
     ? project
     : { ...project, subtitles: [] };
+  return Array.isArray(withWords.images)
+    ? withWords
+    : { ...withWords, images: [] };
 }
 
 /**

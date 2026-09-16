@@ -3,7 +3,14 @@
 // Patch { forward, inverse }; undo applies the inverse, redo re-applies the SAME
 // recorded forward ops (so redo is deterministic — it never re-runs the command).
 
-import type { Asset, Clip, Project, Subtitle, TimelineConfig } from './types';
+import type {
+  Asset,
+  Clip,
+  Project,
+  StageImage,
+  Subtitle,
+  TimelineConfig,
+} from './types';
 
 export type Op =
   | { kind: 'insertClip'; trackId: string; index: number; clip: Clip }
@@ -22,6 +29,15 @@ export type Op =
       kind: 'updateSubtitle';
       subtitleId: string;
       changes: Partial<Omit<Subtitle, 'id'>>;
+    }
+  /** Images are their own list too (see `types.ts`), so they get the same
+   *  three — keyed by index and by id, exactly like the words above. */
+  | { kind: 'insertImage'; index: number; image: StageImage }
+  | { kind: 'removeImage'; index: number }
+  | {
+      kind: 'updateImage';
+      imageId: string;
+      changes: Partial<Omit<StageImage, 'id'>>;
     }
   | { kind: 'addAsset'; asset: Asset }
   | { kind: 'removeAsset'; assetId: string }
@@ -113,6 +129,26 @@ export function applyOp(project: Project, op: Op): Project {
         ...project,
         subtitles: project.subtitles.map((s) =>
           s.id === op.subtitleId ? dropUndefined({ ...s, ...op.changes }) : s,
+        ),
+      };
+    case 'insertImage': {
+      const next = project.images.slice();
+      next.splice(op.index, 0, op.image);
+      return { ...project, images: next };
+    }
+    case 'removeImage': {
+      const next = project.images.slice();
+      next.splice(op.index, 1);
+      return { ...project, images: next };
+    }
+    case 'updateImage':
+      // Same rule as a subtitle: an image's place and size are optional
+      // (ADR-0020) — the centre is ABSENCE, not 0.5 — so "posX: undefined"
+      // must REMOVE the field or undo and a reload disagree.
+      return {
+        ...project,
+        images: project.images.map((i) =>
+          i.id === op.imageId ? dropUndefined({ ...i, ...op.changes }) : i,
         ),
       };
     case 'addAsset':

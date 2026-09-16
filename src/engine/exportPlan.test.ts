@@ -3,7 +3,7 @@ import { buildExportPlan, planDuration, isContinuous } from './exportPlan';
 import { createProject } from './project';
 import { createEditor } from './command';
 import { timelineDuration } from './timeline';
-import type { Clip, Project } from './types';
+import type { Asset, Clip, Project } from './types';
 
 function seed(frames = 100): Project {
   const p = createProject();
@@ -178,6 +178,89 @@ describe('subtitles in the plan', () => {
     const plan = buildExportPlan(ed.project);
     expect(plan[5].assetId).toBeNull();
     expect(plan[5].subtitle?.text).toBe('검은 화면 위 글자');
+  });
+});
+
+describe('images in the plan (ADR-0020)', () => {
+  const logo: Asset = {
+    id: 'asset_2',
+    kind: 'image',
+    name: 'logo.png',
+    meta: { width: 400, height: 200 },
+  };
+
+  it('records the picture for every frame it covers, and null elsewhere', () => {
+    const p: Project = {
+      ...seed(10),
+      assets: [logo],
+      images: [
+        {
+          id: 'img_1',
+          assetId: 'asset_2',
+          startFrame: 2,
+          endFrame: 5,
+          size: 0.4,
+        },
+      ],
+    };
+    const plan = buildExportPlan(p);
+    expect(plan.map((f) => f.image?.assetId ?? null)).toEqual([
+      null,
+      null,
+      'asset_2',
+      'asset_2',
+      'asset_2',
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    // The asset's own pixel size rides along, so the aspect is known before
+    // any bitmap is opened; only the fields the image has are present.
+    expect(plan[2].image).toEqual({
+      assetId: 'asset_2',
+      srcWidth: 400,
+      srcHeight: 200,
+      size: 0.4,
+    });
+  });
+
+  it('draws an image over a gap too — a hole in the picture is still time', () => {
+    const p = createProject();
+    const withGap: Project = {
+      ...p,
+      assets: [logo],
+      tracks: p.tracks.map((t) =>
+        t.type === 'video'
+          ? {
+              ...t,
+              clips: [
+                {
+                  id: 'c1',
+                  assetId: 'a1',
+                  startFrame: 0,
+                  inFrame: 0,
+                  outFrame: 5,
+                },
+                {
+                  id: 'c2',
+                  assetId: 'a1',
+                  startFrame: 8,
+                  inFrame: 0,
+                  outFrame: 5,
+                },
+              ],
+            }
+          : t,
+      ),
+      images: [
+        { id: 'img_1', assetId: 'asset_2', startFrame: 0, endFrame: 13 },
+      ],
+    };
+    const plan = buildExportPlan(withGap);
+    expect(plan[6].assetId).toBeNull();
+    expect(plan[6].image?.assetId).toBe('asset_2');
   });
 });
 

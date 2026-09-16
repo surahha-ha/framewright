@@ -19,5 +19,6 @@ export function createProject(
     ],
     assets: [],
     subtitles: [],
+    images: [],
   };
 }

@@ -23,12 +23,14 @@ import {
   type ClipboardEntry,
 } from './clipboard';
 import { SUBTITLE_COMMANDS } from './subtitleCommands';
+import { IMAGE_COMMANDS } from './imageCommands';
 import { FADE_COMMANDS } from './fadeCommands';
 import { VOLUME_COMMANDS } from './volumeCommands';
 import { PICTURE_COMMANDS } from './pictureCommands';
 import { FRAME_COMMANDS } from './frameCommands';
 import { effectiveFades } from './fades';
 import { rippleSubtitles, splitSubtitleAt, subtitleDiffOps } from './subtitles';
+import { imageDiffOps, rippleImages, splitImageAt } from './images';
 import { cutSilenceCommand } from './silenceCommand';
 import type { PeaksSource } from './silence';
 
@@ -235,6 +237,12 @@ export const deleteRippleCommand: Command = {
       ctx.project.subtitles,
       rippleSubtitles(ctx.project.subtitles, clip.startFrame, -len),
     );
+    // The pictures go the same way the words do (ADR-0020): an image over the
+    // removed footage goes with it, one after it slides left with the clips.
+    const pictures = imageDiffOps(
+      ctx.project.images,
+      rippleImages(ctx.project.images, clip.startFrame, -len),
+    );
 
     const forward: Op[] = [
       { kind: 'removeClip', trackId: track.id, index },
@@ -245,8 +253,10 @@ export const deleteRippleCommand: Command = {
         changes: { startFrame: c.startFrame - len },
       })),
       ...words.forward,
+      ...pictures.forward,
     ];
     const inverse: Op[] = [
+      ...pictures.inverse,
       ...words.inverse,
       ...later.map<Op>((c) => ({
         kind: 'updateClip',
@@ -427,9 +437,12 @@ export const closeGapsCommand: Command = {
     // spans are taken in the ORIGINAL frame numbers, so each is expressed
     // where it sits after the ones before it have already been closed.
     let words = ctx.project.subtitles;
+    // The pictures ride the same spans, on their own running copy (ADR-0020).
+    let pictures = ctx.project.images;
     for (const c of track.clips) {
       if (c.startFrame !== cursor) {
         words = rippleSubtitles(words, cursor, cursor - c.startFrame);
+        pictures = rippleImages(pictures, cursor, cursor - c.startFrame);
         forward.push({
           kind: 'updateClip',
           trackId: track.id,
@@ -449,9 +462,10 @@ export const closeGapsCommand: Command = {
     }
     if (forward.length === 0) throw new Error('timeline.closeGaps: no gaps');
     const diff = subtitleDiffOps(ctx.project.subtitles, words);
+    const pics = imageDiffOps(ctx.project.images, pictures);
     return {
-      forward: [...forward, ...diff.forward],
-      inverse: [...diff.inverse, ...inverse],
+      forward: [...forward, ...diff.forward, ...pics.forward],
+      inverse: [...pics.inverse, ...diff.inverse, ...inverse],
     };
   },
 };
@@ -770,6 +784,18 @@ export const pasteCommand: Command = {
       ctx.project.subtitles,
       rippleSubtitles(split.subtitles, plan.startFrame, plan.pushBy),
     );
+    // The pictures follow the same rule, and are cut at the same point: an
+    // image straddling the paste becomes two, so neither half sits over the
+    // footage that was just inserted. Its tail takes the id after the words'
+    // tail, which is why the counter is threaded through both (ADR-0020).
+    const splitPictures =
+      plan.pushBy > 0
+        ? splitImageAt(ctx.project.images, plan.startFrame, split.nextId)
+        : { images: ctx.project.images, nextId: split.nextId };
+    const pictures = imageDiffOps(
+      ctx.project.images,
+      rippleImages(splitPictures.images, plan.startFrame, plan.pushBy),
+    );
 
     const forward: Op[] = [
       ...moved.map<Op>((c) => ({
@@ -779,12 +805,14 @@ export const pasteCommand: Command = {
         changes: { startFrame: c.startFrame + plan.pushBy },
       })),
       ...words.forward,
+      ...pictures.forward,
       { kind: 'insertClip', trackId: track.id, index, clip },
-      { kind: 'setNextId', value: split.nextId },
+      { kind: 'setNextId', value: splitPictures.nextId },
     ];
     const inverse: Op[] = [
       { kind: 'setNextId', value: ctx.project.nextId },
       { kind: 'removeClip', trackId: track.id, index },
+      ...pictures.inverse,
       ...words.inverse,
       ...moved.map<Op>((c) => ({
         kind: 'updateClip',
@@ -908,6 +936,10 @@ export const BUILTIN_COMMANDS: Command<any>[] = [
   // The toolbar is registry order, so "자막 넣기" sits after the clip edits;
   // the rest of the subtitle commands are keyboard/panel/palette only.
   ...SUBTITLE_COMMANDS,
+  // The media bin, the stage and the image panel are the surfaces: every one
+  // of these is told its picture in an argument, so none is a toolbar button
+  // or a palette row (ADR-0020).
+  ...IMAGE_COMMANDS,
   // Panel and palette only (ADR-0012).
   ...FADE_COMMANDS,
   // The mute is a key and a palette row; the level is the panel's (ADR-0013).

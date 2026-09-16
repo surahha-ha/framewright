@@ -7,6 +7,8 @@ import type { Project } from './types';
 import { resolveAt, videoDuration } from './timeline';
 import { subtitleFrameAt } from './subtitleStyle';
 import type { SubtitleFrame } from './subtitleRender';
+import { imageFrameAt } from './images';
+import type { ImageFrame } from './imageRender';
 import { blendAt, type Blend } from './fades';
 import { isAsShot, pictureTransform, type PictureTransform } from './picture';
 
@@ -21,6 +23,12 @@ export interface ExportFrame {
    *  looked up at render time, so "what does frame N show" is answered in
    *  one place and the preview and the export cannot answer it differently. */
   subtitle: SubtitleFrame | null;
+  /** The picture laid over this frame — which asset, how big it is in its own
+   *  pixels, where it sits and how wide it is drawn (ADR-0020) — or null. In
+   *  the plan for the same reason as the words, and for one more: the export
+   *  opens every bitmap the plan names before frame 0, so the plan has to say
+   *  which ones those are before anything is rendered (`imagesInPlan`). */
+  image: ImageFrame | null;
   /** A second picture mixed over this one — the other side of a fade — and
    *  how much of it shows (ADR-0012). `assetId: null` is black. In the plan
    *  for the same reason as the words: one answer per frame, for both
@@ -38,6 +46,7 @@ export function buildExportPlan(project: Project): ExportFrame[] {
   for (let f = 0; f < total; f++) {
     const hit = resolveAt(project, f);
     const subtitle = subtitleFrameAt(project, f);
+    const image = imageFrameAt(project, f);
     plan[f] = hit
       ? {
           timelineFrame: f,
@@ -45,6 +54,7 @@ export function buildExportPlan(project: Project): ExportFrame[] {
           clipId: hit.clip.id,
           sourceFrame: hit.sourceFrame,
           subtitle,
+          image,
           blend: blendAt(project, f),
           ...(isAsShot(pictureTransform(hit.clip))
             ? {}
@@ -56,6 +66,7 @@ export function buildExportPlan(project: Project): ExportFrame[] {
           clipId: null,
           sourceFrame: 0,
           subtitle,
+          image,
           blend: null,
         };
   }

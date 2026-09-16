@@ -9,6 +9,7 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import type { Clip, Project, Rational, SubtitleFont } from './types';
 import { buildExportPlan, evenDimensions } from './exportPlan';
 import { NO_FONTS, fontsInPlan, type FontLoader } from './fonts';
+import { NO_IMAGES, imagesInPlan, type ImageSource } from './images';
 import { raceAbort } from './abort';
 import { avcCodecString, type AvcProfile } from './exportConfig';
 import { fpsToNumber, frameToSec, secToUs } from './time';
@@ -31,6 +32,12 @@ export interface ExportOptions {
    *  Absent = none can (`NO_FONTS`): every face is drawn with the
    *  fallback and reported in `missingFonts`. */
   fonts?: FontLoader;
+  /** How the pictures the plan lays over its frames reach the page
+   *  (ADR-0020). Absent = none can (`NO_IMAGES`): every picture is named in
+   *  `missingImages` and its frames go out with the footage and nothing
+   *  over them. The bitmaps belong to the cache that hands them over
+   *  (`ui/images.ts`); the exporter borrows them and closes none. */
+  images?: ImageSource;
 }
 
 export interface ExportResult {
@@ -43,6 +50,12 @@ export interface ExportResult {
   /** Faces the plan named that could not be loaded, so were drawn with
    *  the fallback stack (reported, never silently ignored). */
   missingFonts: SubtitleFont[];
+  /** Pictures the plan named that could not be opened, BY FILE NAME, so
+   *  their frames were drawn without them (reported, never silently
+   *  ignored). Deliberately NOT counted in `missingFrames`: the footage
+   *  under them was there and went out whole — only the sticker is absent.
+   *  `missingImagesText` turns these into the export's warning. */
+  missingImages: string[];
 }
 
 const AUDIO_CODEC = 'mp4a.40.2'; // AAC-LC
@@ -126,6 +139,14 @@ async function pickEncoderConfig(
   );
 }
 
+/** The name to report a picture by — the file the user chose, not the id
+ *  they never see. An image pointing at an asset the document does not have
+ *  never reaches the plan (`imageFrameAt`), so the id is only what keeps
+ *  this total. */
+function assetName(project: Project, assetId: string): string {
+  return project.assets.find((a) => a.id === assetId)?.name ?? assetId;
+}
+
 export async function exportProject(
   project: Project,
   getService: (assetId: string) => VideoDecodeService | null,
@@ -171,6 +192,28 @@ export async function exportProject(
       if (!(await raceAbort(fonts.load(font), options.signal)))
         missingFonts.push(font);
       options.onProgress?.(i + 1, wantedFonts.length, 'fonts');
+    }
+  }
+
+  // The pictures laid over the frames must be open before frame 0 too, for
+  // the same reason as a face (ADR-0020). One await per picture, in
+  // first-use order, raced against the cancel.
+  //
+  // A picture that does not open differs from a face in what it costs: it is
+  // named in the result and its frames simply draw nothing over the footage.
+  // It is NOT a missing frame — the source supplied that frame, whole. (The
+  // blend counts its own failure as missing because there the PICTURE went
+  // black; here it did not.)
+  const images = options.images ?? NO_IMAGES;
+  const missingImages: string[] = [];
+  const wantedImages = imagesInPlan(plan);
+  if (wantedImages.length > 0) {
+    options.onProgress?.(0, wantedImages.length, 'images');
+    for (const [i, assetId] of wantedImages.entries()) {
+      if (!(await raceAbort(images.load(assetId), options.signal))) {
+        missingImages.push(assetName(project, assetId));
+      }
+      options.onProgress?.(i + 1, wantedImages.length, 'images');
     }
   }
 
@@ -342,6 +385,13 @@ export async function exportProject(
         blend,
         entry.subtitle,
         entry.transform,
+        // `picture` is required-and-nullable on purpose, so a forgotten one
+        // is a compile error rather than an image that quietly never draws.
+        // The bitmap is borrowed from the cache for the length of the call.
+        entry.image && {
+          ...entry.image,
+          picture: images.get(entry.image.assetId),
+        },
       );
       pool.end();
 
@@ -385,6 +435,7 @@ export async function exportProject(
       missingFrames,
       hasAudio: !!audioConfig,
       missingFonts,
+      missingImages,
     };
   } finally {
     cleanup();

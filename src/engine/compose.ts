@@ -1,18 +1,20 @@
 // framewright — one output frame from its parts (ADR-0011, ADR-0012).
 //
 // The preview and the export used to draw a frame each in their own way, and
-// agreed only because both were simple. A frame now has up to four parts —
-// black, the footage, a second picture at some strength, the words — and the
-// order and the letterboxing must be the same on screen and in the file, so
-// there is one function for both. The subtitle is optional here because the
-// preview keeps the words on their own layer (they must change on the exact
-// frame without waiting for a picture); the export burns them in.
+// agreed only because both were simple. A frame now has up to five parts —
+// black, the footage, a second picture at some strength, an image, the words
+// — and the order and the letterboxing must be the same on screen and in the
+// file, so there is one function for both. The subtitle and the image are
+// optional here because the preview keeps each on its own layer (the words
+// must change on the exact frame without waiting for a picture, and the
+// image's bitmap arrives when it arrives); the export burns both in.
 
 import {
   drawSubtitle,
   type SubtitleContext,
   type SubtitleFrame,
 } from './subtitleRender';
+import { drawImageFrame, type ImageLayer } from './imageRender';
 import { AS_SHOT, pictureRect, type PictureTransform } from './picture';
 
 /** The 2D context — an `OffscreenCanvas`'s or a canvas's. The turn needs
@@ -73,7 +75,11 @@ function drawPicture(
  * Draw one timeline frame into a `width`×`height` box: black, then the
  * footage where its clip puts it (fitted into the box when as shot), then
  * the blend at its weight (black, or another picture where ITS clip puts
- * it), then the words.
+ * it), then the image, then the words.
+ *
+ * The image goes over the whole picture and under the words (ADR-0020): a
+ * sticker belongs on the footage, and the words are what must always be
+ * readable, so nothing may be laid over them.
  */
 export function composeFrame(
   ctx: FrameContext,
@@ -83,6 +89,7 @@ export function composeFrame(
   blend: BlendLayer | null,
   subtitle: SubtitleFrame | null,
   transform: PictureTransform = AS_SHOT,
+  image: ImageLayer | null = null,
 ): void {
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#000';
@@ -97,5 +104,6 @@ export function composeFrame(
     }
     ctx.globalAlpha = 1;
   }
+  if (image) drawImageFrame(ctx, image, width, height);
   if (subtitle) drawSubtitle(ctx, subtitle, width, height);
 }

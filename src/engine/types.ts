@@ -134,6 +134,39 @@ export interface Subtitle {
   font?: SubtitleFont;
 }
 
+/**
+ * An image on the picture: a sticker, a logo, a PNG over the footage for a
+ * range of TIMELINE frames (ADR-0020).
+ *
+ * Not a clip, for the same reason a subtitle is not one. A clip is a window
+ * onto a source file (`inFrame`/`outFrame` name frames of media); an image
+ * points at an asset but has no window into it — there is only one picture —
+ * so it lives in its own list rather than pretending to be a clip on a track
+ * with nothing to scrub. Same half-open rule as everything else: shown on
+ * frames `[startFrame, endFrame)`.
+ *
+ * Images are kept sorted by `startFrame` and never overlap — one image on
+ * screen at a time is the whole of what this unit offers.
+ */
+export interface StageImage {
+  id: string; // 'img_<n>', from the document-scoped counter
+  assetId: string;
+  startFrame: number;
+  endFrame: number; // EXCLUSIVE
+  /** Where the CENTRE of the image sits, as fractions of the box (the same
+   *  language as a clip's pan, ADR-0014, and a subtitle's place, ADR-0019).
+   *  Absent = the centre of the box, 0.5 on that axis. Any value in [0, 1] is
+   *  legal, and nothing clamps the drawn rectangle: an image may hang off the
+   *  edge on purpose. */
+  posX?: number;
+  posY?: number;
+  /** How wide the image is drawn, as a fraction of the BOX's width; its
+   *  height follows the asset's aspect. Absent = a quarter of the box,
+   *  0.25. Read through the defaulting helper, never rewritten in the
+   *  document when it happens to equal the default. */
+  size?: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -143,4 +176,5 @@ export interface Project {
   tracks: Track[];
   assets: Asset[];
   subtitles: Subtitle[];
+  images: StageImage[];
 }

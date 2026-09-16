@@ -10,15 +10,108 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-16 03:01 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-16 06:03 UTC — `npm run verify` **GREEN**
 
-- unit 692 passed · e2e 142 passed
+- unit 797 passed · e2e 142 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
 
-### E10 step 1 is done in the working tree, uncommitted (2026-09-16)
+### E10 step 2, the image engine, is done and UNCOMMITTED (2026-09-16)
+
+Everything an image is, as engine code with no screen: an image is its
+own list on the document (`Project.images: StageImage[]`, ADR-0011's
+argument applied — see row 2 of the plan below), it survives a save and
+a reload (schema 2 → 3), it follows the footage through every ripple the
+words follow, it has eight commands, and the export plan carries one
+answer per frame for it. **Nothing is visible yet** — that is step 3
+(media) and step 4 (the stage). The gate was re-run from scratch and
+stamped by `npm run handoff` at the top of this file: **GREEN, unit 797
+passed across 50 test files (was 692 across 43), e2e 142 passed
+(unchanged).** The plan predicted "~60 new tests"; the real number is 105.
+
+**New files** — `src/engine/spans.ts` (the timing arithmetic for any
+`{ id, startFrame, endFrame }` span: `spanAt`, `locateSpan`, `spanPlan`,
+`spanLimits`, `rippleSpans`, `splitSpanAt`, `spanDiffOps`),
+`src/engine/images.ts` (span queries, the image's normal form, the centre
+snap, `imageFrameAt`, `imagesInPlan`, the `ImageSource` seam and
+`NO_IMAGES`, the sentences), `src/engine/imageRender.ts` (`imageRect`,
+`drawImageFrame`, `ImageLayer`), `src/engine/imageCommands.ts` (the eight
+commands: `image.import`, `image.add`, `image.remove`,
+`image.setPosition`, `image.setSize`, `image.moveToPlayhead`,
+`image.startToPlayhead`, `image.endToPlayhead`), and their specs
+`spans.test.ts` (23), `images.test.ts` (32), `imageRender.test.ts` (8),
+`imageCommands.test.ts` (24), plus `ops.test.ts` (5), `project.test.ts`
+(2) and **`exporter.test.ts` (4) — the first Node test of `exportProject`
+this repo has ever had.**
+
+**Changed** — `types.ts` (`StageImage`, `ImageFrame`, `Project.images`),
+`ops.ts` (`insertImage` / `removeImage` / `updateImage`, `dropUndefined`
+on the update), `persistence.ts` (`CURRENT_SCHEMA` 2 → 3, `upgradeProject`
+fills `images: []` into the live project and every version snapshot),
+`project.ts`, `subtitles.ts` (**397 → 296 lines**, now thin delegates onto
+`spans.ts`), `commands.ts` (the image diff beside the word diff at the
+three ripple sites — `clip.deleteRipple`, `timeline.closeGaps`,
+`clip.paste`), `silence.ts` (the fourth ripple site), `compose.ts`,
+`exportPlan.ts` (`ExportFrame.image`), `exporter.ts` (the images phase
+and `missingImages`), and the specs `compose.test.ts`,
+`exportPlan.test.ts`, `persistence.test.ts`, `silence.test.ts`,
+`mediaStore.test.ts` (one fixture gained `images: []`).
+
+**`src/engine/subtitles.test.ts` is byte-for-byte identical to
+`8f10d25`** (`git diff --exit-code` on it returns 0). That is the proof
+the `spans.ts` delegation changed nothing: 28 tests written against the
+subtitle functions still pass against functions that now do their
+arithmetic somewhere else, and not one expectation was touched to make
+them.
+
+**Four design decisions a future session should not re-litigate:**
+
+- **`composeFrame` gained an EIGHTH parameter, `image: ImageLayer | null
+= null`, last and defaulted.** Because it is last and optional, **none
+  of the 11 existing `compose.test.ts` calls had to change** — the two
+  new ones pass it. A named options object would have rewritten every
+  call site for no behaviour.
+- **`ImageLayer.picture` is required-and-nullable** (`picture:
+CanvasImageSource | null`), not optional. A caller that forgets the
+  picture is a compile error; an optional field would have silently
+  drawn a blank frame. `drawImageFrame` returns early on a null picture,
+  which is the legitimate "the bitmap has not arrived yet" case.
+- **`ExportResult.missingImages` holds file NAMES, not asset ids**, so
+  `ExportButton` needs no lookup to write its sentence. This mirrors
+  `missingFonts`, which already made that choice.
+- **The image's normal form is its own, not the subtitle's**: whole
+  percents; `0.5` stored ABSENT on both axes (absent means the centre);
+  size `0.25` stored absent; and the centre is the only snap. An image
+  at the bottom edge is `0.97`, not a preset — there are no image
+  presets to snap to.
+
+**`ImageBitmap` appears nowhere in `src/engine/**`** (grep-verified), so
+golden rule 8 holds: `ImageSource` is the seam and `ui/images.ts` will be
+the browser half. The bitmap has one owner, that cache — the exporter
+closes no bitmap and `cleanup()` gained no image step.
+
+**Persona round on the step-2 diff:** `framewright-reviewer` — 0
+findings. `tester-qa` — 0 blockers, 1 major and 1 minor, both now
+CLAUDE.md "Known tech debt" entries and both recorded under "E10 issues"
+below. **`tester-a11y` and `tester-novice` were deliberately NOT run:
+this unit puts nothing on screen, so neither persona has anything to
+review. They belong to steps 4 and 5**, and running them here would have
+produced findings about code that does not exist yet.
+
+**Uncommitted:** the four new engine modules, their seven new specs, the
+fifteen changed engine files and specs listed above, this file, and
+`CLAUDE.md`'s debt list. The owner has not yet been asked for the commit
+— that is the next single step. The owner's own edits (`AGENTS.md`,
+`CLAUDE.md`'s ui-ux-guide bullet, `docs/UX.md`) and the two stray logs
+(`debug.log`, `e9-baseline.log`) stay theirs.
+
+### E10 step 1 is committed and pushed (`8f10d25`, 2026-09-16)
+
+**`origin/main` = `8f10d25`.** The paragraph below was written before
+the commit and is kept as the record; "uncommitted" in it is no longer
+true of the unit's three source files.
 
 `src/ui/useStageDrag.ts` (new, 163 lines) is the one hook for the stage's
 two drags — `useStageDrag<T>({ press, move, release }) → { onPointerDown,
@@ -36,9 +129,8 @@ and carried into the hook unchanged on purpose — now the top entry of
 CLAUDE.md "Known tech debt". The plan's targets "under 580 / under 200"
 were missed by ~20 lines each because the pan's and the words' rationale
 comments (the ADR-0006 / 0014 / 0019 references) were kept — accepted.
-**The three source files are uncommitted; the owner is to be asked
-before the commit** (the file list and recipe are under "Next single
-step").
+The three source files were committed with the owner's approval as
+`8f10d25` and pushed the same day; `39be4b4` (E8-2d) is its parent.
 
 ### E8-2d, the E8-2 debt pass, is committed and pushed (`39be4b4`, 2026-09-16)
 
@@ -439,29 +531,68 @@ stayed out). This file carries the post-commit rewrite of three passages
 
 ## Next single step
 
-**Commit E10 step 1** once the owner says so — files:
-`src/ui/useStageDrag.ts`, `src/ui/Preview.tsx`, `src/ui/useWordsDrag.ts`,
-`CLAUDE.md` by hunk (drop the hunk containing 'ui-ux-guide', which is
-the owner's), `docs/STATUS.md`; leave `AGENTS.md`, `docs/UX.md`,
-`debug.log` and `e9-baseline.log` out. Then **E10 step 2 — engine,
-test-first** (see "E10 execution plan", step 2, below): `engine/spans.ts`
-per the plan's row 3, with `subtitles.ts` delegating and its 28 tests
-unchanged; then `types` / `ops` / `persistence` (schema 3) / `project`
-for `Project.images` per row 2; then `engine/images.ts` and
-`engine/imageCommands.ts` per rows 4, 6, 7 and 8. The owner decided the
-order on 2026-09-16: E8-2 debt first, then E10; the E10 plan is written
-(below) and its four open questions are answered there. E8-2d is on
-`origin/main` as `39be4b4`; what is uncommitted is step 1's three source
-files, this file (the E10 plan, the step-1 record above and the
-post-commit rewrite of three passages) and CLAUDE.md's debt list (one
-entry added, two rewritten), plus the owner's own edits (`AGENTS.md`,
-`CLAUDE.md`'s ui-ux-guide bullet, `docs/UX.md`) and the two stray logs,
-which stay theirs. The commit recipe that has now worked four times:
-stage the files named above, `CLAUDE.md` by hunk (drop the hunk
-containing 'ui-ux-guide', which is the owner's), leave `AGENTS.md`,
-`docs/UX.md` and the two logs out, write the message with the Write
-tool and commit with `-F` so the Korean subject survives, ask before
-pushing.
+**Announce the E10 step-2 commit and wait for the owner.** This is the
+one hard stop in the loop: the work is done and the gate is green, and
+nothing else happens until the owner says to commit. The tree is
+uncommitted on top of `origin/main` = `8f10d25`.
+
+**The commit recipe, which has now worked five times:**
+
+1. Stage step 2's source and spec files — the four new engine modules
+   (`src/engine/spans.ts`, `images.ts`, `imageRender.ts`,
+   `imageCommands.ts`), the seven new specs (`spans.test.ts`,
+   `images.test.ts`, `imageRender.test.ts`, `imageCommands.test.ts`,
+   `ops.test.ts`, `project.test.ts`, `exporter.test.ts`), and the changed
+   `types.ts`, `ops.ts`, `persistence.ts`, `project.ts`, `subtitles.ts`,
+   `commands.ts`, `silence.ts`, `compose.ts`, `exportPlan.ts`,
+   `exporter.ts` with their specs `compose.test.ts`, `exportPlan.test.ts`,
+   `persistence.test.ts`, `silence.test.ts`, `mediaStore.test.ts`; plus
+   `docs/STATUS.md`.
+2. Stage `CLAUDE.md` **by hunk** — take the "Known tech debt" hunks and
+   DROP the hunk containing `ui-ux-guide`, which is the owner's own
+   uncommitted edit. As of this writing `git diff -U0 -- CLAUDE.md` shows
+   exactly three hunks and the owner's is the first one, around line 226.
+3. Leave `AGENTS.md`, `docs/UX.md`, `debug.log` and `e9-baseline.log`
+   out. The first two are the owner's; the two logs are stray.
+4. Write the Korean commit message with the **Write tool** into a file
+   and commit with `git commit -F <file>`, so the Korean subject survives
+   the shell. Never pass Korean through a shell redirection.
+5. **Ask before pushing.**
+
+**Then E10 step 3 — Media** (the plan's "Steps, in order" item 3, below).
+Its ending state: a dropped PNG is an asset, stored in OPFS, restored
+after a reload, and placed in the document — still invisible on screen
+until step 4. What it touches:
+
+- **`src/ui/images.ts` (new)** — the browser loader and cache:
+  `createImageBitmap`, the bitmap cache, `subscribeImages`,
+  `retainOnlyImages` (which `close()`s every bitmap it drops) and
+  `releaseImage`. Those two are the ONLY callers of `close()`: the cache
+  is the single owner of every bitmap, which is what lets the exporter
+  never close one (golden rule 6; see the step-2 section above and row 9
+  of the plan).
+- **`src/ui/media.ts`** — one `isMediaReady(asset)` to replace the
+  ad-hoc "is the media here" test, and `restoreSavedMedia` branching on
+  `asset.kind`. Today it rebuilds every `File` as `'video/mp4'` and runs
+  `demuxVideo`, so an image asset with an `opfsKey` would restore as
+  "lost".
+- **`src/ui/MediaBin.tsx`** — widen `accept` past `video/*`, add the
+  image branch of `onFile` (record `meta.width` / `height`, persist the
+  bytes by content hash, re-link by name like a video), and add the row
+  and its button.
+- **`src/App.tsx`** — `retainOnlyImages` alongside the four per-asset
+  caches already freed when an asset leaves the document.
+- **The three `missingMedia` sites** — `Preview.tsx`, `MediaBin.tsx` and
+  `ExportButton.tsx` each call `getDecodeService` directly today; they go
+  through `isMediaReady`, because an image asset has no decode service
+  and would otherwise read as missing.
+- **`src/ui/ExportButton.tsx`** — pass `images: browserImages` beside
+  `fonts: browserFonts`, add the phase word 이미지 여는 중 for the
+  `'images'` phase, and the ⚠ sentence for `missingImages`.
+
+The owner decided the order on 2026-09-16: E8-2 debt first, then E10.
+The full E10 plan is below, its four open questions are answered there,
+and "E10 progress" / "E10 issues" under it are the step-by-step record.
 
 **The E10 plan follows. The E8-2d plan after it is done; kept as the
 record.**
@@ -850,6 +981,99 @@ inverse does not rewind it, for `importAsset`'s reason. (rule 2)
 `image.import` is a registry command where `importAsset` is not — the
 new kind takes the right shape and the old debt stays named. (rule 7)
 bitmaps are opened before frame 0, so the file and the screen agree.
+
+### E10 progress
+
+Built in Claude Code on 2026-09-16 (KST), the plan's steps in order.
+**Steps 1 and 2 of 10 are done; steps 3–10 are not started.**
+
+1. **The stage drag as one hook — done, committed and pushed as
+   `8f10d25`.** `ui/useStageDrag.ts` 163 lines; `Preview.tsx` 657 → 602,
+   `useWordsDrag.ts` 253 → 207; the 14 stage e2e tests green on
+   `e2e:chrome` with none edited, which is a refactor's proof. Personas:
+   0 blockers, 2 QA minors → CLAUDE.md debt. The "under 580 / under 200"
+   targets were missed by ~20 lines each (the rationale comments were
+   kept), accepted. The details are in "E10 step 1" near the top of this
+   file.
+2. **Engine, test-first — done, UNCOMMITTED.** `engine/spans.ts` first
+   (row 3), with `subtitles.ts` delegating onto it and
+   `subtitles.test.ts` byte-for-byte unchanged as the proof; then
+   `types` / `ops` / `persistence` (schema 2 → 3) / `project` for
+   `Project.images` (row 2); then `engine/images.ts`,
+   `engine/imageRender.ts` and `engine/imageCommands.ts` with its eight
+   commands (rows 4, 6, 7, 8); the image diff beside the word diff at
+   all four ripple sites (`commands.ts` ×3 and `silence.ts`);
+   `ExportFrame.image`, `composeFrame`'s eighth argument, the exporter's
+   images phase and `missingImages` (row 9). `npm run verify` GREEN:
+   unit **797** across 50 test files (was 692 across 43), e2e 142
+   unchanged — **105 new tests** where the plan guessed ~60. Personas:
+   `framewright-reviewer` 0 findings, `tester-qa` 0 blockers / 1 major /
+   1 minor (below). Nothing is on screen yet, by design. The file list,
+   the four design decisions and the reason two personas were skipped
+   are in "E10 step 2" near the top of this file.
+3. **Media — not started.** The next single step, after the step-2
+   commit. See "Next single step" above for the file-by-file list.
+4. **The stage — not started.**
+5. **The lane and the panel — not started.**
+6. **e2e `e2e/image.spec.ts` — not started.**
+7. **Docs — partly done.** CLAUDE.md's debt list and this file's "E10
+   progress" / "E10 issues" are written. **Still owed by the epic:
+   ADR-0020** ("An image is its own thing on the stage: under the words,
+   dragged by the one stage drag"), its row in `docs/adr/README.md`, the
+   **README row**, the **`docs/TESTING.md` contract rows** (`.stage-image`,
+   `.image-lane` / `.image`, the 이미지 heading, the sliders 크기 / 가로
+   자리 / 세로 자리 as the image's when an image is selected,
+   `#image-position-note`), and **`docs/HANDOVER.md`'s E10 line**. Those
+   describe surfaces that do not exist until steps 4 and 5, which is why
+   they are not written yet; they are step 7 of the plan and must not be
+   dropped.
+8. **Gate — green for what exists** (stamped at the top of this file).
+   It is re-run at the end of every remaining step.
+9. **Persona review — partly done.** The step-2 diff was reviewed by
+   `framewright-reviewer` and `tester-qa`. **`tester-a11y` and
+   `tester-novice` are still owed** and belong to steps 4 and 5, when
+   there is a screen to review.
+10. **Visual pass in Chrome — not started.** Step 10 of the plan.
+
+### E10 issues
+
+- **Major (QA), answered with a test rather than a behaviour change:**
+  `image.setPosition` given only one axis erases the other — the omitted
+  axis normalises to `undefined`, `dropUndefined` removes the key, and
+  absent means the centre, so the image jumps to the middle on the axis
+  the caller did not mention. This is `subtitle.setPosition`'s exact
+  semantics and changing it would make the two commands disagree, so the
+  behaviour stands and `imageCommands.test.ts` now pins it. The risk is
+  real but it is a CALLER's risk, and the caller does not exist yet: the
+  image panel's two sliders in step 5 must read the current value and
+  pass both axes. Now a CLAUDE.md debt entry so step 5 cannot miss it.
+- **Minor (QA), kept as debt:** `looksLikeProject` validates neither
+  `subtitles` nor `images` element shape — it checks `tracks` / `assets`
+  / `timeline` / `nextId` and nothing more, so a save holding
+  `images: [{}]` reaches the live document unvalidated. Pre-existing for
+  subtitles; images inherited it verbatim. In CLAUDE.md.
+- **Two more debt entries added from this round, neither a persona
+  finding:** `image.*ToPlayhead` is the second copy of `edgeToPlayhead`
+  and brought a second `fieldOps` / `moveOps` / `edgeOps` with it
+  (accepted by the plan on purpose — the sentences differ — and the
+  third case is the trigger to share it); and `createProject` still
+  writes a dead `schemaVersion: 1` on the document object, which has
+  meant nothing since schema 2 because `serialize` always writes
+  `CURRENT_SCHEMA` and `deserialize` reads only the envelope.
+- **`Command.disabledReason` sees only `ctx`, never the args**, which is
+  why `imageTimingReason` is a free function instead of a widened
+  interface. Not a defect — a constraint step 4's selection wiring will
+  meet, so it is written down rather than rediscovered.
+- **The plan's test estimate was wrong by 75%** — "~60 new tests" against
+  105 actual. The engine surface was bigger than the row table suggested
+  once `spans.ts`'s generic edge cases and `imageCommands.ts`'s refusals
+  each got their own test. Worth knowing for the remaining steps'
+  estimates, not a problem in itself.
+- **`exporter.ts` had never been unit-tested in Node before this unit.**
+  `exporter.test.ts` (4 tests) is the first. The export path's coverage
+  was e2e-only, which is exactly the gap CLAUDE.md's TDD section warns
+  produced two shipped bugs; the images phase is covered in Node now,
+  and the bitmap LOAD path remains e2e-only because it needs a browser.
 
 ### E8-2d execution plan — E8-2 부채 정리
 
@@ -1905,15 +2129,20 @@ plan's steps, in order, with the gate at each point:
 
 ## Blocked / needs the owner
 
-1. **Nothing to push: `39be4b4` (E8-2d) is on `origin/main`** (committed
-   and pushed 2026-09-16 with approval). The owner's own uncommitted
-   edits to `AGENTS.md`, `CLAUDE.md` (the ui-ux-guide bullet) and
-   `docs/UX.md` stay theirs to commit; this file's post-commit rewrite
-   (docs only) rides with the next commit. `debug.log` and
+1. **E10 step 2 is waiting to be committed.** `origin/main` = `8f10d25`
+   (E10 step 1, pushed 2026-09-16 with approval). Step 2's engine work
+   is done, the gate is green, and the tree is uncommitted — the owner
+   must be asked before the commit, and again before the push. The file
+   list and the recipe are in "Next single step". The owner's own
+   uncommitted edits to `AGENTS.md`, `CLAUDE.md` (the ui-ux-guide
+   bullet) and `docs/UX.md` stay theirs to commit; `debug.log` and
    `e9-baseline.log` are stray.
-2. **The next unit is E10 images / stickers** (the owner's order,
-   2026-09-16), to be planned in this file first — see "Next single step"
-   for the open questions and the extraction it should start with.
+2. **E10 is in flight: 2 of 10 steps done, step 3 (media) is next.**
+   The plan is written below and its four open questions are answered
+   there. Three of its recommendations were taken as recommended and the
+   owner is still to confirm them at the end of the unit: one image on
+   screen at a time; import places the image at the playhead for 2 s in
+   one undo step; the words draw above images.
 3. **The visual pass's trace in the owner's Chrome:** nothing left in the
    document (verified identical); the playhead was left on frame 10 and
    the three faces are now in that browser's HTTP cache. The tab was
