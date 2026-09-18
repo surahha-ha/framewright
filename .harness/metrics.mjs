@@ -9,6 +9,8 @@
  * ⭐ 사람 응답은 근사다 — `fire(ask)` 뒤 같은 접두사의 `after` 가 있으면 승인,
  *    없으면 "거부/이탈(구분 불가)". 근사를 정밀 관찰인 것처럼 표기하지 않는다 (docs/13 §2).
  * ⭐ 프로브 발동은 모든 지표에서 제외한다 — 검증 신호를 개입으로 세면 지표가 오염된다.
+ * ⭐ 사람이 판단해야 할 것은 새 감시 장치가 아니라 **매번 읽는 리포트 줄**에 얹는다 —
+ *    로그 누적 임계(설정 `metrics.eventNotice`)와 정의 변경 지점 교차(`metrics.definitionChanges`).
  *
  * 사용:
  *   node skeletons/metrics.mjs                                  # 지표 5종 리포트 + v2 턴(게이트·중단·검증 축) + 완주(세 축)
@@ -89,7 +91,7 @@ export function parseWindow(argv) {
     if (i < 0) return null;
     const raw = argv[i + 1];
     if (!raw || raw.startsWith('--')) throw new Error(`${flag} 뒤에 날짜가 없습니다 (YYYY-MM-DD 또는 ISO 일시)`);
-    const ms = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw);
+    const ms = parseAt(raw);
     if (!Number.isFinite(ms)) throw new Error(`${flag} 값을 날짜로 읽을 수 없습니다: "${raw}"`);
     return { ms, raw };
   };
@@ -102,6 +104,153 @@ export function parseWindow(argv) {
     to: to ? to.ms : null,
     label: `${from ? from.raw : '처음'} ~ ${to ? to.raw : '끝'}`,
   };
+}
+
+// ── 리포트 줄에 얹는 판단 지점 둘 ────────────────────────────────────────────────
+//
+// "사람이 알아서 판단하기로" 남긴 것은 실제로 안 잡힌다(이 트랙의 실측). 그래서 판단해야 할 것은
+// 새 감시 장치나 훅이 아니라 **이미 매번 읽는 산출물(리포트 줄)** 에 얹는다 — 계약 자가 감사를
+// 리포트 주기에 얹은 것과 같은 방식이다. 보는 주기를 새로 만들지 않는다.
+
+/**
+ * 로그 누적 임계의 기본값 — **이벤트 수** 기준(크기보다 안정적이고 이미 세고 있다).
+ * 실측 설치처당 하루 150~300줄이라 약 1년치다 — 연 1회 수준이라 소음이 되지 않는다.
+ * 설치처가 바꾸려면 설정 `metrics.eventNotice`.
+ */
+export const DEFAULT_EVENT_NOTICE = 100000;
+
+/**
+ * 골격 내장 정의 변경 이력 — **전 설치처 공통**인 것만 둔다.
+ * 그 설치처에서만 일어난 변경(예: 경계표 정렬)은 설정 `metrics.definitionChanges` 에 두고, 둘을 합쳐 판정한다.
+ *
+ * ⭐ `docs/13` §2 는 "정의를 바꾸면 그전 로그와 섞어 집계하지 않는다" 고 정했는데 그 규칙이 글에만 있었다.
+ *    도구가 붙잡지 않으면 창이 변경 지점을 걸쳐도 아무도 모른다 — 그래서 이력을 도구가 들고 있는다.
+ * ⭐ 일회용 플래그로 만들지 않는다. 다음 정의 변경은 이 배열이나 설정에 한 줄 더하는 것으로 끝나야 한다.
+ */
+export const DEFINITION_CHANGES = [
+  {
+    at: '2026-09-18',
+    what:
+      'v2 완주 줄의 분모 재정의 — 거짓은 한 축이면 확정 · 참은 세 축 전부 · 첫 stop 이전 턴 제외' +
+      ' (같은 이벤트를 다시 세는 변경이라 옛 창도 소급 재계산된다 — docs/16 §3.1)',
+  },
+];
+
+/** `YYYY-MM-DD`(UTC 자정) 또는 ISO 일시를 ms 로. 못 읽으면 NaN — 창 인자와 같은 해석이다. */
+function parseAt(raw) {
+  if (typeof raw !== 'string' || !raw) return NaN;
+  return Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw);
+}
+
+/**
+ * 리포트가 쓰는 설정 슬롯 둘을 읽어 내장 이력과 합친다. 순수 함수.
+ * **설정이 없어도 동작한다** — 기본 임계와 내장 이력만으로 판정한다.
+ * ⚠️ 읽을 수 없는 이력 항목은 조용히 버리지 않고 수를 돌려준다 — 오타로 빠진 항목과 "변경 없음" 은 다르다.
+ * @param {object|null} config `harness.config.mjs` 의 default export
+ * @returns {{eventNotice: number, changes: {at: string, what: string, ms: number}[], rejected: number}}
+ */
+export function metricsSlots(config) {
+  const m = (config && config.metrics) || {};
+  const eventNotice =
+    Number.isFinite(m.eventNotice) && m.eventNotice > 0 ? m.eventNotice : DEFAULT_EVENT_NOTICE;
+  const extra = Array.isArray(m.definitionChanges) ? m.definitionChanges : [];
+  const changes = [];
+  let rejected = 0;
+  for (const c of [...DEFINITION_CHANGES, ...extra]) {
+    const ms = parseAt(c && c.at);
+    const what = c && typeof c.what === 'string' ? c.what.trim() : '';
+    if (!Number.isFinite(ms) || !what) {
+      rejected++;
+      continue;
+    }
+    changes.push({ at: c.at, what, ms });
+  }
+  changes.sort((a, b) => a.ms - b.ms || a.what.localeCompare(b.what));
+  return { eventNotice, changes, rejected };
+}
+
+/**
+ * 이 집계가 실제로 덮는 시간 범위. 창을 주면 창 경계, 안 주면 로그의 첫~끝 이벤트가 범위다.
+ * 반열림 `[from, to)` 으로 맞춘다 — 창의 `--to` 는 이미 제외 경계이고 로그 범위는 마지막 이벤트를
+ * 포함해야 해서 1ms 를 더한다. 그래야 "걸친다" 를 한 가지 비교로 판정할 수 있다. 순수 함수.
+ * @returns {{from: number|null, to: number|null, label: string, windowed: boolean}}
+ */
+export function aggregationSpan(events, window = null) {
+  let firstMs = null;
+  let lastMs = null;
+  let firstTs = null;
+  let lastTs = null;
+  for (const e of events) {
+    const ms = Date.parse(e && e.ts);
+    if (!Number.isFinite(ms)) continue;
+    if (firstMs === null || ms < firstMs) {
+      firstMs = ms;
+      firstTs = String(e.ts);
+    }
+    if (lastMs === null || ms > lastMs) {
+      lastMs = ms;
+      lastTs = String(e.ts);
+    }
+  }
+  if (window) {
+    return {
+      from: window.from === null ? firstMs : window.from,
+      to: window.to === null ? (lastMs === null ? null : lastMs + 1) : window.to,
+      label: window.label,
+      windowed: true,
+    };
+  }
+  if (firstMs === null) return { from: null, to: null, label: '로그 범위 없음', windowed: false };
+  return {
+    from: firstMs,
+    to: lastMs + 1,
+    label: `로그 전체 ${String(firstTs).slice(0, 10)} ~ ${String(lastTs).slice(0, 10)}`,
+    windowed: false,
+  };
+}
+
+/**
+ * 그 범위가 정의 변경 지점을 **걸치는가**. 걸친다 = 변경 이전과 이후가 한 집계 안에 섞였다. 순수 함수.
+ * ⭐ 경계에 딱 선 변경은 걸친 것이 아니다 — 범위가 변경 시점에서 시작하면 전부 새 정의이고,
+ *    변경 시점에서 끝나면 전부 옛 정의다. 섞이지 않았는데 경고하면 사람은 곧 전체를 무시한다.
+ */
+export function crossedDefinitionChanges(changes, span) {
+  if (!span || span.from === null || span.to === null) return [];
+  return (changes || []).filter((c) => c.ms > span.from && c.ms < span.to);
+}
+
+/**
+ * 정의 변경 경고 줄(들). 걸친 변경도 못 읽은 항목도 없으면 **빈 배열** — 없는 경고를 내지 않는다. 순수 함수.
+ */
+export function renderDefinitionNotice(crossed, span, rejected = 0) {
+  const lines = [];
+  if (crossed.length > 0) {
+    lines.push(
+      `  ⚠️ 이 집계 범위(${span.label})는 정의 변경 지점 ${crossed.length}건을 걸칩니다 — 변경 이전 구간과 섞어 읽지 마세요`,
+    );
+    for (const c of crossed) lines.push(`     · ${c.at} — ${c.what}`);
+  }
+  if (rejected > 0) {
+    lines.push(
+      `  ⚠️ 정의 변경 이력 ${rejected}건을 읽지 못해 판정에서 뺐습니다 — metrics.definitionChanges 의 항목엔 at(날짜)과 what(무엇이 바뀌었는지)이 필요합니다`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * 리포트 첫 줄. 이벤트 수가 임계에 닿으면 **그 줄에** 한마디를 덧붙인다 — 알림 경로를 새로 만들지 않는다.
+ * ⭐ 삭제는 선택지가 아니다. 이 로그가 지표의 유일한 원본이라 지운 구간은 다시 만들 수 없다.
+ * 순수 함수 — 문자열 한 줄만 돌려준다.
+ */
+export function renderHeaderLine({ count, broken = 0, path, threshold = DEFAULT_EVENT_NOTICE }) {
+  const reached = Number.isFinite(threshold) && count >= threshold;
+  return (
+    `[metrics] 이벤트 ${count}${broken > 0 ? ` · 깨진 줄 ${broken}(제외)` : ''} — ${path}` +
+    (reached
+      ? ` — ⚠️ 임계 ${threshold} 도달: 기간별 분할 보관을 검토하세요(삭제 금지 — 지표의 유일한 원본이라 지운 구간은 영구 소실입니다)`
+      : '')
+  );
 }
 
 /**
@@ -930,15 +1079,31 @@ async function main() {
     process.stderr.write(`[metrics] 기간 창 오류 — ${err.message}\n  창 없이 누적을 내지 않습니다 (기준선을 잘못 잡는 쪽이 더 나쁘다).\n`);
     process.exit(2);
   }
+  // 설정은 슬롯 둘(누적 임계·설치처 고유 정의 변경)을 위해서만 읽는다 — 없거나 못 읽어도 리포트는 나온다.
+  const loaded = await loadConfig(root);
+  if (!loaded.ok && loaded.reason !== 'missing') {
+    process.stderr.write(
+      `[metrics] 설정을 읽지 못해 기본 슬롯으로 냅니다 (${loaded.reason}) — ${loaded.path}\n`,
+    );
+  }
+  const slots = metricsSlots(loaded.ok ? loaded.config : null);
+  const span = aggregationSpan(events, window);
+  const crossed = crossedDefinitionChanges(slots.changes, span);
   const s = summarize(events, { window });
   // 리포트마다 계약 검사를 얹는다 — 반출 금지 데이터는 아무도 안 열어 보므로, 보는 주기를 따로 만들지 않고
   // 이미 있는 주기에 붙인다 (docs/13 §3 · F26).
   const a = auditContract(events, { user: osUser() });
   process.stdout.write(
-    `[metrics] 이벤트 ${events.length}${broken > 0 ? ` · 깨진 줄 ${broken}(제외)` : ''} — ${logPath(root)}\n` +
-      render(s) +
+    renderHeaderLine({
+      count: events.length,
+      broken,
+      path: logPath(root),
+      threshold: slots.eventNotice,
+    }) +
       '\n' +
-      renderContractLine(a) +
+      [...renderDefinitionNotice(crossed, span, slots.rejected), render(s), renderContractLine(a)].join(
+        '\n',
+      ) +
       '\n',
   );
   process.exit(0);

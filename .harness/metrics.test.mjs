@@ -18,6 +18,13 @@ import {
   auditContract,
   renderContract,
   renderContractLine,
+  renderHeaderLine,
+  metricsSlots,
+  aggregationSpan,
+  crossedDefinitionChanges,
+  renderDefinitionNotice,
+  DEFINITION_CHANGES,
+  DEFAULT_EVENT_NOTICE,
 } from './metrics.mjs';
 
 const t = (m) => `2026-08-18T06:${String(m).padStart(2, '0')}:00Z`;
@@ -863,4 +870,167 @@ test('⭐ parseWindow — 잘못된 창은 던진다: 값 없음 · 못 읽는 �
   assert.throws(() => parseWindow(['--from', '지난주']), /날짜로 읽을 수 없습니다/);
   assert.throws(() => parseWindow(['--from', '2026-09-18', '--to', '2026-09-04']), /보다 앞서야 합니다/);
   assert.throws(() => parseWindow(['--from', '2026-09-04', '--to', '2026-09-04']), /보다 앞서야 합니다/);
+});
+
+// ── 리포트 줄에 얹은 판단 지점 둘 — 로그 누적 임계 · 정의 변경 교차 ──────────────────────
+// 여기서 지키는 계약: **누적 알림은 삭제를 권하지 않는다**(그 로그가 지표의 유일한 원본이라 지운 구간은
+// 되살릴 수 없다), **임계는 설치처가 바꿀 수 있는 슬롯**이다, **경고는 집계가 실제로 변경 지점을 걸칠 때만**
+// 뜨고 경계에 딱 선 것은 걸친 것이 아니다, **내장 이력과 설치처 고유 이력은 한 판정으로 합쳐진다**,
+// **설정이 없거나 이력이 비어도 리포트가 돈다**, **읽을 수 없는 이력 항목은 조용히 사라지지 않는다.**
+
+const evAt = (iso) => ({ ...pass(0), ts: iso }); // 시각만 중요한 이벤트 — 범위 계산용
+
+test('⭐ 임계 미만이면 첫 줄은 종전 그대로다 — 없는 경고를 붙이지 않는다', () => {
+  assert.equal(
+    renderHeaderLine({ count: 99999, path: '/p/.harness/log.jsonl', threshold: 100000 }),
+    '[metrics] 이벤트 99999 — /p/.harness/log.jsonl',
+  );
+});
+
+test('⭐ 임계에 닿으면 같은 줄이 분할 보관을 권하고, 삭제가 선택지가 아님을 말한다', () => {
+  const line = renderHeaderLine({ count: 100000, broken: 2, path: 'log.jsonl', threshold: 100000 });
+  assert.match(line, /이벤트 100000 · 깨진 줄 2\(제외\) — log\.jsonl/, '종전 표기는 그대로 남는다');
+  assert.match(line, /임계 100000/);
+  assert.match(line, /분할/, '나눠 보관하라는 권고');
+  assert.match(line, /삭제 금지/, '삭제가 선택지가 아니라고 못 박는다');
+  assert.match(line, /영구 소실/, '왜 지우면 안 되는지 — 지운 구간은 다시 만들 수 없다');
+});
+
+test('⭐ 임계는 설정 슬롯이다 — 설치처가 낮추면 그 값에서 알림이 뜬다', () => {
+  assert.equal(metricsSlots(null).eventNotice, DEFAULT_EVENT_NOTICE, '설정이 없으면 기본 임계');
+  assert.equal(DEFAULT_EVENT_NOTICE, 100000);
+  const lowered = metricsSlots({ metrics: { eventNotice: 500 } });
+  assert.equal(lowered.eventNotice, 500);
+  assert.match(
+    renderHeaderLine({ count: 500, path: 'log.jsonl', threshold: lowered.eventNotice }),
+    /임계 500 도달/,
+  );
+  assert.equal(
+    renderHeaderLine({ count: 499, path: 'log.jsonl', threshold: lowered.eventNotice }),
+    '[metrics] 이벤트 499 — log.jsonl',
+  );
+  // 수가 아니거나 0 이하인 값은 "알림 끄기" 로 읽지 않는다 — 잘못 채운 슬롯이지 판단이 아니다.
+  assert.equal(metricsSlots({ metrics: { eventNotice: 0 } }).eventNotice, DEFAULT_EVENT_NOTICE);
+  assert.equal(metricsSlots({ metrics: { eventNotice: '많이' } }).eventNotice, DEFAULT_EVENT_NOTICE);
+});
+
+test('⭐ 내장 이력은 전 설치처 공통 변경 — 첫 항목이 2026-09-18 의 완주 분모 재정의다', () => {
+  assert.deepEqual(
+    DEFINITION_CHANGES.map((c) => c.at),
+    ['2026-09-18'],
+  );
+  assert.match(DEFINITION_CHANGES[0].what, /분모/, '무엇이 바뀌었는지가 항목 안에 있다');
+});
+
+test('⭐ 창이 변경 지점을 걸치면 경고가 뜨고 무엇이 바뀌었는지가 한 줄 따라붙는다', () => {
+  const span = aggregationSpan([], parseWindow(['--from', '2026-09-04', '--to', '2026-10-02']));
+  const crossed = crossedDefinitionChanges(metricsSlots(null).changes, span);
+  assert.deepEqual(
+    crossed.map((c) => c.at),
+    ['2026-09-18'],
+  );
+  const out = renderDefinitionNotice(crossed, span).join('\n');
+  assert.match(out, /2026-09-04 ~ 2026-10-02/, '어느 범위가 걸치는지 범위를 밝힌다');
+  assert.match(out, /정의 변경 지점 1건/);
+  assert.match(out, /섞어 읽지 마세요/, '이전 구간과 섞지 말라는 지시');
+  assert.match(out, /· 2026-09-18 — .*분모/, '무엇이 바뀌었는지 한 줄');
+});
+
+test('⭐ 변경 지점 한쪽에만 있는 창은 경고가 없다 — 경계에 딱 선 창도 섞인 것이 아니다', () => {
+  const slots = metricsSlots(null);
+  const before = aggregationSpan([], parseWindow(['--from', '2026-09-04', '--to', '2026-09-18']));
+  assert.deepEqual(crossedDefinitionChanges(slots.changes, before), [], '--to 는 제외 경계라 전부 옛 정의');
+  assert.deepEqual(renderDefinitionNotice([], before), [], '걸친 것이 없으면 줄 자체가 없다');
+  const after = aggregationSpan([], parseWindow(['--from', '2026-09-18', '--to', '2026-10-02']));
+  assert.deepEqual(crossedDefinitionChanges(slots.changes, after), [], '--from 은 포함 경계라 전부 새 정의');
+});
+
+test('⭐ 창을 안 주면 로그의 첫~끝이 범위다 — 변경 전후가 섞인 로그면 경고한다', () => {
+  const slots = metricsSlots(null);
+  const straddle = aggregationSpan([evAt('2026-09-10T00:00:00Z'), evAt('2026-09-20T00:00:00Z')]);
+  assert.equal(straddle.windowed, false);
+  assert.match(straddle.label, /2026-09-10 ~ 2026-09-20/, '범위 이름이 로그 전체임을 드러낸다');
+  assert.deepEqual(
+    crossedDefinitionChanges(slots.changes, straddle).map((c) => c.at),
+    ['2026-09-18'],
+  );
+  const onlyBefore = aggregationSpan([evAt('2026-09-10T00:00:00Z'), evAt('2026-09-17T23:59:59Z')]);
+  assert.deepEqual(crossedDefinitionChanges(slots.changes, onlyBefore), []);
+  const onlyAfter = aggregationSpan([evAt('2026-09-18T00:00:00Z'), evAt('2026-09-30T00:00:00Z')]);
+  assert.deepEqual(crossedDefinitionChanges(slots.changes, onlyAfter), [], '변경 시각에 시작한 로그는 전부 새 정의');
+  // 마지막 이벤트가 변경 시각과 같으면 그 한 건은 새 정의 쪽이라 섞인 것이다
+  const endsAtChange = aggregationSpan([evAt('2026-09-10T00:00:00Z'), evAt('2026-09-18T00:00:00Z')]);
+  assert.deepEqual(
+    crossedDefinitionChanges(slots.changes, endsAtChange).map((c) => c.at),
+    ['2026-09-18'],
+  );
+});
+
+test('한쪽만 열린 창은 로그 끝으로 닫힌다 — --from 만 줘도 걸침 판정이 선다', () => {
+  const events = [evAt('2026-09-10T00:00:00Z'), evAt('2026-09-25T00:00:00Z')];
+  const span = aggregationSpan(events, parseWindow(['--from', '2026-09-04']));
+  assert.deepEqual(
+    crossedDefinitionChanges(metricsSlots(null).changes, span).map((c) => c.at),
+    ['2026-09-18'],
+  );
+});
+
+test('⭐ 설치처 고유 변경은 내장 이력과 합쳐져 시간 순으로 판정된다', () => {
+  const slots = metricsSlots({
+    metrics: {
+      definitionChanges: [
+        { at: '2026-09-18T12:00:00Z', what: '경계표를 실제 경계에 정합 — 소급 불가' },
+        { at: '2026-08-01', what: '이 설치처의 옛 변경' },
+      ],
+    },
+  });
+  assert.deepEqual(
+    slots.changes.map((c) => c.at),
+    ['2026-08-01', '2026-09-18', '2026-09-18T12:00:00Z'],
+  );
+  assert.equal(slots.rejected, 0);
+  const span = aggregationSpan([], parseWindow(['--from', '2026-09-04', '--to', '2026-10-02']));
+  const crossed = crossedDefinitionChanges(slots.changes, span);
+  assert.deepEqual(
+    crossed.map((c) => c.at),
+    ['2026-09-18', '2026-09-18T12:00:00Z'],
+    '내장 항목과 고유 항목이 한 판정에 같이 든다',
+  );
+  const out = renderDefinitionNotice(crossed, span).join('\n');
+  assert.match(out, /정의 변경 지점 2건/);
+  assert.match(out, /경계표/, '고유 항목의 내용도 그대로 보인다');
+});
+
+test('⭐ 이력이 비어도, 설정이 없어도 동작한다 — 걸칠 것이 없으면 줄이 없다', () => {
+  const span = aggregationSpan([evAt('2026-09-10T00:00:00Z'), evAt('2026-09-20T00:00:00Z')]);
+  assert.deepEqual(crossedDefinitionChanges([], span), [], '이력이 비면 걸칠 것도 없다');
+  assert.deepEqual(renderDefinitionNotice([], span), []);
+  assert.deepEqual(
+    metricsSlots({}).changes.map((c) => c.at),
+    ['2026-09-18'],
+    'metrics 슬롯이 아예 없어도 내장 이력은 산다',
+  );
+  const empty = aggregationSpan([]);
+  assert.equal(empty.from, null);
+  assert.deepEqual(
+    crossedDefinitionChanges(metricsSlots(null).changes, empty),
+    [],
+    '이벤트가 없으면 걸칠 범위 자체가 없다',
+  );
+});
+
+test('⭐ 읽을 수 없는 이력 항목은 조용히 사라지지 않는다 — 건수와 필요한 필드를 말한다', () => {
+  const slots = metricsSlots({
+    metrics: { definitionChanges: [{ at: '언젠가', what: '무언가' }, { at: '2026-09-20' }] },
+  });
+  assert.equal(slots.rejected, 2, '날짜를 못 읽는 것과 설명이 없는 것 둘 다 제외된다');
+  assert.deepEqual(
+    slots.changes.map((c) => c.at),
+    ['2026-09-18'],
+    '나머지 판정은 그대로 돈다',
+  );
+  const out = renderDefinitionNotice([], aggregationSpan([]), slots.rejected).join('\n');
+  assert.match(out, /2건/);
+  assert.match(out, /at/, '무엇을 채워야 하는지 필드 이름으로 말한다');
+  assert.match(out, /what/);
 });
