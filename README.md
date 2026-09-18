@@ -62,6 +62,34 @@ FRAMEWRIGHT_PORT=1234 npm run dev
 > WebCodecs needs a recent **Chrome/Edge**. First slice targets **H.264 MP4**; HEVC is
 > reported as "fallback needed", VFR is flagged for conform.
 
+## Setting up on another machine
+
+The two lines above are the short version. A machine that has never built this
+repo needs one more install step, and without it `npm run verify` cannot finish:
+
+```bash
+npm ci
+npx playwright install chromium
+```
+
+- **Node** is the version `.nvmrc` names — **24**. `package.json`'s `engines`
+  says the same, so npm warns if you are below it.
+- **`npx playwright install chromium` is not optional.** There is no
+  `postinstall` script, so `npm ci` does not download the browser and
+  `npm run e2e` fails at launch until you run it. Do **not** add `--with-deps`;
+  that flag installs Linux system packages and only works there.
+- **The bundled Chromium has no H.264.** A green `npm run verify` on a fresh
+  machine is therefore green _with the import and export e2e skipped_ — it has
+  not exercised the video path at all. To cover those, install Google Chrome and
+  run `npm run e2e:chrome` (`playwright.config.ts` has a `chrome` project on
+  `channel: 'chrome'` for exactly this).
+- **On Windows you need Git Bash**, because the repo's hooks run `bash`.
+
+**What the clone does not bring with it.** Imported media (stored in OPFS), saved
+documents and their version history, and your keymap all live in the browser
+profile, not in the repo — so a new machine starts with an empty media bin, no
+project history and the default shortcuts.
+
 ## Scripts
 
 - `npm run dev` — dev server

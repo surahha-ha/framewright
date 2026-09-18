@@ -4,6 +4,9 @@
   "version": "0.0.1",
   "type": "module",
   "description": "Craft video in your browser — a frame-accurate, WebCodecs-powered editor.",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

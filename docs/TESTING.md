@@ -324,15 +324,14 @@ page`, and this machine's `netstat` shows no connection attempt at all — while
   (ADR-0016). It was made through the app's own export after swapping the
   decoded audio in place (no ffmpeg on the machine that made it); the other
   fixture never goes quiet, so it is the one that proves the button waits.
-- **There is no picture fixture at all.** `e2e/fixtures/` holds those two mp4s
-  and nothing else, and the repo tracks no `.png` / `.jpg` / `.webp` / `.gif`
-  anywhere (checked 2026-09-18). So anything that needs an image — the image
-  commands' e2e, a visual pass over 이미지 — has to make one first; the 2026-09-18
-  pass used a 320×180 PNG written to the session's scratchpad, which no later
-  session can reach. One small PNG committed to `e2e/fixtures/` is the cheap
-  fix and nobody has done it.
+- `e2e/fixtures/sample-picture.png` is the picture fixture, added 2026-09-18:
+  320×180, 704 bytes, a synthetic magenta field with a white cross through the
+  middle, so it reads as itself over any frame of either mp4. Anything that needs
+  an image — the image commands' e2e, a visual pass over 이미지 — uploads this one
+  and no longer has to make its own. Before it existed, the 2026-09-18 pass wrote
+  a PNG into that session's scratchpad, which no later session could reach.
 
-**How to check frame accuracy by eye.** That fixture burns its own frame number
+**How to check frame accuracy by eye.** `sample-h264.mp4` burns its own frame number
 into the top-left of the picture. Find the playhead slider (`find` → "재생 위치"),
 click it, drive it with `Home` / `End` / `ArrowRight`, and zoom on the picture's
 corner and on the transport readout. **The playhead number must equal the
