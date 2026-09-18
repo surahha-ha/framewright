@@ -564,7 +564,8 @@ test('⭐ 계약 — 제대로 쓰인 stop 은 위반·관찰 0, turn 없는 sto
 // ── v2 ㄷ 축 — 검증 그린의 대체 경로 (docs/16 §5 기준 4 · 결정 이력 2026-09-03(3)) ────────────────
 // 여기서 지키는 계약: **그린 = 테스트 없음이 직전 audit 보다 늘지 않음**(미달 0 이 아니다 — 유예된 기존 위반이
 // 있는 설치처를 영원히 레드로 만들지 않는다), **첫 audit 은 미판정**, **turn 없는 audit 은 시계열엔 있어도 턴에
-// 붙지 않는다**, **완주는 세 축이 모두 판정된 턴에서만** 세고 그 전에는 그 말을 쓰지 않는다.
+// 붙지 않는다**, **완주는 세 축의 논리곱**이라 거짓은 한 축이면 확정(분모에 실패로 든다)이고 참은 세 축이 전부
+// 참이어야 한다 — 다만 축이 통째로 미수집이면 그 전에는 "완주" 라는 말 자체를 쓰지 않는다.
 
 const au = (m, turn, missing, session = 's1') => ({
   ts: t(m), event: 'audit', gate: 'test-first', total: 10, inScope: 5, missing, deny: 0, ask: missing, ...(turn ? { turn, session } : {}),
@@ -613,16 +614,19 @@ test('경계표 없는 audit(inScope 0)은 시계열 밖 — 비교 대상도 �
   assert.equal(s.verify.judged, 0);
 });
 
-test('⭐ 완주(세 축) — 세 축 모두 판정된 턴만 분모, 셋 다 참만 분자', () => {
+test('⭐ 완주(세 축) — 거짓인 축이 하나라도 확정이면 분모에 실패로 들고, 셋 다 참이어야 분자다', () => {
   const s = summarize([
-    ...turnDone(1, 't1', 27), //                      검증 미판정(첫 audit) → 분모 밖
+    ...turnDone(1, 't1', 27), //                      거짓인 축 없음 + 검증 미판정(첫 audit) → 분모 밖
     ...turnDone(3, 't2', 27), //                      무발동 ∧ 정상 종료 ∧ 그린 → 완주
-    { ...fire(5, 'deny', 'x'), turn: 't3', session: 's1' }, stop(6, 't3'), au(6, 't3', 27), // 발동 → 완주 아님
-    gp(7, 't4'), au(7, 't4', 27), //                  stop 없음, 뒤 턴 있음 → 중단, 그린 → 완주 아님
-    ...turnDone(9, 't5', 28), //                      레드 → 완주 아님
+    { ...fire(5, 'deny', 'x'), turn: 't3', session: 's1' }, stop(6, 't3'), au(6, 't3', 27), // 발동 확정 → 실패
+    gp(7, 't4'), au(7, 't4', 27), //                  stop 없음, 뒤 턴 있음 → 중단 확정 → 실패
+    ...turnDone(9, 't5', 28), //                      레드 확정 → 실패
   ]);
-  assert.deepEqual(s.complete, { observed: true, judged: 4, done: 1 });
-  assert.match(render(s), /v2 완주\(세 축\)\s+완주 1\/4 — 세 축 모두 판정된 턴 4 기준/);
+  assert.deepEqual(s.complete, {
+    observed: true, denominator: 4, done: 1, failed: 3, excluded: 1, preHook: 0,
+    failGate: 1, failInterrupted: 1, failRed: 1,
+  });
+  assert.match(render(s), /v2 완주\(세 축\)\s+완주 1\/4 — 분모 = 완주 1 \+ 완주 실패 3/);
 });
 
 test('⭐ 한 축이라도 미수집이면 완주 줄은 미수집이고 어느 축이 없는지 말한다 — 그 전에는 "완주" 를 세지 않는다', () => {
@@ -634,15 +638,107 @@ test('⭐ 한 축이라도 미수집이면 완주 줄은 미수집이고 어느 
   assert.match(neither, /미수집 — 중단 축·검증 축 미수집/);
 });
 
-test('세 축이 있어도 한 턴에 같이 잡힌 적이 없으면 완주 0/0 이라고 그대로 말한다', () => {
+// 이 자리에 있던 "세 축이 한 턴에 같이 잡힌 적이 없으면 0/0" 테스트는 지키던 명제가 새 정의에서 거짓이 되어
+// (그 픽스처의 중단 턴 하나가 이제 분모에 든다) 아래 테스트로 갈아 끼웠다. 새로 지키는 명제는
+// **거짓인 축이 하나도 없이 미판정 축만 남은 턴은 분모 밖**이라는 것 — 정의를 넓히면서도 여기는 넓히지 않았다.
+test('⭐ 거짓인 축이 없고 미판정 축만 남은 턴은 분모 밖이다 — 실패도 완주도 아니라고 그대로 말한다', () => {
   const s = summarize([
-    gp(1, 't1'), stop(2, 't1'), //          중단 축만
-    gp(3, 't2'), au(4, 't2', 3), //         검증 축(첫 audit → 미판정)
-    gp(5, 't3'), au(6, 't3', 3), //         세션 마지막 → 중단 미판정
+    ...turnDone(1, 't1', 27), //    무발동 ∧ 정상 종료 · 검증은 첫 audit 이라 미판정
+    gp(3, 't2'), stop(4, 't2'), //  무발동 ∧ 정상 종료 · 턴 종료 audit 이 없어 검증 미수집
   ]);
-  assert.equal(s.complete.observed, true);
-  assert.equal(s.complete.judged, 0);
-  assert.match(render(s), /완주 0\/0 — .*아직 세 축이 한 턴에 같이 잡힌 적이 없습니다/);
+  assert.deepEqual(s.complete, {
+    observed: true, denominator: 0, done: 0, failed: 0, excluded: 2, preHook: 0,
+    failGate: 0, failInterrupted: 0, failRed: 0,
+  });
+  assert.match(
+    render(s),
+    /완주 0\/0 — 분모 = 완주 0 \+ 완주 실패 0 .*· 분모 밖 2\(거짓인 축이 없고 미판정 축이 남은 턴\) · 아직 완주도 실패도 확정된 턴이 없습니다/,
+  );
+});
+
+test('⭐ 중단 턴이 분모에 들어간다 — 중단이면 Stop 훅이 안 돌아 검증 축이 미수집이지만 중단만으로 실패가 확정된다', () => {
+  const s = summarize([
+    ...turnDone(1, 't1', 5), // 첫 audit — 검증 미판정 → 분모 밖
+    gp(5, 't2'), //             stop 없음 · 턴 종료 audit 없음
+    ...turnDone(9, 't3', 5), // 같은 세션의 뒤 턴 — t2 를 중단으로 만든다
+  ]);
+  assert.equal(s.verify.unobserved, 1, '중단 턴의 검증 축은 미수집이다');
+  assert.deepEqual(
+    {
+      denominator: s.complete.denominator, done: s.complete.done,
+      failed: s.complete.failed, failInterrupted: s.complete.failInterrupted,
+    },
+    { denominator: 2, done: 1, failed: 1, failInterrupted: 1 },
+  );
+});
+
+test('⭐ 발동만 확정이고 중단·검증이 미판정인 턴도 분모에 들어간다 — 거짓에는 한 축이면 충분하다', () => {
+  const s = summarize([
+    ...turnDone(1, 't1', 5), //                                 첫 audit — 검증 미판정 → 분모 밖
+    { ...fire(20, 'deny', 'x'), turn: 'tz', session: 's9' }, // 발동뿐 · stop 도 뒤 턴도 audit 도 없다
+  ]);
+  assert.equal(s.turnEnd.undetermined, 1, '중단 축은 미판정(세션 마지막 턴)');
+  assert.equal(s.verify.unobserved, 1, '검증 축은 미수집');
+  assert.deepEqual(
+    {
+      denominator: s.complete.denominator, done: s.complete.done,
+      failed: s.complete.failed, failGate: s.complete.failGate,
+    },
+    { denominator: 1, done: 0, failed: 1, failGate: 1 },
+  );
+});
+
+test('⭐ 레드만 확정이고 중단 축이 미판정인 턴도 분모에 들어간다', () => {
+  const s = summarize([
+    ...turnDone(1, 't1', 5), //                 첫 audit — 검증 미판정 → 분모 밖
+    gp(5, 't2', 's2'), au(6, 't2', 9, 's2'), // 테스트 없음이 5 → 9 로 늘었다(레드) · stop 도 뒤 턴도 없다
+  ]);
+  assert.equal(s.turnEnd.undetermined, 1, '중단 축은 미판정');
+  assert.equal(s.verify.red, 1);
+  assert.deepEqual(
+    {
+      denominator: s.complete.denominator, done: s.complete.done,
+      failed: s.complete.failed, failRed: s.complete.failRed,
+    },
+    { denominator: 1, done: 0, failed: 1, failRed: 1 },
+  );
+});
+
+test('⭐ 첫 stop 이전 턴은 발동·레드가 있어도 분모 밖이다 — 정상 종료가 성립할 수 없어 실패로만 들어가는 구간이다', () => {
+  const s = summarize([
+    au(0, null, 5), //                                                              수동 선실측 — 시계열 시작
+    { ...fire(1, 'deny', 'x'), turn: 'tp', session: 's7' }, au(2, 'tp', 9, 's7'), // 발동 + 레드인데 첫 stop 이전
+    ...turnDone(5, 't1', 5), //                                                     첫 stop — 여기서 관찰이 시작된다
+  ]);
+  assert.equal(s.turnEnd.preHook, 1);
+  assert.equal(s.verify.red, 1, '레드 자체는 검증 축 줄에 그대로 보인다');
+  assert.deepEqual(s.complete, {
+    observed: true, denominator: 1, done: 1, failed: 0, excluded: 0, preHook: 1,
+    failGate: 0, failInterrupted: 0, failRed: 0,
+  });
+  assert.match(render(s), /v2 완주\(세 축\)[^\n]*· 관찰 이전 1 제외\(첫 stop 이전 턴/);
+});
+
+test('⭐ 완주 줄은 분모가 무엇으로 이뤄졌는지 스스로 말한다 — 비율만 적으면 다음 창에서 다른 정의로 읽힌다', () => {
+  const out = render(
+    summarize([
+      au(0, null, 5), //                                          수동 선실측 — 시계열 시작
+      { ...fire(1, 'deny', 'x'), turn: 'tp', session: 's7' }, //  첫 stop 이전 발동 → 관찰 이전
+      ...turnDone(5, 'ok', 5), //                                 완주
+      { ...fire(7, 'deny', 'x'), turn: 'g1', session: 's1' }, stop(8, 'g1'), au(8, 'g1', 5), // 발동 → 실패
+      gp(9, 'i1'), au(9, 'i1', 5), //                             stop 없음 + 뒤 턴 있음 → 중단 → 실패
+      gp(11, 'i2'), stop(12, 'i2'), au(12, 'i2', 5), //           완주
+      ...turnDone(13, 'r1', 9), //                                레드 → 실패
+      gp(15, 'u1'), stop(16, 'u1'), //                            검증 미수집 → 분모 밖
+    ]),
+  );
+  assert.match(
+    out,
+    /v2 완주\(세 축\)\s+완주 2\/5 — 분모 = 완주 2 \+ 완주 실패 3 \(완주 = 게이트 무발동 ∧ 정상 종료 ∧ 검증 그린\(대체\) · 실패 = 발동·중단·레드 중 하나라도 확정\)/,
+  );
+  assert.match(out, /v2 완주\(세 축\)[^\n]*· 실패 내역 발동 1 · 중단 1 · 레드 1\(중복 가능\)/);
+  assert.match(out, /v2 완주\(세 축\)[^\n]*· 분모 밖 1\(거짓인 축이 없고 미판정 축이 남은 턴\)/);
+  assert.match(out, /v2 완주\(세 축\)[^\n]*· 관찰 이전 1 제외\(첫 stop 이전 턴/);
 });
 
 test('turn 이 실린 audit 은 계약 안이다 — 식별자는 공통 필드', () => {
@@ -703,7 +799,10 @@ test('⭐ 창의 첫 턴은 창 밖의 직전 audit 과 비교된다 — 문맥�
     { green: s.verify.green, red: s.verify.red, undetermined: s.verify.undetermined },
     { green: 1, red: 1, undetermined: 0 },
   );
-  assert.deepEqual(s.complete, { observed: true, judged: 2, done: 1 });
+  assert.deepEqual(s.complete, {
+    observed: true, denominator: 2, done: 1, failed: 1, excluded: 0, preHook: 0,
+    failGate: 0, failInterrupted: 0, failRed: 1,
+  });
   assert.match(render(s), /v2 완주\(세 축\)\s+완주 1\/2/);
 });
 

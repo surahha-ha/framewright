@@ -273,18 +273,50 @@ export function summarize(events, opts = {}) {
   }
   verify.judged = verify.green + verify.red;
 
-  // v2 완주 — 세 축이 **모두 판정된** 턴만 분모로, 셋 다 참인 턴이 분자 (docs/16 §3). 축 하나라도 미판정·미수집이면
-  // 그 턴은 분모에서 빠지고 빠진 수는 각 축 줄에 보인다. 여기서 비로소 "완주" 라는 말을 쓴다.
-  const complete = { observed: turnEnd.observed && verify.observed, judged: 0, done: 0 };
+  // v2 완주 — 세 축의 **논리곱**이다 (docs/16 §3). 논리곱은 비대칭이라 분모 조건도 비대칭이다.
+  //   ⭐ 거짓에는 한 축이면 충분하다 — 발동·중단·레드 중 하나라도 확정이면 나머지 축이 미판정이어도 완주 실패다.
+  //   ⭐ 참에는 세 축이 전부 참이어야 한다. 분모 = 완주 + 완주 실패.
+  //   옛 정의는 "세 축이 모두 판정된 턴" 을 분모로 삼아 **실패만 골라 버렸다** — 중단 턴은 Stop 훅이 안 돌아
+  //   턴 종료 audit 도 없으니 검증 축이 미수집이 되어 통째로 분모에서 빠졌다(실측: 중단 32/32 소실 → 100%).
+  //   ⭐ preHook 턴(첫 stop 이전)은 통째로 제외한다 — stop 이 없으니 "정상 종료" 가 원천적으로 성립하지 않아
+  //      실패로만 들어가는 비대칭 구간이고, 설치처를 새로 붙이는 날마다 생겨 창 간 비교를 오염시킨다.
+  //   거짓인 축이 하나도 없는데 미판정 축이 남은 턴은 분모 밖으로 빼되 그 수를 줄에 보인다 — 0 으로 둔갑 금지.
+  const complete = {
+    observed: turnEnd.observed && verify.observed,
+    denominator: 0,
+    done: 0,
+    failed: 0,
+    excluded: 0, // 거짓인 축이 없고 미판정 축이 남은 턴
+    preHook: 0, // 첫 stop 이전 턴 — 관찰 이전 구간
+    failGate: 0,
+    failInterrupted: 0,
+    failRed: 0,
+  };
   if (complete.observed) {
     for (const turn of gatedTurns) {
       const sv = stopVerdict.get(turn);
-      const vv = verifyVerdict.get(turn);
-      if ((sv === 'completed' || sv === 'interrupted') && typeof vv === 'boolean') {
-        complete.judged++;
-        if (!firedTurns.has(turn) && sv === 'completed' && vv) complete.done++;
+      const vv = verifyVerdict.get(turn); // true 그린 · false 레드 · null 미판정 · undefined 미수집
+      if (sv === 'preHook') {
+        complete.preHook++;
+        continue;
       }
+      const gateFalse = firedTurns.has(turn);
+      const stopFalse = sv === 'interrupted';
+      const verifyFalse = vv === false;
+      if (gateFalse || stopFalse || verifyFalse) {
+        complete.failed++;
+        if (gateFalse) complete.failGate++;
+        if (stopFalse) complete.failInterrupted++;
+        if (verifyFalse) complete.failRed++;
+        continue;
+      }
+      if (sv === 'completed' && vv === true) {
+        complete.done++;
+        continue;
+      }
+      complete.excluded++;
     }
+    complete.denominator = complete.done + complete.failed;
   }
 
   // 지표 3 — 인접 발동 간 시간(분). 발동이 2건 미만이면 잴 수 없다.
@@ -471,14 +503,23 @@ export function render(s) {
             'turn 있는 audit 이 0 — testFirst.auditOnStop: true 로 턴 종료 선실측을 켜세요 (골격 2 시계열 대체 경로)',
           )),
   );
-  // v2 완주 — 세 축이 다 있을 때만 이 줄이 값을 갖는다.
+  // v2 완주 — 세 축이 다 있을 때만 이 줄이 값을 갖는다. 비율만 적지 않고 **분모가 무엇으로 이뤄졌는지**를
+  // 줄 안에서 밝힌다 — 분모 정의가 줄 밖에 있으면 다음 창에서 같은 수를 다른 정의로 읽는다.
   const c = s.complete;
   const lacking = [!s.turnEnd.observed ? '중단 축' : null, !v.observed ? '검증 축' : null].filter(Boolean);
   lines.push(
     `v2 완주(세 축)    ` +
       (c.observed
-        ? `완주 ${c.done}/${c.judged} — 세 축 모두 판정된 턴 ${c.judged} 기준 (게이트 무발동 ∧ 정상 종료 ∧ 검증 그린(대체))` +
-          (c.judged === 0 ? ' · 아직 세 축이 한 턴에 같이 잡힌 적이 없습니다' : '')
+        ? `완주 ${c.done}/${c.denominator} — 분모 = 완주 ${c.done} + 완주 실패 ${c.failed}` +
+          ` (완주 = 게이트 무발동 ∧ 정상 종료 ∧ 검증 그린(대체) · 실패 = 발동·중단·레드 중 하나라도 확정)` +
+          (c.failed > 0
+            ? ` · 실패 내역 발동 ${c.failGate} · 중단 ${c.failInterrupted} · 레드 ${c.failRed}(중복 가능)`
+            : '') +
+          (c.excluded > 0 ? ` · 분모 밖 ${c.excluded}(거짓인 축이 없고 미판정 축이 남은 턴)` : '') +
+          (c.preHook > 0
+            ? ` · 관찰 이전 ${c.preHook} 제외(첫 stop 이전 턴 — 정상 종료가 성립할 수 없는 구간)`
+            : '') +
+          (c.denominator === 0 ? ' · 아직 완주도 실패도 확정된 턴이 없습니다' : '')
         : missing(`${lacking.join('·')} 미수집 — 세 축이 다 붙기 전에는 완주율을 내지 않습니다`)),
   );
   if (s.probesExcluded > 0) lines.push(`  (프로브 ${s.probesExcluded}건은 전 지표에서 제외)`);
