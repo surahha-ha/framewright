@@ -47,7 +47,7 @@ test.describe('1280px — the media states fit', () => {
     // Reopened from the media store: the state this whole feature exists for.
     await page.reload();
     await expect(page.locator('.statusbar')).toContainText(
-      '영상도 준비됐어요',
+      '파일도 준비됐어요',
       {
         timeout: 15_000,
       },

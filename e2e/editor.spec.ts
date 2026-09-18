@@ -176,7 +176,7 @@ test.describe('media survives a reload', () => {
       timeout: 15_000,
     });
     await expect(page.locator('.statusbar')).toContainText(
-      '영상도 준비됐어요',
+      '파일도 준비됐어요',
       {
         timeout: 15_000,
       },
@@ -351,7 +351,7 @@ test.describe('media survives a reload', () => {
 
     await page.reload();
     await expect(page.locator('.statusbar')).toContainText(
-      '영상도 준비됐어요',
+      '파일도 준비됐어요',
       {
         timeout: 15_000,
       },

@@ -10,15 +10,147 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-16 06:03 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-18 00:26 UTC — `npm run verify` **GREEN**
 
-- unit 797 passed · e2e 142 passed
+- unit 838 passed · e2e 142 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
 
-### E10 step 2, the image engine, is done and UNCOMMITTED (2026-09-16)
+### E10 step 3, the media, is done and UNCOMMITTED (2026-09-18)
+
+A picture dropped on the media bin is an asset now: kept in OPFS by
+content hash, restored after a reload, re-linked by name when the
+browser did not keep it, and put on the timeline at the playhead from a
+button in its own row. **Nothing of it is visible on the picture yet** —
+the stage is step 4 and the lane is step 5 — so **step 3 must not ship
+on its own.** The gate was re-run from scratch and stamped by
+`npm run handoff` at the top of this file: **GREEN, unit 838 passed
+across 52 test files (was 797 across 50), e2e 142 passed (unchanged).**
+
+**New files** — `src/ui/images.ts` (302 lines), the browser half behind
+the engine's `ImageSource` seam: `createImageBitmap`, the bitmap cache,
+`subscribeImages`, `browserImages`, `importImageFile`, `retainOnlyImages`
+and `releaseImage`. `ui/fonts.ts` is the precedent it follows — a module
+cache with a subscription and one state per asset. **`ImageBitmap.close()`
+is written in exactly one function**, and its new spec
+`src/ui/images.test.ts` holds that line down: the spec's `afterEach`
+asserts that every bitmap handed out was closed. `src/ui/media.test.ts`
+is new too.
+
+**Changed** —
+
+- **`src/ui/media.ts`** — one `isMediaReady(asset)` replaces the
+  video-only `!getDecodeService(a.id)` at all three places that asked
+  "is this media here" (`Preview.tsx`, `MediaBin.tsx`,
+  `ExportButton.tsx`). A picture never gets a decode service, so the old
+  test called every picture missing and the export refused to run at all
+  on a document that had one. `restoreSavedMedia` now branches on
+  `asset.kind`, and **that branch fixed a real bug:** restore rebuilt
+  every saved file as `'video/mp4'` and fed it to `demuxVideo`, so a
+  saved PNG stalled mp4box — and the restore loop is sequential, so
+  every asset queued behind it stalled with it.
+- **`src/ui/MediaBin.tsx`** — `accept="video/*,image/*"`, the image
+  branch of `onFile`, the 🖼 row with its 재생 위치에 넣기 button
+  (**the first row in this app to carry a button**: `CommandButton`
+  cannot carry it, because that component's `canRun` / `perform` take no
+  args and this command has to be told WHICH picture), and re-link by
+  name for pictures.
+- **`src/ui/ExportButton.tsx`** — `images: browserImages` beside
+  `fonts: browserFonts`, the phase word 이미지 여는 중 (the three
+  chained ternaries became the `PHASE_WORDS` lookup), and
+  `missingImagesText` on the ⚠ sentence.
+- **`src/App.tsx`** — `retainOnlyImages(ids)` and `retainOnlyMedia(ids)`
+  in the retain effect that already freed the four per-asset caches.
+- `src/ui/Preview.tsx`, `src/store/projectStore.ts`, `src/styles.css`
+  and two e2e specs (`e2e/editor.spec.ts`, `e2e/narrow-layout.spec.ts`)
+  follow the new row and the new words.
+
+**One pass over the wording, under one rule.** A sentence about footage
+stays about footage; a sentence about the thing the user just picked
+branches on the asset's kind; a sentence about STORAGE became 파일,
+because what the browser keeps and hands back is both kinds. So the
+bin's restore line reads 저장해 둔 파일을 여는 중이에요, the export's
+refusal reads 파일을 다시 선택한 뒤 내보낼 수 있어요, and a failed
+import still says 이미지를 여는 중 문제가 생겼어요 or 영상을 여는 중
+문제가 생겼어요 according to what was dropped.
+
+**Two decisions a future session should not re-litigate:**
+
+- **`heldAssetIds` is swept; `heldMediaKeys` is deliberately not.** The
+  QA blocker this round was that `heldAssetIds` — the claim "the bitmap
+  cache is holding this picture" — was a module `Set` nobody ever swept,
+  so importing a picture that had no `opfsKey`, undoing and redoing left
+  `isMediaReady` saying "ready" for ever about a picture whose bitmap
+  had been closed. The fix is the new `retainOnlyMedia(assetIds)`,
+  driven by `App.tsx`'s retain effect beside `retainOnlyImages`. **The
+  other set is not swept the same way on purpose**: what `heldMediaKeys`
+  records is "these bytes were read in this page load", keyed by
+  `opfsKey`, and an asset leaving the document does not make that
+  false. `src/ui/media.test.ts` pins the asymmetry, so nobody "fixes" it
+  into symmetry.
+- **Re-link by name was built for pictures** — row 4 of the plan asked
+  for it and the first pass had explicitly left it out. With it, the
+  drop zone's invitation branches on whether the document has any
+  footage at all: 영상 드래그 with none, 영상이나 이미지 드래그 once
+  there is some (`dropInvitation` in `ui/media.ts`). `image.import`
+  refuses while there is no footage, so inviting a picture then would be
+  an offer the app does not honour.
+
+**Persona round — all four ran, and both blockers are gone:**
+
+- `framewright-reviewer` — 0 findings. It also **corrected a premise
+  that was in circulation and is wrong: there is no module cycle here.**
+  `ui/media.ts` does not import `./images`, and `markMediaHeld` is
+  called from `MediaBin.tsx` and nowhere else. Do not write into any
+  document that a cycle exists.
+- `tester-qa` — 1 blocker (the unswept `heldAssetIds` above), **fixed**;
+  1 major and 2 minors kept as debt.
+- `tester-novice` — 1 major, **fixed**. Its one "blocker" — a placed
+  picture leaves no visible trace — was **rejected as out of scope**,
+  because that is the plan's own order: the stage is step 4 and the lane
+  is step 5.
+- `tester-a11y` — 0 blockers, 2 minors, both extensions of debt already
+  written down.
+
+Every finding that was not fixed belongs in CLAUDE.md's "Known tech
+debt" list, which another session is writing as this is written. **That
+list is not copied here** — read it there.
+
+**The Chrome visual pass did not happen, and it is blocked.** `navigate`
+reported **success** for both `http://localhost:9990/` and
+`http://127.0.0.1:9990/` while the tab stayed on `chrome://newtab/`, and
+every screenshot after that failed with "Can't interact with
+browser-internal or unparseable URLs". Two attempts, same result. The
+dev server is not the variable: it was listening on 127.0.0.1:9990 and
+`curl` returned 200. The likeliest cause is that **the connected Chrome
+is not on this PC**, and the lever for that is `switch_browser`, which
+raises the request in every connected Chrome so the owner can press
+Connect in the right window. `select_browser` is not the lever — a wrong
+entry there looks exactly like the right one. **Do not spend time on the
+proxy / HTTPS-Only / extension-permission hypotheses: 2026-08-14 lost an
+hour to them.** Step 3 is also the step with the least to see — it puts
+nothing on the picture — so what a pass would catch here is the bin row
+and the drop zone's words, not the feature.
+
+**Uncommitted:** `src/ui/images.ts`, `src/ui/images.test.ts` and
+`src/ui/media.test.ts` (new), the changed `src/ui/media.ts`,
+`src/ui/MediaBin.tsx`, `src/ui/ExportButton.tsx`, `src/ui/Preview.tsx`,
+`src/App.tsx`, `src/store/projectStore.ts`, `src/styles.css`,
+`e2e/editor.spec.ts`, `e2e/narrow-layout.spec.ts`, this file, and
+`CLAUDE.md`'s debt list. The owner has not been asked for the commit.
+`main` = `origin/main` = `51cfdde`, 0 ahead and 0 behind; `51cfdde` is a
+hooks fix another session pushed and has nothing to do with E10. The
+owner's own edits (`AGENTS.md`, `CLAUDE.md`'s ui-ux-guide bullet,
+`docs/UX.md`) and the two stray logs (`debug.log`, `e9-baseline.log`)
+stay theirs.
+
+### E10 step 2, the image engine, is committed and pushed (`6a3f758`, 2026-09-16)
+
+**Pushed with the owner's approval on 2026-09-16.** The paragraphs below
+were written before the commit and are kept as the record; "uncommitted"
+in them is no longer true of the unit's files.
 
 Everything an image is, as engine code with no screen: an image is its
 own list on the document (`Project.images: StageImage[]`, ADR-0011's
@@ -100,12 +232,12 @@ this unit puts nothing on screen, so neither persona has anything to
 review. They belong to steps 4 and 5**, and running them here would have
 produced findings about code that does not exist yet.
 
-**Uncommitted:** the four new engine modules, their seven new specs, the
-fifteen changed engine files and specs listed above, this file, and
-`CLAUDE.md`'s debt list. The owner has not yet been asked for the commit
-— that is the next single step. The owner's own edits (`AGENTS.md`,
-`CLAUDE.md`'s ui-ux-guide bullet, `docs/UX.md`) and the two stray logs
-(`debug.log`, `e9-baseline.log`) stay theirs.
+**Committed as `6a3f758`** — the four new engine modules, their seven
+new specs, the fifteen changed engine files and specs listed above, plus
+this file and `CLAUDE.md`'s debt list, staged by the by-hunk recipe so
+the owner's own edits stayed out. `39be4b4` → `8f10d25` → `6a3f758` is
+the chain; `51cfdde` sits on top of it and is an unrelated hooks fix
+from another session.
 
 ### E10 step 1 is committed and pushed (`8f10d25`, 2026-09-16)
 
@@ -531,64 +663,47 @@ stayed out). This file carries the post-commit rewrite of three passages
 
 ## Next single step
 
-**Announce the E10 step-2 commit and wait for the owner.** This is the
-one hard stop in the loop: the work is done and the gate is green, and
-nothing else happens until the owner says to commit. The tree is
-uncommitted on top of `origin/main` = `8f10d25`.
+**E10 step 4 — 스테이지.** Put the placed picture on the preview and let
+it be dragged. This is the plan's "Steps, in order" item 4, and rows 5
+and 6 of its table. What it touches:
 
-**The commit recipe, which has now worked five times:**
+- **`src/ui/Preview.tsx`** — a third canvas, `.stage-image`, between the
+  picture and `.stage-subtitle`, placed by the same `place()` the other
+  two use, with its draw effect keyed on the frame, on the bitmap's
+  arrival (an `imagesVersion` from `subscribeImages`) and on the box's
+  size; `role="img"` naming 이미지: <name> while it shows something and
+  `aria-hidden` while it is blank.
+- **`src/ui/useImageDrag.ts` (new, ~80 lines)** — the THIRD caller of
+  `useStageDrag`, which is the caller step 1 extracted that hook for.
+  Limits [0, 1], one `image.setPosition` per move coalesced under
+  `imgpos:<id>`, the drop snapped to the centre and to nothing else, and
+  the sentences 이미지를 옮겼어요 · 왼쪽에서 32% · 위에서 70%. /
+  이미지를 가운데로 옮겼어요. A press that only selected says
+  화면의 이미지를 골랐어요 · 끌면 자리가 옮겨져요.
+- **The hit order is words → image → pan.** The image's hit test is
+  `imageRect` computed from `asset.meta.width` / `height`, so a press
+  lands correctly before the bitmap has arrived.
+- **`selectedImageId` through the stack** — `Editor`, `EditorCtx`,
+  `Command.selectsImage`, `pruneSelection` and the store's
+  `selectImage`, along the path `selectedSubtitleId` already takes.
+- **The cursor rule** in `styles.css`: `.stage canvas.stage-image` and
+  the `grab` cursor beside the existing `.stage.movable` and
+  `.stage.words`.
 
-1. Stage step 2's source and spec files — the four new engine modules
-   (`src/engine/spans.ts`, `images.ts`, `imageRender.ts`,
-   `imageCommands.ts`), the seven new specs (`spans.test.ts`,
-   `images.test.ts`, `imageRender.test.ts`, `imageCommands.test.ts`,
-   `ops.test.ts`, `project.test.ts`, `exporter.test.ts`), and the changed
-   `types.ts`, `ops.ts`, `persistence.ts`, `project.ts`, `subtitles.ts`,
-   `commands.ts`, `silence.ts`, `compose.ts`, `exportPlan.ts`,
-   `exporter.ts` with their specs `compose.test.ts`, `exportPlan.test.ts`,
-   `persistence.test.ts`, `silence.test.ts`, `mediaStore.test.ts`; plus
-   `docs/STATUS.md`.
-2. Stage `CLAUDE.md` **by hunk** — take the "Known tech debt" hunks and
-   DROP the hunk containing `ui-ux-guide`, which is the owner's own
-   uncommitted edit. As of this writing `git diff -U0 -- CLAUDE.md` shows
-   exactly three hunks and the owner's is the first one, around line 226.
-3. Leave `AGENTS.md`, `docs/UX.md`, `debug.log` and `e9-baseline.log`
-   out. The first two are the owner's; the two logs are stray.
-4. Write the Korean commit message with the **Write tool** into a file
-   and commit with `git commit -F <file>`, so the Korean subject survives
-   the shell. Never pass Korean through a shell redirection.
-5. **Ask before pushing.**
+Ending state: a picture is visible on the preview and can be dragged,
+and the 14 existing stage e2e tests are still green.
+`e2e/subtitle-drag.spec.ts` reads the ALPHA of `.stage-subtitle` as its
+oracle, so an image on screen must leave that ink untouched.
 
-**Then E10 step 3 — Media** (the plan's "Steps, in order" item 3, below).
-Its ending state: a dropped PNG is an asset, stored in OPFS, restored
-after a reload, and placed in the document — still invisible on screen
-until step 4. What it touches:
+**One hard stop comes before it:** the step-3 tree is uncommitted and
+the owner has not been asked. The recipe is in "Blocked / needs the
+owner" item 1 below — announce, wait, commit, and ask again before
+pushing.
 
-- **`src/ui/images.ts` (new)** — the browser loader and cache:
-  `createImageBitmap`, the bitmap cache, `subscribeImages`,
-  `retainOnlyImages` (which `close()`s every bitmap it drops) and
-  `releaseImage`. Those two are the ONLY callers of `close()`: the cache
-  is the single owner of every bitmap, which is what lets the exporter
-  never close one (golden rule 6; see the step-2 section above and row 9
-  of the plan).
-- **`src/ui/media.ts`** — one `isMediaReady(asset)` to replace the
-  ad-hoc "is the media here" test, and `restoreSavedMedia` branching on
-  `asset.kind`. Today it rebuilds every `File` as `'video/mp4'` and runs
-  `demuxVideo`, so an image asset with an `opfsKey` would restore as
-  "lost".
-- **`src/ui/MediaBin.tsx`** — widen `accept` past `video/*`, add the
-  image branch of `onFile` (record `meta.width` / `height`, persist the
-  bytes by content hash, re-link by name like a video), and add the row
-  and its button.
-- **`src/App.tsx`** — `retainOnlyImages` alongside the four per-asset
-  caches already freed when an asset leaves the document.
-- **The three `missingMedia` sites** — `Preview.tsx`, `MediaBin.tsx` and
-  `ExportButton.tsx` each call `getDecodeService` directly today; they go
-  through `isMediaReady`, because an image asset has no decode service
-  and would otherwise read as missing.
-- **`src/ui/ExportButton.tsx`** — pass `images: browserImages` beside
-  `fonts: browserFonts`, add the phase word 이미지 여는 중 for the
-  `'images'` phase, and the ⚠ sentence for `missingImages`.
+After step 4, the plan continues in order: step 5 (the lane and the
+panel), step 6 (`e2e/image.spec.ts`), step 7 (ADR-0020 and the doc
+rows), then steps 8–10 (the gate, the two personas still owed, the
+Chrome pass).
 
 The owner decided the order on 2026-09-16: E8-2 debt first, then E10.
 The full E10 plan is below, its four open questions are answered there,
@@ -984,8 +1099,9 @@ bitmaps are opened before frame 0, so the file and the screen agree.
 
 ### E10 progress
 
-Built in Claude Code on 2026-09-16 (KST), the plan's steps in order.
-**Steps 1 and 2 of 10 are done; steps 3–10 are not started.**
+Built in Claude Code, the plan's steps in order. **Steps 1, 2 and 3 of
+10 are done; steps 4–10 are not started.** Steps 1 and 2 are committed
+and pushed; step 3 is not.
 
 1. **The stage drag as one hook — done, committed and pushed as
    `8f10d25`.** `ui/useStageDrag.ts` 163 lines; `Preview.tsx` 657 → 602,
@@ -995,7 +1111,8 @@ Built in Claude Code on 2026-09-16 (KST), the plan's steps in order.
    targets were missed by ~20 lines each (the rationale comments were
    kept), accepted. The details are in "E10 step 1" near the top of this
    file.
-2. **Engine, test-first — done, UNCOMMITTED.** `engine/spans.ts` first
+2. **Engine, test-first — done, committed and pushed as `6a3f758`.**
+   `engine/spans.ts` first
    (row 3), with `subtitles.ts` delegating onto it and
    `subtitles.test.ts` byte-for-byte unchanged as the proof; then
    `types` / `ops` / `persistence` (schema 2 → 3) / `project` for
@@ -1011,9 +1128,26 @@ Built in Claude Code on 2026-09-16 (KST), the plan's steps in order.
    1 minor (below). Nothing is on screen yet, by design. The file list,
    the four design decisions and the reason two personas were skipped
    are in "E10 step 2" near the top of this file.
-3. **Media — not started.** The next single step, after the step-2
-   commit. See "Next single step" above for the file-by-file list.
-4. **The stage — not started.**
+3. **Media — done, UNCOMMITTED.** `ui/images.ts` (new) behind the
+   engine's `ImageSource` seam, with `ImageBitmap.close()` written in
+   exactly one function and a spec whose `afterEach` asserts every
+   bitmap was closed; `isMediaReady(asset)` in `ui/media.ts` replacing
+   the video-only decode-service test at all three `missingMedia` sites;
+   `restoreSavedMedia` branching on `asset.kind`, which fixed a real bug
+   (a saved PNG stalled mp4box and took the rest of the sequential
+   restore queue down with it); `MediaBin.tsx`'s `accept`, image branch,
+   🖼 row with its 재생 위치에 넣기 button and re-link by name;
+   `ExportButton.tsx`'s `images:` wiring, the 이미지 여는 중 phase word
+   and `missingImagesText`; `retainOnlyImages` + the new
+   `retainOnlyMedia` in `App.tsx`'s retain effect; and one pass over the
+   wording so that a storage sentence says 파일 while a footage sentence
+   still says 영상. `npm run verify` GREEN: unit **838** across 52 test
+   files (was 797 across 50), e2e 142 unchanged. Personas: all four ran,
+   `tester-qa`'s blocker and `tester-novice`'s major both fixed,
+   `tester-novice`'s "blocker" rejected as out of scope. The details are
+   in "E10 step 3" near the top of this file.
+4. **The stage — not started.** The next single step; see "Next single
+   step" above for the file-by-file list.
 5. **The lane and the panel — not started.**
 6. **e2e `e2e/image.spec.ts` — not started.**
 7. **Docs — partly done.** CLAUDE.md's debt list and this file's "E10
@@ -1029,13 +1163,56 @@ Built in Claude Code on 2026-09-16 (KST), the plan's steps in order.
    dropped.
 8. **Gate — green for what exists** (stamped at the top of this file).
    It is re-run at the end of every remaining step.
-9. **Persona review — partly done.** The step-2 diff was reviewed by
-   `framewright-reviewer` and `tester-qa`. **`tester-a11y` and
-   `tester-novice` are still owed** and belong to steps 4 and 5, when
-   there is a screen to review.
-10. **Visual pass in Chrome — not started.** Step 10 of the plan.
+9. **Persona review — done for every step so far.** The step-2 diff was
+   reviewed by `framewright-reviewer` and `tester-qa`; `tester-a11y` and
+   `tester-novice` were skipped there because nothing was on screen. The
+   step-3 diff was reviewed by **all four**, and both blockers are
+   fixed. The personas run again on steps 4 and 5, where the stage and
+   the panel appear.
+10. **Visual pass in Chrome — attempted and BLOCKED.** `navigate`
+    reported success while the tab stayed on `chrome://newtab/`, and
+    every screenshot after that refused the internal URL. Twice, the
+    same way. The dev server was up (127.0.0.1:9990, `curl` 200). The
+    lever to try next is `switch_browser`, not `select_browser`. The
+    full account, including the three hypotheses NOT to spend time on,
+    is in "E10 step 3" near the top of this file.
 
 ### E10 issues
+
+**From step 3 (media):**
+
+- **There is no module cycle between `ui/media.ts` and `ui/images.ts`.**
+  A premise to that effect was in circulation during this step and
+  `framewright-reviewer` found it false: `ui/media.ts` does not import
+  `./images`, and `markMediaHeld` has exactly one caller,
+  `MediaBin.tsx`. Written here so nobody re-derives the wrong version of
+  it from an older note.
+- **Blocker (QA), fixed:** `heldAssetIds` was a module `Set` that nobody
+  swept, so a picture imported without an `opfsKey`, undone and redone,
+  left `isMediaReady` answering "ready" for ever about a bitmap that had
+  been closed. `retainOnlyMedia(assetIds)` is new and `App.tsx`'s retain
+  effect drives it beside `retainOnlyImages`.
+- **The two module sets are deliberately asymmetric.** `heldAssetIds` is
+  swept by `retainOnlyMedia`; `heldMediaKeys` is not, because what it
+  records — "these bytes were read from storage in this page load",
+  keyed by `opfsKey` — does not stop being true when an asset leaves the
+  document. `src/ui/media.test.ts` pins both halves, so a later reader
+  who sees the asymmetry as an oversight will break a test rather than
+  the behaviour.
+- **Major (novice), fixed; one "blocker" rejected as out of scope.** The
+  rejected finding is that a placed picture leaves no visible trace.
+  That is the plan's own order, not a defect: the stage is step 4 and
+  the lane is step 5, and step 3 says so in its own section above.
+  **Step 3 therefore must not ship on its own.**
+- **`tester-a11y` — 0 blockers, 2 minors**, both extensions of debt
+  entries that already existed. In CLAUDE.md's "Known tech debt" with
+  the rest; that list is not duplicated here.
+- **The Chrome visual pass is blocked** — `navigate` succeeds while the
+  tab stays on `chrome://newtab/`. See "E10 step 3" near the top of this
+  file for what was tried, what the next lever is (`switch_browser`),
+  and which three hypotheses to leave alone.
+
+**From step 2 (the engine):**
 
 - **Major (QA), answered with a test rather than a behaviour change:**
   `image.setPosition` given only one axis erases the other — the omitted
@@ -2129,15 +2306,34 @@ plan's steps, in order, with the gate at each point:
 
 ## Blocked / needs the owner
 
-1. **E10 step 2 is waiting to be committed.** `origin/main` = `8f10d25`
-   (E10 step 1, pushed 2026-09-16 with approval). Step 2's engine work
-   is done, the gate is green, and the tree is uncommitted — the owner
-   must be asked before the commit, and again before the push. The file
-   list and the recipe are in "Next single step". The owner's own
-   uncommitted edits to `AGENTS.md`, `CLAUDE.md` (the ui-ux-guide
-   bullet) and `docs/UX.md` stay theirs to commit; `debug.log` and
-   `e9-baseline.log` are stray.
-2. **E10 is in flight: 2 of 10 steps done, step 3 (media) is next.**
+1. **E10 step 3 is waiting to be committed.** `main` = `origin/main` =
+   `51cfdde`, 0 ahead and 0 behind; `51cfdde` is a hooks fix another
+   session pushed and is unrelated to E10, and `6a3f758` (E10 step 2) is
+   its parent. Step 3's media work is done, the gate is green
+   (2026-09-18, unit 838 / e2e 142), and the tree is uncommitted — the
+   owner must be asked before the commit, and again before the push.
+
+   **The commit recipe, which has now worked six times:**
+
+   1. Stage step 3's source and spec files — the new `src/ui/images.ts`,
+      `src/ui/images.test.ts`, `src/ui/media.test.ts`, and the changed
+      `src/ui/media.ts`, `src/ui/MediaBin.tsx`,
+      `src/ui/ExportButton.tsx`, `src/ui/Preview.tsx`, `src/App.tsx`,
+      `src/store/projectStore.ts`, `src/styles.css`,
+      `e2e/editor.spec.ts`, `e2e/narrow-layout.spec.ts`; plus
+      `docs/STATUS.md`.
+   2. Stage `CLAUDE.md` **by hunk** — take the "Known tech debt" hunks
+      and DROP the hunk containing `ui-ux-guide`, which is the owner's
+      own uncommitted edit. Check `git diff -U0 -- CLAUDE.md` at the
+      time: the owner's hunk has been the first one, near line 226.
+   3. Leave `AGENTS.md`, `docs/UX.md`, `debug.log` and `e9-baseline.log`
+      out. The first two are the owner's; the two logs are stray.
+   4. Write the Korean commit message with the **Write tool** into a
+      file and commit with `git commit -F <file>`, so the Korean subject
+      survives the shell. Never pass Korean through a shell redirection.
+   5. **Ask before pushing.**
+
+2. **E10 is in flight: 3 of 10 steps done, step 4 (the stage) is next.**
    The plan is written below and its four open questions are answered
    there. Three of its recommendations were taken as recommended and the
    owner is still to confirm them at the end of the unit: one image on

@@ -4,9 +4,21 @@ import { useStore } from '../store/projectStore';
 import { getDecodeService } from '../engine/registry';
 import { exportProject, ExportUnsupportedError } from '../engine/exporter';
 import { missingFontsText } from '../engine/fonts';
+import { missingImagesText } from '../engine/images';
 import { browserFonts } from './fonts';
+import { browserImages } from './images';
+import { isMediaReady } from './media';
 import { videoDuration } from '../engine/timeline';
 import { clipCeiling } from './waveform';
+
+/** What the progress line says while each slow phase runs. A lookup, not a
+ *  fourth ternary: the phases are a list and they read like one. */
+const PHASE_WORDS: Record<string, string> = {
+  finalizing: '마무리 중',
+  audio: '오디오 처리 중',
+  fonts: '글꼴 받는 중',
+  images: '이미지 여는 중',
+};
 
 export function ExportButton() {
   const project = useStore((s) => s.project);
@@ -20,7 +32,10 @@ export function ExportButton() {
   const busy = progress !== null;
   // Exporting with unloaded media would hand the user a black video after a
   // convincing progress bar. Refuse up front instead.
-  const missingMedia = project.assets.filter((a) => !getDecodeService(a.id));
+  // Through `isMediaReady`, not the decode registry: a picture never gets a
+  // decoder, so the registry called every one of them missing and the export
+  // refused to run at all on a document that had one.
+  const missingMedia = project.assets.filter((a) => !isMediaReady(a));
   const blocked = total === 0 || missingMedia.length > 0;
 
   async function onExport() {
@@ -36,18 +51,13 @@ export function ExportButton() {
         levelCeiling: (clip) => clipCeiling(project, clip),
         // The same faces the preview draws with (ADR-0018).
         fonts: browserFonts,
+        // The same pictures the preview draws with, from the same cache, so
+        // the file and the screen cannot disagree about what a frame shows
+        // (ADR-0020). The bitmaps belong to that cache; nothing here closes one.
+        images: browserImages,
         onProgress: (done, all, p) => {
           setProgress(Math.round((done / all) * 100));
-          if (p)
-            setPhase(
-              p === 'finalizing'
-                ? '마무리 중'
-                : p === 'audio'
-                  ? '오디오 처리 중'
-                  : p === 'fonts'
-                    ? '글꼴 받는 중'
-                    : '',
-            );
+          if (p) setPhase(PHASE_WORDS[p] ?? '');
         },
       });
       const url = URL.createObjectURL(result.blob);
@@ -68,7 +78,8 @@ export function ExportButton() {
         `내보내기 완료 · ${result.frames} frames · ${result.durationSec.toFixed(2)}s` +
           (result.hasAudio ? ' · 오디오 포함' : ' · 무음') +
           warn +
-          missingFontsText(result.missingFonts),
+          missingFontsText(result.missingFonts) +
+          missingImagesText(result.missingImages),
       );
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -113,7 +124,9 @@ export function ExportButton() {
           disabled={blocked}
           title={
             missingMedia.length > 0
-              ? '영상 파일을 다시 선택한 뒤 내보낼 수 있어요'
+              ? // 파일: what is waiting to be picked again can be footage or
+                // a picture, and the bin's ⚠ rows are where the names are.
+                '파일을 다시 선택한 뒤 내보낼 수 있어요'
               : 'MP4로 내보내기'
           }
         >

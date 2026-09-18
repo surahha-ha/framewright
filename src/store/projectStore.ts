@@ -264,7 +264,7 @@ export const useStore = create<State>((set, get) => {
     // work is back while its media is still being read is a claim about
     // something that has not happened yet.
     status: mediaPending
-      ? '이전 작업을 열었어요. 저장해 둔 영상을 여는 중이에요…'
+      ? '이전 작업을 열었어요. 저장해 둔 파일을 여는 중이에요…'
       : hadRealWork
         ? '이전 작업을 그대로 불러왔어요.'
         : '영상을 불러오세요.',

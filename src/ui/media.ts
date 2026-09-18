@@ -32,6 +32,143 @@ import type { Asset } from '../engine/types';
 
 export const mediaRepo: MediaRepository = createOpfsMediaRepository();
 
+/**
+ * Storage keys whose bytes this page load has actually HELD — written at an
+ * import (`persistMedia`) or read back at a restore (`loadSavedMedia`).
+ *
+ * It starts empty on every load and nothing in the saved document can fill it:
+ * an `opfsKey` is only what the document REMEMBERS, and a browser that evicted
+ * the file remembers it just the same. So a key is in here only because some
+ * call in this session held its bytes, which is what makes it safe to answer
+ * "the media is here" with. A module singleton of the same shape as `mediaRepo`
+ * above, with the same caveat for two documents at once.
+ */
+const heldMediaKeys = new Set<string>();
+
+/**
+ * Assets whose media this page load holds although NOTHING was stored for it.
+ *
+ * One case, and it is the picture's: a browser that would not keep the bytes
+ * gives the asset no `opfsKey`, so there is no key to hold above — and yet the
+ * import decoded the file and the bitmap cache is keeping the picture for the
+ * rest of the session (`ui/images.ts`, `importImageFile`). Without this the
+ * bin would print 다시 선택 필요 over a picture that is right there, and the
+ * export would refuse to run at all.
+ */
+const heldAssetIds = new Set<string>();
+
+/**
+ * Say that this asset's media is in hand with no stored file behind it. The
+ * import calls it for a picture it could not keep; nothing else should, because
+ * nothing else holds media that outlives the store.
+ */
+export function markMediaHeld(assetId: string): void {
+  heldAssetIds.add(assetId);
+}
+
+/**
+ * Keep only the media the document still names — `retainOnly`'s shape, called
+ * from the same effect in `App.tsx` as the five caches, and for the same
+ * reason: a claim that outlives what it is a claim about.
+ *
+ * What `heldAssetIds` says is "the BITMAP CACHE is holding this picture,
+ * although no file was stored" — so its truth ends exactly where
+ * `retainOnlyImages` ends, and that is why the two run together. Left
+ * unswept it was a readiness flag nobody could clear: import a picture in a
+ * browser that will not keep files, undo, redo, and the asset comes back with
+ * the same deterministic id and still no file, while the bin draws a healthy
+ * row and the export refuses nothing — and then writes a video with the
+ * picture missing and a ⚠ about it afterwards.
+ *
+ * The other set here, `heldMediaKeys`, is keyed by `opfsKey` rather than by
+ * asset id — so this could have taken the assets and swept both. It
+ * deliberately does not, which is why it takes the same ids the other five
+ * retainers do. That set says "these bytes were read in this page load", and
+ * an asset leaving the document does not make that false: the file is still in
+ * the store, because the sweep that deletes one (`sweepStoredMedia`) runs at
+ * startup only — precisely so a redo still finds it. Dropping a key here would
+ * answer 다시 선택 필요 for a picture whose file is right where the document
+ * says it is. What DOES make it false is the file being deleted, and that is
+ * where it is already swept.
+ *
+ * Nor can this one be narrowed to "still has no stored file of its own": a
+ * re-link in a browser that will not keep files leaves the asset carrying the
+ * key it remembers from a session that could, and the picture in hand is again
+ * the only copy there is.
+ */
+export function retainOnlyMedia(assetIds: Iterable<string>): void {
+  const live = new Set(assetIds);
+  for (const assetId of [...heldAssetIds]) {
+    if (!live.has(assetId)) heldAssetIds.delete(assetId);
+  }
+}
+
+/**
+ * Is this asset's media open — the one question three surfaces ask before they
+ * draw, play or export.
+ *
+ * A VIDEO is ready when its decoder is registered, which is what it was before
+ * this function existed. An IMAGE never gets a decoder, so asking the registry
+ * about one answers "lost" for ever (that was the bug): its readiness is
+ * whether its bytes were held in this page load, above.
+ *
+ * Deliberately NOT the bitmap cache's `ImageSource.ready` (`ui/images.ts`).
+ * That answers a different question — "is it decoded and drawable right now" —
+ * and it is filled lazily by drawing, so a document whose pictures are all
+ * present would report every one of them missing until something asked for it,
+ * and the stage would tell the user to go and find files that are already here.
+ * This one cannot say ready for a picture whose file is gone, because the read
+ * that would have marked it returns nothing.
+ */
+export function isMediaReady(asset: Asset): boolean {
+  if (asset.kind === 'image') {
+    if (heldAssetIds.has(asset.id)) return true;
+    return asset.opfsKey !== undefined && heldMediaKeys.has(asset.opfsKey);
+  }
+  return getDecodeService(asset.id) !== null;
+}
+
+/**
+ * The picture already in this document that a file of this name would re-link
+ * to, or undefined — nothing of that name is missing, so the file is a new
+ * import.
+ *
+ * Footage's half of the same question is inline in `MediaBin` and asks the
+ * decode registry, because what it re-links is a decoder. A picture has none:
+ * what makes one missing is that its bytes are not in hand, which is
+ * `isMediaReady`'s question, above.
+ *
+ * **It has to be asked before the re-picked file is kept.** Keeping those
+ * bytes is exactly what turns `isMediaReady` over for a picture, so a caller
+ * that stored first would find nothing missing and import a second copy of a
+ * picture the document already has.
+ */
+export function imageToRelink(
+  assets: readonly Asset[],
+  name: string,
+): Asset | undefined {
+  return assets.find(
+    (a) => a.kind === 'image' && a.name === name && !isMediaReady(a),
+  );
+}
+
+/**
+ * What the bin's drop zone asks for, in the state the project is in.
+ *
+ * A picture cannot be the first thing in a project — `image.import` is refused
+ * before there is any footage ("먼저 영상을 불러오세요.") and the asset is
+ * never made, so a file dropped then leaves no trace and has to be found
+ * again. Inviting one anyway is an offer the app does not honour, so the words
+ * follow the same fact the command is refused by (`videoDuration > 0`) and the
+ * store's opening sentence says (영상을 불러오세요.).
+ *
+ * The invitation's second line — 또는 클릭 — does not change with the state and
+ * stays where it is drawn.
+ */
+export function dropInvitation(hasFootage: boolean): string {
+  return hasFootage ? '영상이나 이미지 드래그' : '영상 드래그';
+}
+
 export interface AttachedMedia {
   demux: DemuxResult;
   /** Human-readable audio outcome — a silent video is fine, a silently FAILED
@@ -173,11 +310,46 @@ export async function persistMedia(bytes: ArrayBuffer): Promise<string | null> {
     await requestPersistentStorage();
     const key = await mediaKeyFor(bytes);
     // Content-addressed: the same file re-imported is already there.
-    if (await mediaRepo.has(key)) return key;
-    return (await mediaRepo.put(key, bytes)) ? key : null;
+    if (await mediaRepo.has(key)) {
+      heldMediaKeys.add(key);
+      return key;
+    }
+    if (!(await mediaRepo.put(key, bytes))) return null;
+    // The bytes are in hand and now in the store, so an image imported in this
+    // session is ready without waiting for a reload to read it back — this is
+    // the import half of what `isMediaReady` answers.
+    heldMediaKeys.add(key);
+    return key;
   } catch {
     return null;
   }
+}
+
+/**
+ * What to call the bytes we just read back.
+ *
+ * The container is not recorded in the asset — only its name is — so a picture
+ * is typed from its extension. Getting this right is not cosmetic: a `File`
+ * handed to `<img>` through an object URL is served with the type given here,
+ * so calling a PNG `video/mp4` would refuse to draw. An extension we do not
+ * know gets an empty type rather than a guess: empty means "work it out from
+ * the bytes", a wrong type means "do not draw this".
+ */
+const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml',
+};
+
+function mediaTypeOf(asset: Asset): string {
+  if (asset.kind !== 'image') return 'video/mp4';
+  const ext = asset.name.toLowerCase().split('.').pop() ?? '';
+  return IMAGE_TYPES[ext] ?? '';
 }
 
 /** Read an asset's stored file back out of the media store. */
@@ -185,7 +357,10 @@ export async function loadSavedMedia(asset: Asset): Promise<File | null> {
   if (!asset.opfsKey || !mediaRepo.available) return null;
   const bytes = await mediaRepo.get(asset.opfsKey);
   if (!bytes || bytes.byteLength === 0) return null;
-  return new File([bytes], asset.name, { type: 'video/mp4' });
+  // Held, now: everything below this line has real bytes to work with, and for
+  // a picture that IS the whole of being restored.
+  heldMediaKeys.add(asset.opfsKey);
+  return new File([bytes], asset.name, { type: mediaTypeOf(asset) });
 }
 
 export interface RestoreReport {
@@ -198,9 +373,13 @@ export interface RestoreReport {
   audioReport: string;
 }
 
-/** Assets the document says were kept, but whose media is not open yet. */
+/** Assets the document says were kept, but whose media is not open yet.
+ *
+ *  Through `isMediaReady`, so a picture leaves this list once its bytes have
+ *  been read: asking the decode registry about one — which is what this did —
+ *  answered "still to do" every time it was called, for ever. */
 export function assetsToRestore(assets: readonly Asset[]): Asset[] {
-  return assets.filter((a) => a.opfsKey && !getDecodeService(a.id));
+  return assets.filter((a) => a.opfsKey && !isMediaReady(a));
 }
 
 let inFlight: Promise<RestoreReport> | null = null;
@@ -232,6 +411,16 @@ export function restoreSavedMedia(
           report.lost.push(asset.name);
           continue;
         }
+        if (asset.kind === 'image') {
+          // Reading the bytes back IS the restore for a picture: there is no
+          // container to demux, no decoder to register and no audio to bind,
+          // and sending one down that path would demux a PNG and report the
+          // failure as a lost file. Whether those bytes can be DRAWN is the
+          // bitmap cache's question, asked when something draws them, and its
+          // own failure has its own answer on screen.
+          report.restored.push(asset.name);
+          continue;
+        }
         const bytes = await file.slice(0).arrayBuffer();
         const media = await attachFileToAsset(asset.id, file, bytes);
         report.audioReport = media.audioReport;
@@ -254,5 +443,13 @@ export function restoreSavedMedia(
  * through committing the asset that would have kept a file alive.
  */
 export function sweepStoredMedia(live: ReadonlySet<string>): Promise<string[]> {
-  return queueMediaWork(() => sweepMedia(mediaRepo, live));
+  return queueMediaWork(async () => {
+    const removed = await sweepMedia(mediaRepo, live);
+    // What was deleted is not held any more. Nothing live can be swept (the
+    // sweep keeps every key the document points at), so this can never unready
+    // an asset that is still in the project — it only stops the set outliving
+    // the bytes, and keeps it from growing across a long session.
+    for (const key of removed) heldMediaKeys.delete(key);
+    return removed;
+  });
 }

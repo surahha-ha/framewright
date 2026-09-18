@@ -5,6 +5,8 @@ import { retainOnly } from './engine/registry';
 import { retainOnlyAudio } from './engine/audio';
 import { retainOnlyThumbnails } from './ui/thumbnails';
 import { peaksFor, retainOnlyPeaks } from './ui/waveform';
+import { retainOnlyImages } from './ui/images';
+import { retainOnlyMedia } from './ui/media';
 import { CommandPalette } from './ui/CommandPalette';
 import { MediaBin } from './ui/MediaBin';
 import { ShortcutsPanel } from './ui/ShortcutsPanel';
@@ -47,6 +49,13 @@ export default function App() {
     // And the waveform's peaks, which are a few megabytes of Float32Array for a
     // long source and are held by asset id like everything else here.
     retainOnlyPeaks(ids);
+    // And the picture behind every stage image (ADR-0020) — an `ImageBitmap`
+    // again, closed here for the same reason the thumbnails are.
+    retainOnlyImages(ids);
+    // And the claim that goes with it. The line above closed the picture; this
+    // one drops the "its picture is in hand" flag that was speaking for it, so
+    // the bin and the export cannot keep calling a closed picture ready.
+    retainOnlyMedia(ids);
   }, [assets]);
 
   const modal = overlay !== 'none';

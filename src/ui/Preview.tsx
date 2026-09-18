@@ -33,6 +33,7 @@ import {
 import { useStageDrag, type StageEvent } from './useStageDrag';
 import { TOGGLE_PLAY_EVENT } from './actions';
 import { clipCeiling } from './waveform';
+import { isMediaReady } from './media';
 import { FramePicker } from './FramePicker';
 
 export function Preview() {
@@ -135,7 +136,9 @@ export function Preview() {
     panDrag.onPointerUp(e);
   }
   // The document remembers clips whose media is not loaded (e.g. after reload).
-  const missingMedia = project.assets.some((a) => !getDecodeService(a.id));
+  // Per kind: a picture has no decoder to find, so asking the registry about
+  // one called every restored image lost (`isMediaReady`).
+  const missingMedia = project.assets.some((a) => !isMediaReady(a));
 
   // Live mirrors for the rAF loop.
   const projectRef = useRef(project);
@@ -547,7 +550,7 @@ export function Preview() {
         />
         {total > 0 && missingMedia && restoring && (
           <p className="stage-note">
-            저장해 둔 영상을 여는 중이에요. 잠시만 기다려 주세요.
+            저장해 둔 파일을 여는 중이에요. 잠시만 기다려 주세요.
           </p>
         )}
         {total > 0 && missingMedia && !restoring && (
@@ -571,7 +574,7 @@ export function Preview() {
             if (missingMedia) {
               setStatus(
                 restoring
-                  ? '저장해 둔 영상을 여는 중이에요. 잠시 뒤에 재생할 수 있어요.'
+                  ? '저장해 둔 파일을 여는 중이에요. 잠시 뒤에 재생할 수 있어요.'
                   : '영상 파일이 아직 연결되지 않았어요. 왼쪽에서 같은 영상을 다시 선택해 주세요.',
               );
               return;

@@ -209,8 +209,36 @@ body {
   padding: 6px 0;
   border-bottom: 1px solid var(--line);
   display: flex;
+  align-items: center;
+  /* A picture's row carries a button as well as a name and a size. In a narrow
+     bin the three do not fit on one line, and wrapping is what keeps the panel
+     from growing a sideways scrollbar. */
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px 8px;
+}
+.asset-list .asset-name {
+  /* The name is the long part: it shrinks and wraps, the size and the button
+     keep theirs. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.asset-list li button {
+  background: #12202c;
+  border: 1px solid #35506a;
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.asset-list li button:hover:not([aria-disabled='true']) {
+  border-color: var(--teal);
+}
+.asset-list li button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
 }
 .dim {
   color: var(--muted);

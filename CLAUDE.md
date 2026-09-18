@@ -233,6 +233,55 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **Step 3 must not ship on its own.** A picture imported and placed from
+  the bin leaves no trace on screen until step 4 draws it on the stage and
+  step 5 gives it a lane: the document is right, the export already writes
+  it, and the editor shows the user nothing at all for the press they just
+  made. The bin's row button is therefore finished and unusable in the same
+  build, so steps 3 · 4 · 5 are one shippable unit and a release cut between
+  them is the defect (E10-3).
+- **The export's completion line can now carry three ⚠ clauses at once.**
+  `missingFrames` (프레임), then `missingFontsText` (글꼴), then
+  `missingImagesText` (이미지), appended in that order onto a sentence that
+  already reads "내보내기 완료 · 90 frames · 3.00s · 오디오 포함"
+  (`ui/ExportButton.tsx`). Each phase is honest about its own loss and none
+  of them knows the other two are there — the same shape as the progress
+  bar's restarts below. The line was already the most jargon-heavy one the
+  export flow reaches; it is now the longest as well (novice, E10-3).
+- **Bytes that were read are not the same as a picture that draws.**
+  `isMediaReady` calls an image ready when its bytes were held in this page
+  load — `heldAssetIds`, or `heldMediaKeys` by `opfsKey` — so a stored file
+  that comes back but no longer decodes (truncated by a disk that filled
+  mid-write, corrupted in the store) is ready to the bin, to the toolbar and
+  to the export, and goes black only where it is drawn. The long comment
+  above the function argues why it is deliberately NOT the bitmap cache's
+  `ImageSource.ready`, and that argument does not reach this third case: it
+  covers the picture whose file is gone and the picture nothing has asked
+  for yet, not the one whose bytes are there and wrong. Letting a first
+  failed decode drop the key is the cheap lever (QA, E10-3).
+- **A refused `image.import` has already written its bytes to OPFS.** The
+  path opens the file before it stores it, so a file that is not a picture
+  leaves nothing behind — but once it IS a picture the bytes go to the store
+  and only then is `canRun('image.import', …)` asked, so a document that
+  refuses the placement keeps a stored file no asset points at. Intended,
+  and the same shape as the footage path: the startup sweep
+  (`sweepStoredMedia`, startup-only because undo can still reach a dropped
+  asset mid-session) reclaims it the next time the editor opens (E10-3).
+- **`ui/images.ts` holds four more module-level singletons** — the bitmap
+  `cache`, the `pending` loads, the `failed` map and the `listeners` set —
+  of the same shape as the `ui/thumbnails.ts` and `ui/waveform.ts` entries
+  below, and they would need the same treatment to open two documents at
+  once (E10-3).
+- **`MediaBin`'s 재생 위치에 넣기 button is the third hand-written copy of
+  the `CommandButton` idiom**, after the palette's rows and `ExportButton`:
+  ask `canRun`, put the label or the refusal in `title`, dispatch through
+  the store, stay in the tab order with `aria-disabled`. Hand-written on
+  purpose, and the right call — `CommandButton`'s `canRun` and `perform`
+  take an id and no args, and this command has to be told WHICH picture.
+  That makes it the first args-taking caller rather than the third case, so
+  the real rule-of-three trigger is a SECOND row button that takes args, and
+  the fix then is an optional `args` prop on `CommandButton`, not a fourth
+  copy (reviewer, E10-3).
 - **`image.setPosition` given one axis erases the other.** Both `posX`
   and `posY` are optional; the axis left out normalises to `undefined`,
   `dropUndefined` deletes the key from the patch, and absent means the
@@ -692,8 +741,10 @@ file that moved. Then run `check:refs` and `typecheck`.
   the entry below, and would need the same treatment to open two documents.
 - The `Editor` instance is a module singleton in `store/projectStore.ts`. Fine for
   one document; move to React context if we ever open several projects at once.
-  `mediaRepo` and the media work queue in `ui/media.ts` are the same shape and
-  would need the same treatment.
+  `mediaRepo`, the media work queue, `heldMediaKeys` and `heldAssetIds` in
+  `ui/media.ts` are the same shape and would need the same treatment — the
+  two held sets the more sharply, since they answer "is this document's media
+  open" for a page load, not for a document.
 - **`opfsKey` is written by two different paths.** A first import folds it into
   the asset inside `Editor.importAsset` — a hand-written method that builds its
   own patch instead of being a registry `Command` (this predates ADR-0009) — and
@@ -802,6 +853,12 @@ file that moved. Then run `check:refs` and `typecheck`.
 - A clip can be moved past the end of the timeline, which lengthens the document
   and exports the new empty space as black. The drag readout warns ("앞에 빈 곳이
   생겨요"), but there is no hard limit and no snap-back.
-- `ExportButton` still uses native `disabled`, so its reason ("영상 파일을 다시
-  선택한 뒤…") is unreachable by keyboard. The rest of the toolbar moved to
-  `aria-disabled`.
+- `ExportButton` still uses native `disabled`, so its reason ("파일을 다시
+  선택한 뒤 내보낼 수 있어요") is unreachable by keyboard. The rest of the
+  toolbar moved to `aria-disabled`. E10-3 doubled what that unreachable
+  sentence is hiding: `blocked` is every asset `isMediaReady` refuses, so a
+  picture whose file is gone now stops the export exactly as missing footage
+  does, and one `title` has to cover both — which is why it no longer says
+  영상. Two rows away in the same change, `MediaBin`'s 재생 위치에 넣기
+  button shows the fix already: `aria-disabled`, the reason in `title`, and
+  the reason said again on the press (E10-3).
