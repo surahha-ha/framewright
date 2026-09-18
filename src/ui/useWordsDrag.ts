@@ -203,5 +203,17 @@ export function useWordsDrag({
     return drag.onPointerUp(e);
   }
 
-  return { onPointerDown, onPointerMove, onPointerUp, overWords };
+  return {
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    overWords,
+    /** Whether a words drag is on right now — live, straight off
+     *  `useStageDrag`'s ref. The stage asks all three of its drags this to
+     *  keep one gesture at a time, and the picture's hook hands the same
+     *  answer out for the same reason. */
+    get active() {
+      return drag.active;
+    },
+  };
 }

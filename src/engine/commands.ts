@@ -41,6 +41,10 @@ export interface EditorCtx {
   /** One thing is selected at a time, so this and `selectedClipId` are never
    *  both set: Delete must act on the thing the user can see is chosen. */
   selectedSubtitleId?: string | null;
+  /** The picture chosen on the stage. Third of the three exclusive
+   *  selection ids, so it is never set together with either of the
+   *  others (ADR-0020). */
+  selectedImageId?: string | null;
   /** What copy/cut put aside. Not document state — it outlives undo. */
   clipboard?: ClipboardEntry | null;
   /**
@@ -97,6 +101,9 @@ export interface Command<Args = void> {
   /** The subtitle to select once the command has run — the same promise
    *  `selects` makes for a clip, for the other kind of thing on the timeline. */
   selectsSubtitle?(before: EditorCtx): string;
+  /** The image to select once the command has run — the same promise
+   *  again, for the picture that sits on the footage. */
+  selectsImage?(before: EditorCtx): string;
   /** Why the button is greyed out right now. A disabled control that will not
    *  say what it is waiting for is indistinguishable from a broken one. */
   disabledReason?(ctx: EditorCtx): string;

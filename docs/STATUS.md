@@ -10,13 +10,136 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-18 01:49 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-18 04:32 UTC — `npm run verify` **GREEN**
 
-- unit 838 passed · e2e 142 passed
+- unit 860 passed · e2e 147 passed
 
 <!-- VERIFY:END -->
 
 ## Where we are
+
+### E10 step 4, the stage, is built and gate-green — and UNCOMMITTED (2026-09-18)
+
+A picture placed on the timeline is **drawn on the preview**, and it can
+be dragged there. This is the first step of E10 whose result a user can
+see at all. The gate was re-run from scratch: **GREEN, unit 860 passed
+across 54 test files (was 838 across 52), e2e 147 passed (was 142),
+0 skipped.** The VERIFY block at the top of this file still carries the
+step-3 numbers; it is stamped by `npm run handoff`, which the owner runs.
+
+**"0 skipped" is the number to read, and it is worth reading every
+time.** Several e2e specs — the import and export ones — guard
+themselves and skip when the browser they were given cannot decode
+H.264. On this machine's run nothing skipped, so all 147 really ran,
+import and export included. Do **not** write down that "the bundled
+Chromium has no H.264": whether it does depends on the build, and the
+runtime guards in the specs are correct to stay. **Read the skip count
+in the gate's output instead of assuming either way.**
+
+**Nothing of this step is committed.** `main` = `origin/main` =
+`dc21c91`, 0 ahead and 0 behind. Step 3 went in as `b0799e8`; three
+commits from other work landed on top of it — `d7af32a` (the step-3
+visual-pass write-up), `5ffa7fb` (how to stand this repo up on another
+PC, and with it **the image fixture this file used to say the repo did
+not have**), `dc21c91` (a metrics-skeleton chore). Every step-4 file is
+still in the working tree.
+
+**New files** —
+
+- **`src/ui/useImageDrag.ts` (171 lines)** — the THIRD caller of
+  `useStageDrag`, which is the caller step 1 extracted that hook for.
+  Its hit test is an `imageRect` built from `asset.meta.width` /
+  `height`, so a press lands correctly **before the bitmap has
+  arrived**. One `image.setPosition` per move, coalesced under
+  `imgpos:<id>`; the release re-fires `snapImagePosition` under the
+  **same** key, so the whole gesture including its snap is one undo
+  step.
+- **`src/ui/useImageDrag.test.ts` (12 tests)** and
+  **`src/ui/useStageDrag.test.ts` (3 tests)**, both new.
+- **`e2e/image.spec.ts` (5 tests)**, new — the +5 in the e2e count. It
+  uses `e2e/fixtures/sample-picture.png`.
+
+**Changed** —
+
+- **`src/ui/Preview.tsx` (657 → 721)** — a third canvas, `.stage-image`,
+  between the footage and `.stage-subtitle`, placed by the same
+  `place()` the other two use. Its draw effect is keyed on the frame,
+  on the bitmap's version and on the box's size. It carries
+  `role="img"` + `aria-label="이미지: <name>"` **only while it is
+  drawing something**, and is out of the accessibility tree while
+  blank. This file is **the first place in the app that calls
+  `browserImages.load`** — step 3 built the cache and left it with no
+  caller, so before this step a restored document's picture would never
+  have been fetched and never drawn.
+- **`src/engine/command.ts`, `src/engine/commands.ts`,
+  `src/store/projectStore.ts`** — `selectedImageId` through the stack:
+  `Editor`, `EditorCtx`, `Command.selectsImage`, `pruneSelection` and
+  the store. Clip, subtitle and image are **three mutually exclusive
+  selections** — each one pushes the other two out. `image.import` and
+  `image.add` select the picture they just placed, which is the promise
+  `subtitle.add` already makes.
+- **`src/ui/useStageDrag.ts`, `src/ui/useWordsDrag.ts`,
+  `src/engine/imageCommands.ts`, `src/styles.css`.**
+
+**Two decisions a future session should not re-litigate:**
+
+- **The hit order on the stage is words → image → pan.** The words win
+  a press over a picture under them; a press on neither pans the
+  footage.
+- **The stage takes one gesture at a time, and the three hooks answer
+  that question together.** `useStageDrag`'s re-entrancy guard returns
+  `false` when a drag is already running, and a `false` there let the
+  pointer fall through to the next handler — so two drags could run at
+  once. `useWordsDrag` gained a `get active()` this step and the stage
+  now asks **one union of all three `active` flags**. The `gestureRef`
+  work-around that stood in between was removed. **This is a designed
+  decision, not a leftover.** The guard sits **before** `press`, on
+  purpose: `press` is what changes the selection.
+- **`useStageDrag`'s `setPointerCapture` is hardened** in the same
+  pass, with `useStageDrag.test.ts` holding both down.
+
+**Why the one-axis trap did not bite here, and where it will.**
+`image.setPosition` given one axis erases the other (a CLAUDE.md debt
+entry). `useImageDrag`'s `move` and `release` **always pass both axes**,
+so the trap is structurally out of reach for the drag. The sliders of
+step 5 have no such structure — see "Next single step".
+
+**The Chrome visual pass is done and it passed (2026-09-18).** Run in
+the owner's own Chrome. What was seen:
+
+- **The picture is drawn on the stage** — step 4's whole claim, seen
+  rather than reasoned about.
+- Dragging moves it, and the status line read
+  `이미지를 옮겼어요 · 왼쪽에서 22% · 위에서 81%.`
+- **One `Ctrl+Z` put the ink's centre back at (0.498, 0.494)** — the
+  centre, to within the measurement — so the drag plus its snap really
+  is one undo step.
+- A press outside the picture pans the footage, as the hit order says.
+
+**Two things went wrong during the pass, and the recovery path is worth
+keeping.** The extension's connection dropped once. And **while the tab
+is in the background (`document.hidden: true`) a screenshot times out
+after 30 seconds** — only the owner bringing the window to the front
+resumes it. `javascript_tool` kept working throughout. So the recovery
+is: **judge state with JS, and use screenshots only for the picture
+itself.**
+
+**Persona round — all four ran; 1 blocker, 7 majors.**
+
+- `framewright-reviewer`, `tester-qa`, `tester-novice` — **0 blockers.**
+- **`tester-a11y` — 1 blocker: a picture cannot be selected or moved by
+  keyboard at all.** It is real and it is **not fixable inside step 4**,
+  because the surfaces that would carry the keyboard route — the lane
+  and the panel — are step 5's deliverables. The owner chose on
+  2026-09-18 to commit through step 4 and stop there. **This is the
+  sharpest reason yet that steps 3, 4 and 5 are one shipping unit and
+  must not reach a user separately**, and "Next single step" records the
+  keyboard route as step 5's FIRST deliverable, not a later one.
+- **Two of the seven majors were fixed in this step**: the `gestureRef`
+  work-around was removed in favour of the one `active` union, and
+  `e2e/image.spec.ts` was written. The other five went into CLAUDE.md's
+  "Known tech debt" list. **That list is not copied here — read it
+  there.**
 
 ### E10 step 3, the media, is committed and pushed (`b0799e8`, 2026-09-18)
 
@@ -174,13 +297,11 @@ status line says the image was placed and the preview does not change.
 That is this file's own "step 3 must not ship on its own" debt,
 confirmed with eyes rather than reasoned about — the stage is step 4.
 
-**A gap this pass found, and it is a gap, not a block: the repo has no
-image fixture.** `e2e/fixtures/` holds only `sample-h264.mp4` and
-`sample-silence.mp4`, and a search of the whole repository finds no
-`.png` / `.jpg` / `.webp` / `.gif` at all. This pass used a 320×180 PNG
-made in the scratchpad. Steps 4 and 5 need an image in their e2e specs,
-and the next visual pass will hit the same wall, so **putting one small
-PNG into `e2e/fixtures/` is the cheap preparation for the next step.**
+**A gap this pass found — SINCE CLOSED, do not act on it.** At the time
+of step 3 the repo held no image fixture at all, and this pass had to
+use a 320×180 PNG made in the scratchpad. **`5ffa7fb` put one in:
+`e2e/fixtures/sample-picture.png`, 320×180, 704 bytes, a white cross on
+a magenta ground.** `e2e/image.spec.ts` uses it. Nothing is owed here.
 
 **Committed and pushed as `b0799e8`** — `src/ui/images.ts`,
 `src/ui/images.test.ts` and `src/ui/media.test.ts` (new), the changed
@@ -711,49 +832,56 @@ stayed out). This file carries the post-commit rewrite of three passages
 
 ## Next single step
 
-**E10 step 4 — 스테이지.** Put the placed picture on the preview and let
-it be dragged. This is the plan's "Steps, in order" item 4, and rows 5
-and 6 of its table. What it touches:
+**E10 step 5 — 레인과 패널.** Item 5 of the plan's "Steps, in order".
+It builds `ui/ImageLane.tsx` under the subtitle lane (mounted from
+`Timeline.tsx`, with its `contentPx` and one sentence in the hint) and
+`ui/ImagePanel.tsx` beside `SubtitlePanel` in `App.tsx`, plus their
+rules in `styles.css`.
 
-- **`src/ui/Preview.tsx`** — a third canvas, `.stage-image`, between the
-  picture and `.stage-subtitle`, placed by the same `place()` the other
-  two use, with its draw effect keyed on the frame, on the bitmap's
-  arrival (an `imagesVersion` from `subscribeImages`) and on the box's
-  size; `role="img"` naming 이미지: <name> while it shows something and
-  `aria-hidden` while it is blank.
-- **`src/ui/useImageDrag.ts` (new, ~80 lines)** — the THIRD caller of
-  `useStageDrag`, which is the caller step 1 extracted that hook for.
-  Limits [0, 1], one `image.setPosition` per move coalesced under
-  `imgpos:<id>`, the drop snapped to the centre and to nothing else, and
-  the sentences 이미지를 옮겼어요 · 왼쪽에서 32% · 위에서 70%. /
-  이미지를 가운데로 옮겼어요. A press that only selected says
-  화면의 이미지를 골랐어요 · 끌면 자리가 옮겨져요.
-- **The hit order is words → image → pan.** The image's hit test is
-  `imageRect` computed from `asset.meta.width` / `height`, so a press
-  lands correctly before the bitmap has arrived.
-- **`selectedImageId` through the stack** — `Editor`, `EditorCtx`,
-  `Command.selectsImage`, `pruneSelection` and the store's
-  `selectImage`, along the path `selectedSubtitleId` already takes.
-- **The cursor rule** in `styles.css`: `.stage canvas.stage-image` and
-  the `grab` cursor beside the existing `.stage.movable` and
-  `.stage.words`.
+**Its FIRST deliverable is the keyboard route, and that is a
+requirement, not a preference.** As step 4 stands, a picture can be
+selected and moved **only with a pointer**: the stage is the sole
+surface that touches an image, and it has no keyboard equivalent.
+`tester-a11y` raised that as a **blocker** on step 4 and it could not be
+answered there, because the lane and the panel are what a keyboard
+reaches. So step 5 is not done — and step 4's blocker is not closed —
+until a keyboard-only user can, without touching the stage:
 
-Ending state: a picture is visible on the preview and can be dragged,
-and the 14 existing stage e2e tests are still green.
+1. reach a picture (the lane's chip, focusable and named, the way a
+   subtitle chip is),
+2. move it on both axes (the panel's 가로 위치 / 세로 위치 sliders),
+3. size it, and delete it,
+
+with every change said in the status line. Until that exists, steps 3,
+4 and 5 remain **one shipping unit** and must not reach a user apart.
+
+**One trap to design around before writing the sliders.**
+`image.setPosition` given only one axis **erases the other** — the
+omitted axis normalises to `undefined`, `dropUndefined` deletes the key
+from the patch, and an absent axis means the centre. So a slider wired
+the obvious way — one slider, one axis — snaps the picture back to the
+middle on the axis the user did not touch. Step 4's drag is
+structurally safe from this because `dragAxis` hands it both axes on
+every move and its `release` passes both as well; **a slider has no such
+structure.** Each slider must read the picture's CURRENT value on the
+other axis and pass **both**. There is an `imageCommands.test.ts` case
+pinning the erasing behaviour on purpose, so do not "fix" the command —
+fix the caller.
+
+Ending state: every rule in the plan's table is reachable **by mouse and
+by keyboard**, and the stage specs that already exist stay green.
 `e2e/subtitle-drag.spec.ts` reads the ALPHA of `.stage-subtitle` as its
 oracle, so an image on screen must leave that ink untouched.
 
-**Nothing stands in front of it.** Step 3 is committed and pushed
-(`b0799e8`) and the tree is clean of this epic's files. **One cheap
-preparation is worth doing first:** put a small PNG into
-`e2e/fixtures/`. The repo has no image fixture of any kind, so step 4's
-e2e work and the next visual pass would otherwise each have to invent
-one (see "E10 step 3" above).
+**What stands in front of it.** Step 4 is built and gate-green but
+**uncommitted** — see "E10 step 4" at the top of this file and item 1 of
+"Blocked / needs the owner" for the commit recipe. Commit step 4 first,
+so a context cut lands on a clean tree.
 
-After step 4, the plan continues in order: step 5 (the lane and the
-panel), step 6 (`e2e/image.spec.ts`), step 7 (ADR-0020 and the doc
-rows), then steps 8–10 (the gate, the two personas still owed, the
-Chrome pass).
+After step 5, the plan continues in order: step 6 (more of
+`e2e/image.spec.ts` — 5 of its cases were written early, in step 4, so
+that step 4's own claim had a spec), step 7 (ADR-0020 and the doc rows),
+then steps 8–10 (the gate, the personas, the Chrome pass).
 
 The owner decided the order on 2026-09-16: E8-2 debt first, then E10.
 The full E10 plan is below, its four open questions are answered there,
@@ -872,9 +1000,10 @@ drag.spec.ts` (341 lines, 9 tests) reads the ALPHA of `.stage-
 subtitle` as its oracle (`inkBounds` 47–72) and relies on the hit
   order words → pan (187–214); `e2e/picture.spec.ts` (291 lines, 5
   tests) presses the picture's CENTRE to pan (243–290) — the default
-  place an image would sit. `e2e/fixtures/` holds two mp4 and no image;
-  Playwright's `setInputFiles` takes `{ name, mimeType, buffer }`, so
-  the spec can carry a 2-colour PNG as a constant.
+  place an image would sit. (**That was written when `e2e/fixtures/`
+  held two mp4 and no image. `5ffa7fb` added
+  `e2e/fixtures/sample-picture.png`, and `e2e/image.spec.ts` reads that
+  file rather than carrying a PNG as a constant.**)
 
 **The four open questions, answered.**
 
@@ -1149,9 +1278,10 @@ bitmaps are opened before frame 0, so the file and the screen agree.
 
 ### E10 progress
 
-Built in Claude Code, the plan's steps in order. **Steps 1, 2 and 3 of
-10 are done; steps 4–10 are not started.** All three are committed and
-pushed (`8f10d25`, `6a3f758`, `b0799e8`).
+Built in Claude Code, the plan's steps in order. **Steps 1–4 of 10 are
+done; steps 5–10 are not started.** Steps 1, 2 and 3 are committed and
+pushed (`8f10d25`, `6a3f758`, `b0799e8`); **step 4 is built, gate-green
+and UNCOMMITTED.**
 
 1. **The stage drag as one hook — done, committed and pushed as
    `8f10d25`.** `ui/useStageDrag.ts` 163 lines; `Preview.tsx` 657 → 602,
@@ -1197,10 +1327,32 @@ pushed (`8f10d25`, `6a3f758`, `b0799e8`).
    `tester-qa`'s blocker and `tester-novice`'s major both fixed,
    `tester-novice`'s "blocker" rejected as out of scope. The details are
    in "E10 step 3" near the top of this file.
-4. **The stage — not started.** The next single step; see "Next single
-   step" above for the file-by-file list.
-5. **The lane and the panel — not started.**
-6. **e2e `e2e/image.spec.ts` — not started.**
+4. **The stage — done, gate-green, NOT committed.** `.stage-image` as a
+   third canvas in `Preview.tsx` (657 → 721) between the footage and
+   `.stage-subtitle`, drawing keyed on the frame, the bitmap's version
+   and the box's size, named `이미지: <name>` only while it draws;
+   `ui/useImageDrag.ts` (171 lines) as the third `useStageDrag` caller,
+   hit-testing an `imageRect` from `asset.meta.width` / `height` so a
+   press works before the bitmap arrives, one coalesced
+   `image.setPosition` per move under `imgpos:<id>` and the snap
+   re-fired under the same key at release; the hit order words → image
+   → pan; `selectedImageId` through `Editor`, `EditorCtx`,
+   `Command.selectsImage`, `pruneSelection` and the store, as the third
+   of three mutually exclusive selections; the one-gesture-at-a-time
+   union of all three hooks' `active`; and **`browserImages.load` called
+   for the first time anywhere in the app** — step 3 built that cache
+   and left it with no caller. `npm run verify` GREEN: unit **860**
+   across 54 test files (was 838 across 52), **e2e 147** (was 142),
+   0 skipped. Personas: all four ran, **1 blocker (a11y: no keyboard
+   route to an image) which step 4 cannot answer** and 7 majors, 2 of
+   them fixed here. The Chrome visual pass is done and passed. The
+   details are in "E10 step 4" at the top of this file.
+5. **The lane and the panel — not started.** The next single step, and
+   **the keyboard route is its first deliverable**: that is what closes
+   step 4's a11y blocker. See "Next single step" above.
+6. **e2e `e2e/image.spec.ts` — partly done.** The file exists with 5
+   tests, written in step 4 so that step 4's own claim had a spec. The
+   rest of the plan's case list belongs to step 6.
 7. **Docs — partly done.** CLAUDE.md's debt list and this file's "E10
    progress" / "E10 issues" are written. **Still owed by the epic:
    ADR-0020** ("An image is its own thing on the stage: under the words,
@@ -1212,14 +1364,18 @@ pushed (`8f10d25`, `6a3f758`, `b0799e8`).
    describe surfaces that do not exist until steps 4 and 5, which is why
    they are not written yet; they are step 7 of the plan and must not be
    dropped.
-8. **Gate — green for what exists** (stamped at the top of this file).
-   It is re-run at the end of every remaining step.
+8. **Gate — green for what exists.** The last run was step 4's: unit 860
+   across 54 test files, e2e 147, 0 skipped. The VERIFY block at the top
+   of this file still shows step 3's numbers until `npm run handoff` is
+   run. The gate is re-run at the end of every remaining step.
 9. **Persona review — done for every step so far.** The step-2 diff was
    reviewed by `framewright-reviewer` and `tester-qa`; `tester-a11y` and
    `tester-novice` were skipped there because nothing was on screen. The
    step-3 diff was reviewed by **all four**, and both blockers are
-   fixed. The personas run again on steps 4 and 5, where the stage and
-   the panel appear.
+   fixed. The step-4 diff was reviewed by all four as well: three found
+   no blocker, and `tester-a11y`'s one blocker — no keyboard route to an
+   image — **stands open by the owner's decision**, because the surface
+   that answers it is step 5. The personas run again on step 5.
 10. **Visual pass in Chrome — done for step 3 (2026-09-18).** It ran in
     the owner's Chrome (deviceId `da2a0786-…`, `isLocal: true`, the
     loopback pair confirmed by `netstat` on both sides of `navigate`)
@@ -1233,10 +1389,59 @@ pushed (`8f10d25`, `6a3f758`, `b0799e8`).
     intends. The full account, including why the "other PC" hypothesis
     is ruled out and what to do if the symptom returns, is in "E10 step
     3" near the top of this file. **The pass also found that the repo
-    has no image fixture** — see the gap in "E10 issues" below. Steps 4
-    and 5 get their own passes.
+    had no image fixture; `5ffa7fb` has since added
+    `e2e/fixtures/sample-picture.png` and that gap is closed.**
+
+    **Step 4's own pass is also done and it passed (2026-09-18):** the
+    picture is drawn on the stage, dragging moves it with the sentence
+    `이미지를 옮겼어요 · 왼쪽에서 22% · 위에서 81%.`, one `Ctrl+Z` puts
+    the ink's centre back to (0.498, 0.494), and a press outside the
+    picture pans the footage. Two obstacles are worth knowing for step
+    5's pass: the extension's connection dropped once, and **a
+    screenshot times out after 30 seconds whenever the tab is in the
+    background** (`document.hidden: true`) — only the owner bringing the
+    window forward resumes it. `javascript_tool` kept working the whole
+    time, so the recovery path is **judge state with JS and use
+    screenshots only for the picture itself**. Step 5 gets its own pass.
 
 ### E10 issues
+
+**From step 4 (the stage):**
+
+- **Blocker (a11y), OPEN by decision: there is no keyboard route to an
+  image.** The stage is the only surface in the app that touches a
+  picture, and it answers a pointer only — so a keyboard-only user
+  cannot select a picture, cannot move it, cannot size it. It is not
+  fixable within step 4: the lane and the panel that would carry the
+  route are step 5's deliverables. The owner chose on 2026-09-18 to
+  commit through step 4 and stop. **This is the sharpest instance of why
+  steps 3, 4 and 5 are one shipping unit**, and "Next single step"
+  records the keyboard route as step 5's first deliverable and the thing
+  that closes this blocker.
+- **`framewright-reviewer`, `tester-qa`, `tester-novice` — 0 blockers.**
+  Seven majors between the four personas; **two were fixed in this
+  step** (the `gestureRef` work-around removed in favour of one `active`
+  union across the three stage hooks, and `e2e/image.spec.ts` written),
+  and the other five are CLAUDE.md "Known tech debt" entries. That list
+  is not duplicated here.
+- **One gesture at a time on the stage is a designed decision.**
+  `useStageDrag`'s re-entrancy guard returns `false` while a drag runs,
+  and that `false` used to let the pointer fall through to the next
+  handler, so two stage drags could run at once. `useWordsDrag` gained a
+  `get active()` and the stage now asks the union of all three hooks'
+  `active`. The guard sits **before** `press`, because `press` is what
+  changes the selection. Do not "simplify" it back.
+- **The one-axis trap is dodged structurally here, and step 5 has no
+  such structure.** `useImageDrag`'s `move` and `release` always pass
+  both axes to `image.setPosition`, so the command's
+  erase-the-other-axis behaviour cannot bite the drag. The panel's
+  per-axis sliders are exactly where it becomes dangerous — see "Next
+  single step".
+- **Step 4 is the first caller of `browserImages.load` in the whole
+  app.** Step 3 built the bitmap cache and nothing called it, so a
+  restored document's picture would never have been fetched and never
+  drawn. Worth knowing: the cache's behaviour was untested against a
+  real caller until this step.
 
 **From step 3 (media):**
 
@@ -1273,13 +1478,13 @@ pushed (`8f10d25`, `6a3f758`, `b0799e8`).
   freshly started dev server. If `navigate` ever again reports success
   while the tab stays on `chrome://newtab/`, restart `npm run dev`
   first. See "E10 step 3" near the top of this file.
-- **Gap, not a block: the repo has no image fixture.** `e2e/fixtures/`
-  holds `sample-h264.mp4` and `sample-silence.mp4` only, and the whole
-  repository contains no `.png` / `.jpg` / `.webp` / `.gif`. The visual
-  pass used a 320×180 PNG made in the scratchpad, which is not something
-  a spec can do. Step 4's and step 5's e2e work needs one; adding a
-  small PNG to `e2e/fixtures/` is the cheapest preparation for the next
-  step.
+- **Gap, CLOSED — the repo has an image fixture now.** At step 3 it had
+  none and the visual pass had to make a 320×180 PNG in the scratchpad,
+  which is not something a spec can do. **`5ffa7fb` added
+  `e2e/fixtures/sample-picture.png` — 320×180, 704 bytes, a white cross
+  on a magenta ground** — and `e2e/image.spec.ts` uses it. Nothing is
+  owed here; the entry is kept only so a reader of an older note does
+  not go and make a second one.
 - **Confirmed by eye: a placed picture leaves no trace on the stage.**
   The status line says the image was placed and the preview does not
   change. This is the "step 3 must not ship on its own" point, now
@@ -2380,16 +2585,29 @@ plan's steps, in order, with the gate at each point:
 
 ## Blocked / needs the owner
 
-1. **E10 step 3 is committed and pushed — nothing is owed here.**
-   `main` = `origin/main` = `b0799e8`, 0 ahead and 0 behind; its parent
-   chain is `6a3f758` (E10 step 2) under the unrelated hooks fix
-   `51cfdde`. The gate was green at the commit (2026-09-18, unit 838 /
-   e2e 142) and the Chrome visual pass is done (see "E10 step 3" near
-   the top of this file). The one thing carried forward is not a block:
-   **`e2e/fixtures/` has no image fixture**, and step 4 will want one.
+1. **E10 step 4 is built, gate-green and UNCOMMITTED — this is what
+   needs the owner.** `main` = `origin/main` = `dc21c91`, 0 ahead and 0
+   behind. Step 3 is in as `b0799e8`; above it sit `d7af32a`, `5ffa7fb`
+   and `dc21c91`, none of them this epic's code. Step 4's gate is green
+   (2026-09-18, unit 860 across 54 test files / e2e 147, 0 skipped) and
+   its Chrome visual pass is done and passed (see "E10 step 4" at the
+   top of this file). **What the owner owes is the approval to commit**
+   — announcing a git operation is the one hard stop.
 
-   **The commit recipe is kept because step 4 will need it again; it has
-   now worked seven times:**
+   The step-4 files to stage: the new `src/ui/useImageDrag.ts`,
+   `src/ui/useImageDrag.test.ts`, `src/ui/useStageDrag.test.ts`,
+   `e2e/image.spec.ts`, and the changed `src/ui/Preview.tsx`,
+   `src/ui/useStageDrag.ts`, `src/ui/useWordsDrag.ts`,
+   `src/engine/command.ts`, `src/engine/commands.ts`,
+   `src/engine/imageCommands.ts`, `src/engine/imageCommands.test.ts`,
+   `src/store/projectStore.ts`, `src/styles.css`.
+
+   **One thing carried into the commit knowingly:** step 4 ships with
+   `tester-a11y`'s blocker open — no keyboard route to an image — by the
+   owner's decision of 2026-09-18. Steps 3, 4 and 5 are one shipping
+   unit; **do not let steps 3–4 reach a user without step 5.**
+
+   **The commit recipe, which has now worked seven times:**
 
    1. Stage the unit's own source and spec files by name, plus
       `docs/STATUS.md`. (For step 3 that was the new `src/ui/images.ts`,
@@ -2397,7 +2615,8 @@ plan's steps, in order, with the gate at each point:
       `src/ui/media.ts`, `src/ui/MediaBin.tsx`,
       `src/ui/ExportButton.tsx`, `src/ui/Preview.tsx`, `src/App.tsx`,
       `src/store/projectStore.ts`, `src/styles.css`,
-      `e2e/editor.spec.ts`, `e2e/narrow-layout.spec.ts`.)
+      `e2e/editor.spec.ts`, `e2e/narrow-layout.spec.ts`; for step 4 it
+      is the list just above.)
    2. Stage `CLAUDE.md` **by hunk** — take the "Known tech debt" hunks
       and DROP the hunk containing `ui-ux-guide`, which is the owner's
       own uncommitted edit. Check `git diff -U0 -- CLAUDE.md` at the
@@ -2409,12 +2628,14 @@ plan's steps, in order, with the gate at each point:
       survives the shell. Never pass Korean through a shell redirection.
    5. **Ask before pushing.**
 
-2. **E10 is in flight: 3 of 10 steps done, step 4 (the stage) is next.**
-   The plan is written below and its four open questions are answered
-   there. Three of its recommendations were taken as recommended and the
-   owner is still to confirm them at the end of the unit: one image on
-   screen at a time; import places the image at the playhead for 2 s in
-   one undo step; the words draw above images.
+2. **E10 is in flight: 4 of 10 steps done, step 5 (the lane and the
+   panel) is next.** The plan is written below and its four open
+   questions are answered there. Three of its recommendations were taken
+   as recommended and the owner is still to confirm them at the end of
+   the unit: one image on screen at a time; import places the image at
+   the playhead for 2 s in one undo step; the words draw above images.
+   Step 4 put all three on screen, so they can now be judged by eye
+   rather than in the abstract.
 3. **The visual pass's trace in the owner's Chrome:** nothing left in the
    document (verified identical); the playhead was left on frame 10 and
    the three faces are now in that browser's HTTP cache. The tab was

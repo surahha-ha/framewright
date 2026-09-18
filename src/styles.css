@@ -336,6 +336,16 @@ body {
   max-height: none;
   pointer-events: none;
 }
+/* The pictures laid over the footage (ADR-0020), between it and the words.
+   The same rule as the words', deliberately: DOM order is what stacks them,
+   so neither layer carries a z-index, an opacity or a blend mode — each one
+   draws its own alpha and the compositor is left with plain source-over. */
+.stage canvas.stage-image {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  pointer-events: none;
+}
 .transport {
   display: flex;
   align-items: center;
@@ -1427,6 +1437,15 @@ button[aria-disabled='true'] {
    whole stage whenever the clip on screen is the selected one, so the same
    cursor over the words would say nothing (novice review). */
 .stage.words {
+  cursor: grab;
+}
+/* Over a picture laid on the footage, that picture can be dragged (E10 step
+   4). The words' hand, for the same reason and with the same meaning — take
+   hold of this one thing and move it — as against `.movable`, which is the
+   whole frame being pushed around inside the box. The two never light at
+   once: the words win the press where they overlap, so they win the cursor
+   (see the stage's className in Preview.tsx). */
+.stage.image {
   cursor: grab;
 }
 /* The box's shape over the preview (ADR-0015): three small buttons and the

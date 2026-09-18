@@ -78,11 +78,16 @@ npx playwright install chromium
   `postinstall` script, so `npm ci` does not download the browser and
   `npm run e2e` fails at launch until you run it. Do **not** add `--with-deps`;
   that flag installs Linux system packages and only works there.
-- **The bundled Chromium has no H.264.** A green `npm run verify` on a fresh
-  machine is therefore green _with the import and export e2e skipped_ — it has
-  not exercised the video path at all. To cover those, install Google Chrome and
-  run `npm run e2e:chrome` (`playwright.config.ts` has a `chrome` project on
-  `channel: 'chrome'` for exactly this).
+- **Check whether any e2e skipped itself.** The specs that decode or export
+  video ask the browser for H.264 at runtime and skip themselves with
+  `this browser has no H.264 (use npm run e2e:chrome)` when it says no — so a
+  green `npm run verify` can be green _without having touched the video path_.
+  Read the skip count, do not assume either way: Playwright 1.62.1's bundled
+  Chromium on Windows **does** have H.264 (measured 2026-09-18 — 142 passed, 0
+  skipped), but that is a property of the build, not a promise. If those specs
+  do skip on your machine, install Google Chrome and run `npm run e2e:chrome`
+  (`playwright.config.ts` carries a `chrome` project on `channel: 'chrome'` for
+  exactly this).
 - **On Windows you need Git Bash**, because the repo's hooks run `bash`.
 
 **What the clone does not bring with it.** Imported media (stored in OPFS), saved

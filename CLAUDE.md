@@ -233,6 +233,82 @@ file that moved. Then run `check:refs` and `typecheck`.
 
 ## Known tech debt
 
+- **A picture can be chosen and moved with a mouse and by nothing else.**
+  `selectImage`'s only caller is the `press` in `ui/useImageDrag.ts`, and
+  `image.setPosition` is `requiresArgs: true`, which `ui/actions.ts` turns
+  into `hiddenInPalette` — so no key, no palette row and no control reaches
+  either one. The words have their 자리 sliders and radios and the clip's
+  pan has 가로·세로 sliders; the picture has the stage and nothing. That is
+  `docs/UX.md:106` ("Every drag has a keyboard equivalent") broken head-on.
+  It cannot be fixed inside step 4, because the surface that would carry the
+  sliders — the image panel and its lane — is step 5's output. This is the
+  sharpest reason steps 3 · 4 · 5 are one shippable unit (see "Step 3 must
+  not ship on its own" below); it moves to step 5 as work, not as something
+  to live with (a11y, reported as a blocker, E10-4).
+- **Nothing removes a picture.** `image.remove` exists and is invertible,
+  but it is `hidden: true, requiresArgs: true` and no toolbar button, no
+  binding, no palette row and no bin row calls it. The only way back out of
+  a picture placed by mistake is `Ctrl+Z` pressed immediately: make one more
+  edit first and undoing the picture means undoing that edit too. The row
+  button that would call it is step 5's, like the sliders (novice, E10-4).
+- **Importing a picture empties the clip panel.** `image.import` and
+  `image.add` both carry `selectsImage`, which drops the clip selection, and
+  unlike a subtitle — which has a panel waiting to fill the space — there is
+  no `ImagePanel` yet, so the sidebar goes blank on a successful import.
+  Seen on screen in the owner's Chrome (2026-09-18). The rule itself is
+  consistent, since `subtitle.add` promises exactly the same thing, so what
+  is missing is the panel (step 5), not the selection (novice, E10-4).
+- **A chosen picture looks exactly like an unchosen one.** No outline on the
+  stage, no dashed box, no corner handles — and no structural signal either,
+  because the overlay is `role="img"`, on which `aria-selected` is not
+  valid. The one sign is the sentence said once at the press —
+  `화면의 이미지를 골랐어요 · 끌면 자리가 옮겨져요.` — and it is gone by the
+  time the user looks away and back. Clips and subtitle chips show selection
+  through `aria-pressed`; the picture exposes none (novice, a11y, E10-4).
+- **`Ctrl+Z` pressed mid-drag breaks the coalescing.** `commit()` in
+  `engine/command.ts` overwrites `lastCoalesceKey` on every commit whatever
+  key it carries, and `undo()` nulls it and then pops the accumulated drag
+  patch — so a user who has not let go of the button watches the picture
+  snap back to where the gesture started, and every move after that stacks
+  as a fresh undo entry, which is "one gesture, one undo step" gone. Not an
+  image defect: it is structural for every `pan:` and `pos:` coalesce key,
+  and the third stage drag is only what first made it a scenario a real user
+  would walk into. `useShortcuts` never asks whether a drag is live
+  (QA, E10-4).
+- **`useWordsDrag` and `useImageDrag` repeat the same wrapper shell** — a
+  hover state plus `onPointerDown` / `onPointerMove` / `onPointerUp`
+  delegating straight through to `useStageDrag`, some fifteen lines, word
+  for word in both files. The gesture body itself already paid its rule of
+  three with the `useStageDrag` extraction (E10 step 1); this shell is the
+  SECOND case, and a third wrapper is the trigger to fold it in as well
+  (reviewer, E10-4).
+- **The exclusive selection is three fields now.** `ctx()`,
+  `pruneSelection`, dispatch's selection post-step and the three `select*`
+  setters each spell out clip / subtitle / image side by side in
+  `engine/command.ts`. The plan deferred folding them into one `selection`
+  because it is a wide rename that deserves its own unit, and that
+  scheduling call still reads right — but the repo's own rule-of-three bar
+  is met as of this commit, so the next session should treat it as owed
+  rather than as a maybe (reviewer, E10-4).
+- **`Preview.tsx`'s overlay pattern is on its second copy.** "a `useMemo`
+  that computes the frame, a `useLayoutEffect` that draws it onto a canvas"
+  now exists for the subtitles and for the images. Two is not the trigger,
+  so nothing is extracted here; but a third of the same shape arriving in
+  step 5 is, and the shared hook then is a canvas ref plus a placement plus
+  a drawing effect. The file's real outstanding item is still the playback
+  loop, which this change did not shrink (reviewer, E10-4).
+- **`useStageDrag`'s re-entrancy guard sits BEFORE `spec.press`, and its
+  `setPointerCapture` before the ref is written** — the first because
+  `press` is not a pure hit test but changes the selection, so a guard
+  placed after it would let a refused press still swap the panel; the second
+  so that a throw cannot structurally leave an orphan ref behind, a failed
+  capture giving the gesture up through the existing cancel path instead.
+  The debt entry this replaces asked for "a jsdom PointerEvent test", and
+  that premise was wrong: this repo has no jsdom (`vitest.config.ts` sets
+  `environment: 'node'`). Rather than add the dependency for three cases,
+  `src/ui/useStageDrag.test.ts` drives the hook through the existing
+  seam-mocking convention — don't reach for jsdom on the next one either
+  (E10-4).
 - **Step 3 must not ship on its own.** A picture imported and placed from
   the bin leaves no trace on screen until step 4 draws it on the stage and
   step 5 gives it a lane: the document is right, the export already writes
@@ -313,24 +389,16 @@ file that moved. Then run `check:refs` and `typecheck`.
   `CURRENT_SCHEMA` into the envelope and `deserialize` reads only the
   envelope's number — verified by grep at every read site. Harmless, and
   one line to remove whenever someone is in there anyway (E10-2).
-- **`useStageDrag.onPointerDown` has no re-entrancy guard, and its
-  `setPointerCapture` is unguarded.** A second pointer pressing the same
-  target while a drag is on overwrites the drag ref, so the first
-  pointer's release — and the words' snap at the drop — is silently
-  dropped; and `setPointerCapture` is called after the ref is written,
-  so a throw (the element removed mid-press) leaves the ref non-null
-  with no capture until the next successful gesture on that key. Both
-  pre-existing in the pan and the words code before the extraction, and
-  carried into the hook unchanged on purpose; now one place, so the fix
-  is one guard and one try/catch, and the image drag (E10 row 6) is the
-  moment to add them with a jsdom PointerEvent test (QA, E10-1).
 - **A words drag during playback goes blind.** The drag locks the
   subtitle's id at press (ADR-0019) and every move lands on it, but
   nothing stops playback on the press, so when the rAF loop carries the
   playhead past the subtitle's end the overlay draws whatever is under the
   playhead now while the pointer is still rewriting the locked subtitle's
-  position, unseen, until release. The pan has the same latent gap.
-  Stopping playback on a stage press is the obvious lever (QA, E8-2d).
+  position, unseen, until release. The pan has the same latent gap, and the
+  image drag makes it three: it locks its own id at the press the same way,
+  so playback leaving the picture's span leaves the pointer moving something
+  no longer on screen. Stopping playback on a stage press is the obvious
+  lever, and it is now one lever for all three (QA, E8-2d · E10-4).
 - **A face's "받았어요" is never said after the fact.** The playhead's
   sentence settles only while the same face is still wanted under the
   playhead; a user who moves on during the fetch and comes back later
@@ -360,13 +428,15 @@ file that moved. Then run `check:refs` and `typecheck`.
   entries below): a restore or a new document naming that face skips the
   quiet fetch because the state says `failed`, and only the radio's
   retry asks again (QA, E8-2d).
-- **`Preview.tsx` is ~600 lines and two concerns** — scrub, and the
+- **`Preview.tsx` is ~720 lines and two concerns** — scrub, and the
   playback loop with its audio scheduling. The words' drag is a hook
   (`ui/useWordsDrag.ts`) and the faces another (`ui/useSubtitleFonts.ts`)
   since 2026-09-16; the pan's DOM half is in `ui/useStageDrag.ts` with
   the words' since the same day (E10 step 1), and the pan's remaining
   ~60 lines in `Preview` are its hit test, its limits and its sentence.
-  The playback loop is what remains to pull out (reviewer, ADR-0019).
+  Step 4 then put the picture's overlay back in, which is why the file grew
+  rather than shrank across an extraction. The playback loop is what remains
+  to pull out (reviewer, ADR-0019 · E10-4).
 - **After a drag on the stage, focus is wherever it was.** `.stage` is not
   focusable and the words drag's release moves focus nowhere, so a
   mouse-plus-screen-reader user has no way to ask "where am I now" after
@@ -813,8 +883,12 @@ file that moved. Then run `check:refs` and `typecheck`.
   boundary rather than splitting. "Paste attributes" (E6's fourth item) is not
   built — there are no clip attributes to paste yet.
 - `clip.copy` / `clip.cut` are app actions, so unlike every editor command they
-  are not testable in Node; their coverage is the e2e spec, which self-skips on
-  bundled Chromium (no H.264).
+  are not testable in Node; their coverage is the e2e spec, which self-skips
+  when the browser cannot do H.264. Whether the bundled Chromium can varies by
+  build — on 2026-09-18 `npm run verify` ran all 147 e2e with **zero skips**,
+  `editor.spec.ts`'s import and export tests included — so read the skip count
+  rather than assuming either way. The guard itself is a runtime capability
+  check and is right to stay.
 - The nudge labels say "프레임", which is jargon for a first-time user, and the
   nudges have no toolbar button to anchor the idea to.
 - The shortcuts panel is a flat ~21-row list with no grouping, and its "없애기"

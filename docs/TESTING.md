@@ -92,8 +92,13 @@ hunting for a bug that isn't there.
 
 ## ⚠ Codec availability in test browsers
 
-Playwright's bundled Chromium is the **open-source build: it has no H.264**
-(VP8/VP9/AV1 only). So:
+Whether a browser can decode H.264 is a property of the **build**, not something
+to assume either way — so the specs ask it at runtime and skip themselves when
+the answer is no. Historically Playwright's bundled Chromium was the open-source
+build with VP8/VP9/AV1 only, and that is why the guards exist; but **measured
+2026-09-18, Playwright 1.62.1's bundled Chromium on Windows does have H.264** —
+`npm run verify` ran 147 e2e with **0 skipped**, the import and export tests
+among them. **Read the skip count rather than assuming.** So:
 
 - `e2e/playback-session.spec.ts` picks whatever codec the browser supports — it
   runs everywhere.
@@ -102,7 +107,10 @@ Playwright's bundled Chromium is the **open-source build: it has no H.264**
   guards was found in the real H.264 fixture, and a spec that self-skipped on the
   machine running the gate would have guarded nothing.
 - Import/export tests need H.264 (our fixture and our export target) and
-  **self-skip** on bundled Chromium. Run them with `npm run e2e:chrome`.
+  **self-skip when the browser says it has none**, printing
+  `this browser has no H.264 (use npm run e2e:chrome)`. If you see that skip,
+  run them with `npm run e2e:chrome`; if the run reports 0 skipped, they
+  already exercised the video path.
 
 ## Regression tests worth knowing about
 
@@ -152,8 +160,9 @@ session, the rules do not:**
 The gate (`npm run verify`, Playwright) is the same in both and is never
 replaced by either driver. Two things follow from "real Chrome":
 
-- **H.264 works**, so import, playback and export run on actual footage — no
-  self-skipping, unlike bundled Chromium.
+- **H.264 is guaranteed**, so import, playback and export run on actual footage
+  and never self-skip. The bundled Chromium may also have it (it did on
+  2026-09-18) but that is the build's choice, not a promise.
 - It is the browser the owner actually uses, with their zoom, fonts and window
   size.
 
@@ -410,6 +419,9 @@ same commit. Anything not on this list is free to change.
 | `.stage-subtitle` pixels                               | a styled subtitle's look, place and effect are IN the overlay's pixels (yellow ink for 강조, ink in the top band for 위, a fainter alpha on an effect's first frame): `e2e/subtitle-style.spec.ts` samples them with `getImageData`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | radiogroup "글꼴"                                      | the selected subtitle's face (ADR-0018), in the subtitle panel between 모양 and 자리; radios 기본 / 붓글씨 / 손글씨 / 굵은고딕, `aria-checked` on the current one; a bundled face is fetched from `/fonts/` on the choice, and every face the document names is fetched quietly when the document opens (ADR-0018, amended 2026-09-16; a face nothing names is never fetched) — once it lands a `FontFace` of that family sits in `document.fonts` with status `loaded` (NOT `document.fonts.check()`, which answers true for a family the page never registered), the overlay's ink bounds change, and 기본 restores them exactly: `e2e/subtitle-font.spec.ts`                                                                                                                                           |
 | `.stage` words drag                                    | a press inside the drawn block of the subtitle under the playhead selects it and drags it (ADR-0019): the words follow the pointer, the drop snaps within 3% of a preset, the gesture is ONE undo step, the status says where ("자막을 옮겼어요 · 왼쪽에서 32% · 위에서 70%." or the preset's own sentence); past the box's edge the words stop and the pointer stays attached, so the way back moves at once (`dragAxis`, ADR-0019 amended; the picture's pan the same, `e2e/picture.spec.ts`); a press OFF the block is the picture's pan as before; a press ON the block that does not move it says "화면의 자막을 골랐어요 · 끌면 자리가 옮겨져요." when it changed the selection; `.stage.words` (cursor `grab`, against the picture's `move`) while hovering the block: `e2e/subtitle-drag.spec.ts` |
+| `.stage-image`                                         | the pictures laid over the footage: a canvas at the TIMELINE's size, placed exactly over `.stage-picture`, `role="img"` named `이미지: <파일명>` while one is drawn and `aria-hidden` when not. It is cleared and then drawn on, so anything with alpha in it IS the sticker — `getImageData` bounds are its rectangle, and their centre is `posX`/`posY` as fractions of the box: `e2e/image.spec.ts`                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `.stage` image drag                                    | a press inside the drawn rectangle of the image under the playhead selects it and drags it (ADR-0020): the picture follows the pointer, the drop snaps to the middle within 3%, the gesture is ONE undo step, the status says where ("이미지를 옮겼어요 · 왼쪽에서 75% · 위에서 30%." or "이미지를 가운데로 옮겼어요." on the snap); a press that does not move it says "화면의 이미지를 골랐어요 · 끌면 자리가 옮겨져요." when it changed the selection; `.stage.image` (cursor `grab`) while hovering it: `e2e/image.spec.ts`                                                                                                                                                                                                                                                                           |
+| `.stage` hit order                                     | ONE handler set, three drags, asked words → image → pan: where the words and a picture overlap the press takes the words, and a press on neither is the clip's pan (press-to-choose first). While ANY of the three is running the stage is closed — a second pointer's `pointerdown` (dispatched, since Playwright's mouse is one pointer) must not select anything, must not speak over the drag in progress, and must not end its coalescing gesture and split it into two undo steps: `e2e/image.spec.ts`                                                                                                                                                                                                                                                                                              |
 | slider "가로 자리" / "세로 자리"                       | the selected subtitle's position by keyboard, under the 자리 row: 0–100 step 1, `aria-valuetext` in words ("왼쪽에서 53%", "맨 아래"), 50 / 100 when the field is absent and writing those is the preset again; described by `#subtitle-position-note`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `#subtitle-position-note`                              | one sentence under the sliders: the position words when no preset names it ("왼쪽에서 32% · 위에서 70%"), "<preset> 자리에 있어요 · 화면의 자막을 끌거나 슬라이더로 옮길 수 있어요" when one does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | group "자리"                                           | the 자리 row of the subtitle panel is one `role="group"` named by the word, holding the radiogroup, the two sliders and `#subtitle-position-note` — so the radios (nothing checked off a preset) and the sliders (the value) read as one thing: `e2e/subtitle-drag.spec.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |

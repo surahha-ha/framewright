@@ -16,10 +16,13 @@
 //    back both. Its inverse deliberately does not rewind `nextId` — see the
 //    note on the inverse itself.
 //  - every command here is told its image in an ARGUMENT. A subtitle command
-//    reads `ctx.selectedSubtitleId`; there is no `selectedImageId` yet, and a
-//    refusal that has to name the image therefore cannot live in
-//    `disabledReason`, which sees only the ctx. `imageTimingReason` is where
-//    those sentences live until there is a selection to read them from.
+//    reads `ctx.selectedSubtitleId`; these read nothing, and a refusal that
+//    has to name the image therefore cannot live in `disabledReason`, which
+//    is handed the ctx and never the args. `imageTimingReason` is where
+//    those sentences live. `ctx.selectedImageId` does exist now — the two
+//    commands that PLACE a picture hand it theirs through `selectsImage`,
+//    the way `subtitle.add` does — but no command here reads it: what a
+//    panel or a chip acts on is still passed in.
 //
 // The three `*ToPlayhead` commands are knowingly a SECOND copy of the
 // subtitle's `edgeToPlayhead` shape: the arithmetic is one call into
@@ -130,6 +133,9 @@ export const importImageCommand: Command<ImageImportArgs> = {
   icon: '🖼',
   hidden: true,
   requiresArgs: true,
+  // The picture that just arrived is what the user works on next — its
+  // size and its place. `subtitle.add`'s promise, for the other new thing.
+  selectsImage: (before) => `img_${before.project.nextId + 1}`,
   done: (before) => placedText(before),
   disabledReason: noRoomReason,
   canRun(ctx, args) {
@@ -181,6 +187,9 @@ export const addImageCommand: Command<ImageAddArgs> = {
   label: '재생 위치에 넣기',
   hidden: true,
   requiresArgs: true,
+  // Same promise as the import's: whichever way a picture got onto the
+  // timeline, it is the one that was just placed.
+  selectsImage: (before) => `img_${before.project.nextId}`,
   done: (before) => placedText(before),
   disabledReason: noRoomReason,
   canRun(ctx, args) {

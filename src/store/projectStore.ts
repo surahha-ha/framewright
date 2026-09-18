@@ -56,6 +56,9 @@ interface State {
   selectedClipId: string | null;
   /** Mirrors `editor.selectedSubtitleId`. Never set together with a clip. */
   selectedSubtitleId: string | null;
+  /** Mirrors `editor.selectedImageId`. The third of the three exclusive
+   *  selections, so it is never set together with either other one. */
+  selectedImageId: string | null;
   /** Bumped when a command has just CREATED a subtitle and selected it — the
    *  words are what comes next, so the panel puts the cursor in the field. Only
    *  then: an undo that empties the words, or tabbing onto an empty chip, must
@@ -137,6 +140,7 @@ interface State {
   seekTo: (frame: number) => void;
   select: (clipId: string | null) => void;
   selectSubtitle: (subtitleId: string | null) => void;
+  selectImage: (imageId: string | null) => void;
   setPlaying: (b: boolean) => void;
   setExporting: (b: boolean) => void;
   setStatus: (s: string) => void;
@@ -238,11 +242,19 @@ export const useStore = create<State>((set, get) => {
     get().run('subtitle.setText', { subtitleId: draft.id, text: draft.text });
   }
 
+  /** The three exclusive ids, read back from the editor together. One of
+   *  them changing is always the other two possibly changing with it, so
+   *  no caller gets to set one on its own and leave a stale sibling. */
+  const selection = () => ({
+    selectedClipId: editor.selectedClipId,
+    selectedSubtitleId: editor.selectedSubtitleId,
+    selectedImageId: editor.selectedImageId,
+  });
+
   const snapshot = () => ({
     project: editor.project,
     playhead: editor.playhead,
-    selectedClipId: editor.selectedClipId,
-    selectedSubtitleId: editor.selectedSubtitleId,
+    ...selection(),
     canUndo: editor.canUndo(),
     canRedo: editor.canRedo(),
   });
@@ -252,6 +264,7 @@ export const useStore = create<State>((set, get) => {
     playhead: 0,
     selectedClipId: null,
     selectedSubtitleId: null,
+    selectedImageId: null,
     subtitleWordsWanted: 0,
     subtitleDraft: null,
     setSubtitleDraft: (subtitleDraft) => set({ subtitleDraft }),
@@ -446,19 +459,19 @@ export const useStore = create<State>((set, get) => {
     select: (clipId) => {
       flushSubtitleDraft();
       editor.select(clipId);
-      set({
-        selectedClipId: editor.selectedClipId,
-        selectedSubtitleId: editor.selectedSubtitleId,
-      });
+      set(selection());
     },
 
     selectSubtitle: (subtitleId) => {
       flushSubtitleDraft();
       editor.selectSubtitle(subtitleId);
-      set({
-        selectedClipId: editor.selectedClipId,
-        selectedSubtitleId: editor.selectedSubtitleId,
-      });
+      set(selection());
+    },
+
+    selectImage: (imageId) => {
+      flushSubtitleDraft();
+      editor.selectImage(imageId);
+      set(selection());
     },
 
     overlay: 'none',

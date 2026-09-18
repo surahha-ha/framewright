@@ -596,3 +596,99 @@ describe('the footage moves, the pictures move with it', () => {
     });
   });
 });
+
+// ---- the chosen picture (ADR-0020) ----
+//
+// `selectedImageId` is the THIRD exclusive selection id, beside the clip's and
+// the subtitle's: one thing is chosen at a time, and the choice is dropped the
+// moment the thing it points at leaves the document.
+
+describe('selection', () => {
+  it('lands on the picture a placing command just made, and the clip lets go', () => {
+    const ed = editorWith(seed());
+    ed.select('clip_1');
+    ed.setPlayhead(30);
+    expect(ed.dispatch('image.add', { assetId: 'asset_2' })).toBe(true);
+    expect(ed.project.images.map((i) => i.id)).toEqual(['img_3']);
+    expect(ed.selectedImageId).toBe('img_3');
+    expect(ed.selectedClipId).toBeNull();
+  });
+
+  it('lands on the picture an import brought in', () => {
+    const ed = editorWith(seed());
+    ed.setPlayhead(30);
+    expect(
+      ed.dispatch('image.import', {
+        name: 'logo.png',
+        width: 400,
+        height: 200,
+      }),
+    ).toBe(true);
+    // `asset_3` for the file, `img_4` for what went on the timeline.
+    expect(ed.selectedImageId).toBe('img_4');
+  });
+
+  it('is what every command reads out of the ctx', () => {
+    const ed = editorWith(seed(300, [img('img_1', 0, 60)]));
+    ed.selectImage('img_1');
+    expect(ed.context().selectedImageId).toBe('img_1');
+    ed.selectImage(null);
+    expect(ed.context().selectedImageId).toBeNull();
+  });
+
+  it('is one thing at a time — a picture, a clip and words push each other out', () => {
+    const ed = editorWith({
+      ...seed(300, [img('img_1', 0, 60)]),
+      subtitles: [{ id: 'sub_9', text: 'x', startFrame: 100, endFrame: 160 }],
+    });
+    ed.select('clip_1');
+    ed.selectImage('img_1');
+    expect(ed.selectedImageId).toBe('img_1');
+    expect(ed.selectedClipId).toBeNull();
+
+    ed.selectSubtitle('sub_9');
+    expect(ed.selectedImageId).toBeNull();
+
+    ed.selectImage('img_1');
+    expect(ed.selectedSubtitleId).toBeNull();
+
+    ed.select('clip_1');
+    expect(ed.selectedImageId).toBeNull();
+  });
+
+  it('is dropped when the chosen picture is taken off the timeline', () => {
+    const ed = editorWith(
+      seed(300, [img('img_1', 0, 60), img('img_2', 90, 150)]),
+    );
+    ed.selectImage('img_2');
+    // Another picture leaving changes nothing about this choice.
+    expect(ed.dispatch('image.remove', { imageId: 'img_1' })).toBe(true);
+    expect(ed.selectedImageId).toBe('img_2');
+    expect(ed.dispatch('image.remove', { imageId: 'img_2' })).toBe(true);
+    expect(ed.selectedImageId).toBeNull();
+  });
+
+  it('is dropped by an undo that takes the picture back, and redo does not re-choose it', () => {
+    const ed = editorWith(seed());
+    ed.setPlayhead(30);
+    expect(ed.dispatch('image.add', { assetId: 'asset_2' })).toBe(true);
+    expect(ed.selectedImageId).toBe('img_3');
+
+    expect(ed.undo()).toBe(true);
+    expect(ed.project.images).toEqual([]);
+    expect(ed.selectedImageId).toBeNull();
+
+    // Redo replays the patch; it does not re-run the command, so nothing
+    // chooses the picture again.
+    expect(ed.redo()).toBe(true);
+    expect(ed.project.images.map((i) => i.id)).toEqual(['img_3']);
+    expect(ed.selectedImageId).toBeNull();
+  });
+
+  it('is cleared by a version restore', () => {
+    const ed = editorWith(seed(300, [img('img_1', 0, 60)]));
+    ed.selectImage('img_1');
+    ed.restoreProject(seed());
+    expect(ed.selectedImageId).toBeNull();
+  });
+});

@@ -54,7 +54,9 @@ export interface StageDragSpec<T> {
 }
 
 export interface StageDrag {
-  /** True when this drag took the press (and captured the pointer). */
+  /** True when this drag took the press (and captured the pointer). False
+   *  while a drag of this kind is already on — a second pointer is refused,
+   *  not taken — and false when the capture failed. */
   onPointerDown(e: StageEvent): boolean;
   /** True when a drag of this kind is on and the event is its pointer's —
    *  inside the threshold too, so no other handler acts on the press. */
@@ -89,9 +91,31 @@ export function useStageDrag<T>(spec: StageDragSpec<T>): StageDrag {
   const dragRef = useRef<Drag<T> | null>(null);
 
   function onPointerDown(e: StageEvent): boolean {
+    // A drag is already on: a SECOND pointer must not take it over. The ref
+    // holds one gesture, so overwriting it drops the first pointer's
+    // release — the snap at the drop, the one undo step's last write — with
+    // nothing on screen to say so. Asked before `press`, because the hit
+    // test selects: a refused press must not change the panel either.
+    if (dragRef.current) return false;
     if (e.button !== 0) return false;
     const p = spec.press(e);
     if (!p) return false;
+    // Capture BEFORE the ref is written. The element can be gone by the time
+    // the press is handled, and `setPointerCapture` then throws; with the
+    // ref written first that leaves a drag no event will ever end, holding
+    // the next real gesture out. Nothing between here and the ref throws.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // No capture, no drag: the moves would not come back to this element,
+      // so the gesture is given up rather than run blind — and it ends the
+      // way a press that never moved ends, so a `press` that chose
+      // something still gets its one sentence said. False, because this
+      // drag did not take the press (the caller may ask the next handler).
+      spec.release(p.target, false, p.base);
+      endGesture();
+      return false;
+    }
     dragRef.current = {
       target: p.target,
       pointerId: e.pointerId,
@@ -104,7 +128,6 @@ export function useStageDrag<T>(spec: StageDragSpec<T>): StageDrag {
       last: p.base,
       moved: false,
     };
-    e.currentTarget.setPointerCapture(e.pointerId);
     return true;
   }
 

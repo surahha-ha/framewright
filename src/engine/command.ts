@@ -16,6 +16,9 @@ export interface Editor {
   readonly selectedClipId: string | null;
   /** Never set together with `selectedClipId` — one selection at a time. */
   readonly selectedSubtitleId: string | null;
+  /** Never set together with either of the other two — one selection
+   *  at a time, for all three kinds of thing. */
+  readonly selectedImageId: string | null;
   /**
    * What copy/cut set aside. Deliberately NOT part of the document: undo must
    * not empty your clipboard, and a version restore must not repopulate it.
@@ -38,9 +41,10 @@ export interface Editor {
   dispatch(commandId: string, args?: unknown, coalesceKey?: string): boolean;
 
   setPlayhead(frame: number): void;
-  /** Selecting a clip drops any selected subtitle, and vice versa. */
+  /** One thing at a time: choosing any of the three drops the other two. */
   select(clipId: string | null): void;
   selectSubtitle(subtitleId: string | null): void;
+  selectImage(imageId: string | null): void;
   setClipboard(entry: ClipboardEntry | null): void;
   /**
    * Where commands read the sound of each source from (ADR-0016). The app
@@ -77,6 +81,7 @@ export function createEditor(initial: Project): Editor {
   let playhead = 0;
   let selectedClipId: string | null = null;
   let selectedSubtitleId: string | null = null;
+  let selectedImageId: string | null = null;
   let clipboard: ClipboardEntry | null = null;
   let peaks: PeaksSource | null = null;
   const undoStack: Patch[] = [];
@@ -88,6 +93,7 @@ export function createEditor(initial: Project): Editor {
     playhead,
     selectedClipId,
     selectedSubtitleId,
+    selectedImageId,
     clipboard,
     peaks,
   });
@@ -99,7 +105,8 @@ export function createEditor(initial: Project): Editor {
     playhead = Math.min(last, Math.max(0, playhead));
   }
 
-  /** Drop a selection pointing at a clip or subtitle that no longer exists. */
+  /** Drop a selection pointing at a clip, subtitle or image that no longer
+   *  exists. */
   function pruneSelection(): void {
     if (selectedClipId) {
       const exists = project.tracks.some((t) =>
@@ -110,6 +117,10 @@ export function createEditor(initial: Project): Editor {
     if (selectedSubtitleId) {
       const exists = project.subtitles.some((s) => s.id === selectedSubtitleId);
       if (!exists) selectedSubtitleId = null;
+    }
+    if (selectedImageId) {
+      const exists = project.images.some((i) => i.id === selectedImageId);
+      if (!exists) selectedImageId = null;
     }
   }
 
@@ -143,6 +154,9 @@ export function createEditor(initial: Project): Editor {
     get selectedSubtitleId() {
       return selectedSubtitleId;
     },
+    get selectedImageId() {
+      return selectedImageId;
+    },
     get clipboard() {
       return clipboard;
     },
@@ -174,11 +188,19 @@ export function createEditor(initial: Project): Editor {
       if (created) {
         selectedClipId = created;
         selectedSubtitleId = null;
+        selectedImageId = null;
       }
       const createdSubtitle = cmd.selectsSubtitle?.(c);
       if (createdSubtitle) {
         selectedSubtitleId = createdSubtitle;
         selectedClipId = null;
+        selectedImageId = null;
+      }
+      const createdImage = cmd.selectsImage?.(c);
+      if (createdImage) {
+        selectedImageId = createdImage;
+        selectedClipId = null;
+        selectedSubtitleId = null;
       }
       return true;
     },
@@ -191,11 +213,24 @@ export function createEditor(initial: Project): Editor {
     },
     select(clipId) {
       selectedClipId = clipId;
-      if (clipId) selectedSubtitleId = null;
+      if (clipId) {
+        selectedSubtitleId = null;
+        selectedImageId = null;
+      }
     },
     selectSubtitle(subtitleId) {
       selectedSubtitleId = subtitleId;
-      if (subtitleId) selectedClipId = null;
+      if (subtitleId) {
+        selectedClipId = null;
+        selectedImageId = null;
+      }
+    },
+    selectImage(imageId) {
+      selectedImageId = imageId;
+      if (imageId) {
+        selectedClipId = null;
+        selectedSubtitleId = null;
+      }
     },
     setClipboard(entry) {
       clipboard = entry;
@@ -249,6 +284,7 @@ export function createEditor(initial: Project): Editor {
       this.setPlayhead(playhead);
       selectedClipId = null;
       selectedSubtitleId = null;
+      selectedImageId = null;
     },
 
     importAsset(assetInput, durationFrames, sequence) {

@@ -7,7 +7,7 @@
 //     cannot carry on (ADR-0012).
 // The playback loop reads live state through refs — a captured closure would
 // keep playing the pre-edit document and would fight the user's seeking.
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/projectStore';
 import { getDecodeService } from '../engine/registry';
 import { frameToSec, secToFrame, formatTimecode } from '../engine/time';
@@ -19,7 +19,11 @@ import { subtitleAt } from '../engine/subtitles';
 import { subtitleFrameOf } from '../engine/subtitleStyle';
 import { drawSubtitle, type SubtitleFrame } from '../engine/subtitleRender';
 import { useWordsDrag } from './useWordsDrag';
+import { useImageDrag } from './useImageDrag';
 import { useSubtitleFonts } from './useSubtitleFonts';
+import { imageAt, imageFrameOf } from '../engine/images';
+import { drawImageFrame } from '../engine/imageRender';
+import { browserImages, subscribeImages } from './images';
 import { evenDimensions } from '../engine/exportPlan';
 import { blendAt } from '../engine/fades';
 import { FeedPool } from '../engine/feeds';
@@ -43,6 +47,11 @@ export function Preview() {
    *  exact frame a subtitle starts or ends — and a subtitle drawn INTO the
    *  picture would stay there on every held frame after it had ended. */
   const overlayRef = useRef<HTMLCanvasElement>(null);
+  /** The pictures laid over the footage, on their own canvas between the two
+   *  (ADR-0020). Its own layer for the words' reason and one more: a bitmap
+   *  arrives long after the frame it belongs to was painted, so drawing it
+   *  into the picture would need that frame decoded again. */
+  const imageCanvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<number | null>(null);
   const busyRef = useRef(false);
@@ -118,21 +127,42 @@ export function Preview() {
     release() {}, // nothing to snap, nothing to say: the last move is the drop
   });
 
-  // The stage's one handler set. The words first (E8-2c): a press on them
-  // is unambiguous, so it selects the subtitle AND starts its drag; the
-  // picture's pan needs a press-to-choose step because the picture is not.
+  // The stage's one handler set, asked in hit order: the words first
+  // (E8-2c), then the pictures laid over the footage (E10 step 4), then the
+  // clip's pan. A press on the words or on an image is unambiguous, so it
+  // selects the thing AND starts its drag; the pan needs a press-to-choose
+  // step because a press on the footage is not.
   function onStagePointerDown(e: StageEvent) {
+    // ONE GESTURE AT A TIME ON THE STAGE — a decision, not an accident.
+    // `useStageDrag` refuses a second pointer for the drag that is already
+    // on, but that refusal falls THROUGH to the next handler here, and the
+    // second pointer would then start a DIFFERENT drag: the words still
+    // being moved under one finger while the pan begins under another, two
+    // undo steps interleaved and neither release seen by the other. While
+    // any of the three is on, the stage is closed.
+    //
+    // Each hook answers for its own drag, live off `useStageDrag`'s ref, so
+    // there is nothing here to set, clear or get out of step with the drags
+    // it describes: a drag is on from the press that took it (the only
+    // place the ref is written) until the release that ends it (the only
+    // place it is cleared), and a cancel comes through that same release.
+    if (wordsDrag.active || imageDrag.active || panDrag.active) return;
     if (wordsDrag.onPointerDown(e)) return;
+    if (imageDrag.onPointerDown(e)) return;
     panDrag.onPointerDown(e);
   }
 
   function onStagePointerMove(e: StageEvent) {
     if (wordsDrag.onPointerMove(e)) return;
+    if (imageDrag.onPointerMove(e)) return;
     panDrag.onPointerMove(e);
   }
 
   function onStagePointerUp(e: StageEvent) {
+    // Only the pointer whose drag this is answers true, so a stray release
+    // (the second pointer refused above) leaves the gesture running.
     if (wordsDrag.onPointerUp(e)) return;
+    if (imageDrag.onPointerUp(e)) return;
     panDrag.onPointerUp(e);
   }
   // The document remembers clips whose media is not loaded (e.g. after reload).
@@ -329,21 +359,94 @@ export function Preview() {
     if (frame && frame.text) drawSubtitle(ctx, frame, width, height);
   }, [frame, fontsVersion, project.timeline.width, project.timeline.height]);
 
-  // The picture is centred and letterboxed by CSS, so the overlay finds out
-  // where it landed and sits exactly on top of it. Re-measured whenever the
+  // ---- THE IMAGE LAYER (E10 step 4, ADR-0020) ----
+  // Drawn at the TIMELINE's size, like the words and for the same reason:
+  // the export draws the same rectangle with the same function on the same
+  // grid, so the screen cannot disagree with the file about where a sticker
+  // sits. Between the footage and the words, because the words are the last
+  // thing that must stay readable.
+  const [imagesVersion, imageArrived] = useState(0);
+  useEffect(() => subscribeImages(() => imageArrived((n) => n + 1)), []);
+  const currentImage = total > 0 ? imageAt(project, playhead) : null;
+  const imageAsset = currentImage
+    ? (project.assets.find((a) => a.id === currentImage.assetId) ?? null)
+    : null;
+  // `imageFrameAt`'s two halves, kept apart: the drag needs the image ITSELF
+  // (its id, for the command) and the layer needs the frame. Memoised on the
+  // two document objects, which only change when the image or the asset
+  // does, so the draw below runs on a real change and not on every tick of
+  // the playhead.
+  const imageFrame = useMemo(
+    () =>
+      currentImage && imageAsset
+        ? imageFrameOf(currentImage, imageAsset)
+        : null,
+    [currentImage, imageAsset],
+  );
+  // The bitmap, if it has arrived. One owner, `ui/images.ts`: this asks and
+  // never opens or closes one (golden rule 6).
+  const bitmap = imageFrame ? browserImages.get(imageFrame.assetId) : null;
+  // What the layer is announced as — the file's name, and only while a
+  // picture is actually on it.
+  const imageName = bitmap && imageAsset ? imageAsset.name : '';
+
+  useLayoutEffect(() => {
+    const canvas = imageCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const { width, height } = evenDimensions(
+      project.timeline.width,
+      project.timeline.height,
+    );
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    ctx.clearRect(0, 0, width, height);
+    if (!imageFrame) return;
+    if (!bitmap) {
+      // Nothing has read this file yet (a reopened document, a restore).
+      // Asking is idempotent and a file that cannot be read is remembered,
+      // so this cannot become a loop; the redraw comes back through
+      // `subscribeImages` → `imagesVersion`.
+      void browserImages.load(imageFrame.assetId);
+      return;
+    }
+    drawImageFrame(ctx, { ...imageFrame, picture: bitmap }, width, height);
+  }, [
+    imageFrame,
+    bitmap,
+    imagesVersion,
+    project.timeline.width,
+    project.timeline.height,
+  ]);
+
+  // ---- MOVE THE PICTURE ON THE STAGE (E10 step 4) ---- the stage's third
+  // drag, asked between the words and the pan by each handler above.
+  const imageDrag = useImageDrag({
+    imageRef: imageCanvasRef,
+    frame: imageFrame,
+    image: currentImage,
+  });
+
+  // The picture is centred and letterboxed by CSS, so the overlays find out
+  // where it landed and sit exactly on top of it. Re-measured whenever the
   // stage or the picture changes size.
   useEffect(() => {
     const stage = stageRef.current;
     const picture = canvasRef.current;
     const overlay = overlayRef.current;
-    if (!stage || !picture || !overlay) return;
+    const images = imageCanvasRef.current;
+    if (!stage || !picture || !overlay || !images) return;
     const place = () => {
       const s = stage.getBoundingClientRect();
       const p = picture.getBoundingClientRect();
-      overlay.style.left = `${p.left - s.left}px`;
-      overlay.style.top = `${p.top - s.top}px`;
-      overlay.style.width = `${p.width}px`;
-      overlay.style.height = `${p.height}px`;
+      for (const layer of [images, overlay]) {
+        layer.style.left = `${p.left - s.left}px`;
+        layer.style.top = `${p.top - s.top}px`;
+        layer.style.width = `${p.width}px`;
+        layer.style.height = `${p.height}px`;
+      }
     };
     place();
     const observer = new ResizeObserver(place);
@@ -529,7 +632,10 @@ export function Preview() {
           (underPlayhead && underPlayhead.id === selectedClipId
             ? ' movable'
             : '') +
-          (wordsDrag.overWords ? ' words' : '')
+          // One of the two at a time, in the hit order the handlers use: the
+          // words win the press where they overlap a picture, so they win
+          // the cursor too.
+          (wordsDrag.overWords ? ' words' : imageDrag.overImage ? ' image' : '')
         }
         ref={stageRef}
         onPointerDown={onStagePointerDown}
@@ -538,6 +644,16 @@ export function Preview() {
         onPointerCancel={onStagePointerUp}
       >
         <canvas ref={canvasRef} className="stage-picture" />
+        {/* The pictures laid over the footage, under the words. Hidden from
+            assistive tech until one is actually drawn: an image whose file is
+            still being read has nothing on screen to name. */}
+        <canvas
+          ref={imageCanvasRef}
+          className="stage-image"
+          role={imageName ? 'img' : undefined}
+          aria-label={imageName ? `이미지: ${imageName}` : undefined}
+          aria-hidden={imageName ? undefined : true}
+        />
         {/* Hidden from assistive tech when blank; named by its words when not,
             so a screen reader user can ask what is on screen without being
             read every subtitle as it flies past during playback. */}
