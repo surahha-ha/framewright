@@ -260,14 +260,50 @@ page`, and this machine's `netstat` shows no connection attempt at all — while
   `switch_browser`, which prompts every connected Chrome and lets the owner
   click Connect in the right one — `select_browser` cannot help, because the
   entry looks correct.
-  The decisive proof is on the shell side: `netstat -an | grep 9990` showing
-  an ESTABLISHED loopback pair means a browser on this machine really
-  connected. `window.outerWidth`/`outerHeight` reading `0 × 0` is NOT a tell —
-  this machine's own Chrome read `0 × 0` too (measured 2026-08-27).
+  The decisive proof is on the shell side, and it is a before/after, not a
+  single reading: run `netstat -an | grep 9990` immediately BEFORE the
+  `navigate` and again immediately AFTER it. A new
+  `127.0.0.1:<ephemeral> ↔ 127.0.0.1:9990` **ESTABLISHED** pair in the second
+  reading means the connected Chrome really is on this machine; no new pair
+  means it is not. Measured 2026-09-18: only `LISTENING` before, and
+  `127.0.0.1:60736 ↔ 127.0.0.1:9990 ESTABLISHED` after.
+  `window.outerWidth`/`outerHeight` reading `0 × 0` is NOT a tell — this
+  machine's own Chrome read `0 × 0` too (measured 2026-08-27) — and neither is
+  a deviceId you recognise or fail to recognise: ids can survive a session, the
+  same `da2a0786-09c1-4a9c-9045-d69d3ae31f81` came back on 2026-09-16 and again
+  on 2026-09-18.
+- **`navigate` can report success while the tab stays on `chrome://newtab`.**
+  It reports success for both `localhost:9990` and `127.0.0.1:9990`, the tab's
+  URL is still `chrome://newtab/`, and every screenshot afterwards fails with
+  `Can't interact with browser-internal or unparseable URLs`. **This is not the
+  wrong-machine signature above** — that one lands on an error page and says
+  `Frame with ID 0 is showing error page`. Read the two as the same thing and
+  you reach for `switch_browser`, which is the wrong lever here. **First thing
+  to rule out: kill the dev server and start a fresh one.** On 2026-09-18 the
+  block cleared on the first attempt after a fresh `npm run dev`, and that was
+  the only thing that differed — at the start of that session nothing was
+  listening on 9990 at all, the previous session's server having died. That is
+  **not proof of cause**: the 2026-09-16 session that was blocked recorded a
+  listening server and `curl` returning 200 throughout. So treat the restart as
+  the cheapest thing to exclude, not as the explanation. The three theories
+  already ruled out on 2026-08-14 and not worth retrying: a proxy, HTTPS-Only
+  mode, and the extension's site permission.
+- **One `javascript_tool` reading says whether the page is actually usable.**
+  Once a tab has moved, read `isSecureContext`, `typeof VideoDecoder`,
+  `typeof navigator.storage.getDirectory`,
+  `document.querySelector('#root').childElementCount` and `document.hidden` in
+  one go. Healthy, measured 2026-09-18: `true`, `'function'`, `'function'`,
+  `1`, `false`. A false first value or an `'undefined'` in either middle one
+  means the page is not on `127.0.0.1` (see "A LAN IP is not a workaround"
+  below); `0` children means the app did not mount, which the cold-start entry
+  below can also explain; `document.hidden` true means every screenshot will
+  time out until the owner brings the tab to the front.
 - **Pick a browser by deviceId, never by display name.** More than one Chrome
   can be connected and the names are unreliable — selecting the one listed as
-  "Browser 1" reported back "Connected to browser 'Browser 2'". The ids are
-  per-machine, so re-read them from `list_connected_browsers` every time.
+  "Browser 1" reported back "Connected to browser 'Browser 2'". Re-read the ids
+  from `list_connected_browsers` every time — not because an id necessarily
+  changed (it can survive a session; see the netstat entry above) but because
+  which entries are listed, and which name each one carries, does.
 - **The extension cannot see pre-existing tabs**, only the tab group it creates
   for the session. If the browser is identified as "the one with X open", that
   cannot be verified — say so.
@@ -288,6 +324,13 @@ page`, and this machine's `netstat` shows no connection attempt at all — while
   (ADR-0016). It was made through the app's own export after swapping the
   decoded audio in place (no ffmpeg on the machine that made it); the other
   fixture never goes quiet, so it is the one that proves the button waits.
+- **There is no picture fixture at all.** `e2e/fixtures/` holds those two mp4s
+  and nothing else, and the repo tracks no `.png` / `.jpg` / `.webp` / `.gif`
+  anywhere (checked 2026-09-18). So anything that needs an image — the image
+  commands' e2e, a visual pass over 이미지 — has to make one first; the 2026-09-18
+  pass used a 320×180 PNG written to the session's scratchpad, which no later
+  session can reach. One small PNG committed to `e2e/fixtures/` is the cheap
+  fix and nobody has done it.
 
 **How to check frame accuracy by eye.** That fixture burns its own frame number
 into the top-left of the picture. Find the playhead slider (`find` → "재생 위치"),

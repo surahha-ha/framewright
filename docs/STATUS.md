@@ -10,7 +10,7 @@ repo does not.
 
 <!-- VERIFY:BEGIN — written by `npm run handoff`, do not edit by hand -->
 
-**Last verified:** 2026-09-18 00:26 UTC — `npm run verify` **GREEN**
+**Last verified:** 2026-09-18 01:29 UTC — `npm run verify` **GREEN**
 
 - unit 838 passed · e2e 142 passed
 
@@ -18,7 +18,7 @@ repo does not.
 
 ## Where we are
 
-### E10 step 3, the media, is done and UNCOMMITTED (2026-09-18)
+### E10 step 3, the media, is committed and pushed (`b0799e8`, 2026-09-18)
 
 A picture dropped on the media bin is an asset now: kept in OPFS by
 content hash, restored after a reload, re-linked by name when the
@@ -118,33 +118,81 @@ Every finding that was not fixed belongs in CLAUDE.md's "Known tech
 debt" list, which another session is writing as this is written. **That
 list is not copied here** — read it there.
 
-**The Chrome visual pass did not happen, and it is blocked.** `navigate`
-reported **success** for both `http://localhost:9990/` and
-`http://127.0.0.1:9990/` while the tab stayed on `chrome://newtab/`, and
-every screenshot after that failed with "Can't interact with
-browser-internal or unparseable URLs". Two attempts, same result. The
-dev server is not the variable: it was listening on 127.0.0.1:9990 and
-`curl` returned 200. The likeliest cause is that **the connected Chrome
-is not on this PC**, and the lever for that is `switch_browser`, which
-raises the request in every connected Chrome so the owner can press
-Connect in the right window. `select_browser` is not the lever — a wrong
-entry there looks exactly like the right one. **Do not spend time on the
-proxy / HTTPS-Only / extension-permission hypotheses: 2026-08-14 lost an
-hour to them.** Step 3 is also the step with the least to see — it puts
-nothing on the picture — so what a pass would catch here is the bin row
-and the drop zone's words, not the feature.
+**The Chrome visual pass is done, and what unblocked it was a fresh dev
+server.** The earlier note in this file said the pass was blocked and
+guessed that the connected Chrome was on another PC. **That guess is now
+ruled out, conclusively.** `netstat` **before** `navigate` showed 9990
+with a `LISTENING` line and nothing else; **after** `navigate` it showed
+the loopback pair `127.0.0.1:60736 ↔ 127.0.0.1:9990 ESTABLISHED`. A
+Chrome on this PC made that connection. The deviceId is the same one as
+two days earlier — `da2a0786-09c1-4a9c-9045-d69d3ae31f81`, `isLocal:
+true`, connected 2026-09-18 00:39 UTC.
 
-**Uncommitted:** `src/ui/images.ts`, `src/ui/images.test.ts` and
-`src/ui/media.test.ts` (new), the changed `src/ui/media.ts`,
-`src/ui/MediaBin.tsx`, `src/ui/ExportButton.tsx`, `src/ui/Preview.tsx`,
-`src/App.tsx`, `src/store/projectStore.ts`, `src/styles.css`,
-`e2e/editor.spec.ts`, `e2e/narrow-layout.spec.ts`, this file, and
-`CLAUDE.md`'s debt list. The owner has not been asked for the commit.
-`main` = `origin/main` = `51cfdde`, 0 ahead and 0 behind; `51cfdde` is a
-hooks fix another session pushed and has nothing to do with E10. The
-owner's own edits (`AGENTS.md`, `CLAUDE.md`'s ui-ux-guide bullet,
-`docs/UX.md`) and the two stray logs (`debug.log`, `e9-baseline.log`)
-stay theirs.
+**What was actually different was the dev server.** At the start of this
+session **port 9990 had no listener and no connection at all**, and
+`Invoke-WebRequest` against it failed; the server the previous session
+recorded (PID 54624) had died in the meantime. A fresh `npm run dev` was
+started and `navigate` **worked on the first try**: the tab moved to
+`http://127.0.0.1:9990/`, with `isSecureContext: true`, `VideoDecoder:
+function`, `navigator.storage.getDirectory: function`, and `#root`
+rendered.
+
+**Do not read that as a proof of what went wrong before.** The previous
+session recorded a server that was listening and a `curl` that returned
+200, so its failure is not explained retroactively and no one should
+write that it was. What is established is only this: the "other PC",
+proxy, HTTPS-Only and extension-permission hypotheses are all ruled out,
+and the one thing that differed on the successful run was a
+newly-started server process. **If the symptom returns — `navigate`
+reporting success while the tab stays on `chrome://newtab/` — the first
+thing to do is kill `npm run dev` and start it again.**
+
+**What the pass found — all four of step 3's deliverables are on
+screen:**
+
+1. **The drop zone's invitation branches as designed.** With no footage
+   in the document it read 영상 드래그 / 또는 클릭; after
+   `e2e/fixtures/sample-h264.mp4` was imported it read 영상이나 이미지
+   드래그 / 또는 클릭.
+2. **The 🖼 row draws correctly.** The `test-picture.png` row reads
+   이미지 · 320×180 and the footage row beside it reads 영상 · 320×180.
+   The 재생 위치에 넣기 button renders under the picture's row — the
+   first row in this app to carry a button, seen working.
+3. **The import sentence appears.** The status line read
+   00:00:00 위치에 이미지를 넣었어요.
+4. **The restore fix is confirmed — the point of this commit.** After a
+   reload **both assets came back** and the timeline thumbnails came
+   back with them, which means the video decode was no longer stalled
+   behind the stored PNG (before the fix mp4box stopped there and
+   everything queued behind it stopped with it). The status line read
+   이전 작업을 그대로 불러왔어요. 파일도 준비됐어요. — so the wording
+   pass that made a storage sentence say 파일 rather than 영상 was seen
+   working too.
+
+**And, as predicted, a placed picture draws nothing on the stage.** The
+status line says the image was placed and the preview does not change.
+That is this file's own "step 3 must not ship on its own" debt,
+confirmed with eyes rather than reasoned about — the stage is step 4.
+
+**A gap this pass found, and it is a gap, not a block: the repo has no
+image fixture.** `e2e/fixtures/` holds only `sample-h264.mp4` and
+`sample-silence.mp4`, and a search of the whole repository finds no
+`.png` / `.jpg` / `.webp` / `.gif` at all. This pass used a 320×180 PNG
+made in the scratchpad. Steps 4 and 5 need an image in their e2e specs,
+and the next visual pass will hit the same wall, so **putting one small
+PNG into `e2e/fixtures/` is the cheap preparation for the next step.**
+
+**Committed and pushed as `b0799e8`** — `src/ui/images.ts`,
+`src/ui/images.test.ts` and `src/ui/media.test.ts` (new), the changed
+`src/ui/media.ts`, `src/ui/MediaBin.tsx`, `src/ui/ExportButton.tsx`,
+`src/ui/Preview.tsx`, `src/App.tsx`, `src/store/projectStore.ts`,
+`src/styles.css`, `e2e/editor.spec.ts`, `e2e/narrow-layout.spec.ts`,
+this file and `CLAUDE.md`'s debt list, staged by the by-hunk recipe so
+the owner's own edits stayed out. `main` = `origin/main` = `b0799e8`;
+`6a3f758` (E10 step 2) and the unrelated hooks fix `51cfdde` are below
+it in the chain. Still in the tree and **not** this unit's: the owner's
+own `AGENTS.md`, `docs/UX.md` and the three ui-ux-guide lines in
+`CLAUDE.md`, plus the two stray logs `debug.log` and `e9-baseline.log`.
 
 ### E10 step 2, the image engine, is committed and pushed (`6a3f758`, 2026-09-16)
 
@@ -695,10 +743,12 @@ and the 14 existing stage e2e tests are still green.
 `e2e/subtitle-drag.spec.ts` reads the ALPHA of `.stage-subtitle` as its
 oracle, so an image on screen must leave that ink untouched.
 
-**One hard stop comes before it:** the step-3 tree is uncommitted and
-the owner has not been asked. The recipe is in "Blocked / needs the
-owner" item 1 below — announce, wait, commit, and ask again before
-pushing.
+**Nothing stands in front of it.** Step 3 is committed and pushed
+(`b0799e8`) and the tree is clean of this epic's files. **One cheap
+preparation is worth doing first:** put a small PNG into
+`e2e/fixtures/`. The repo has no image fixture of any kind, so step 4's
+e2e work and the next visual pass would otherwise each have to invent
+one (see "E10 step 3" above).
 
 After step 4, the plan continues in order: step 5 (the lane and the
 panel), step 6 (`e2e/image.spec.ts`), step 7 (ADR-0020 and the doc
@@ -1100,8 +1150,8 @@ bitmaps are opened before frame 0, so the file and the screen agree.
 ### E10 progress
 
 Built in Claude Code, the plan's steps in order. **Steps 1, 2 and 3 of
-10 are done; steps 4–10 are not started.** Steps 1 and 2 are committed
-and pushed; step 3 is not.
+10 are done; steps 4–10 are not started.** All three are committed and
+pushed (`8f10d25`, `6a3f758`, `b0799e8`).
 
 1. **The stage drag as one hook — done, committed and pushed as
    `8f10d25`.** `ui/useStageDrag.ts` 163 lines; `Preview.tsx` 657 → 602,
@@ -1128,7 +1178,8 @@ and pushed; step 3 is not.
    1 minor (below). Nothing is on screen yet, by design. The file list,
    the four design decisions and the reason two personas were skipped
    are in "E10 step 2" near the top of this file.
-3. **Media — done, UNCOMMITTED.** `ui/images.ts` (new) behind the
+3. **Media — done, committed and pushed as `b0799e8`.** `ui/images.ts`
+   (new) behind the
    engine's `ImageSource` seam, with `ImageBitmap.close()` written in
    exactly one function and a spec whose `afterEach` asserts every
    bitmap was closed; `isMediaReady(asset)` in `ui/media.ts` replacing
@@ -1169,13 +1220,21 @@ and pushed; step 3 is not.
    step-3 diff was reviewed by **all four**, and both blockers are
    fixed. The personas run again on steps 4 and 5, where the stage and
    the panel appear.
-10. **Visual pass in Chrome — attempted and BLOCKED.** `navigate`
-    reported success while the tab stayed on `chrome://newtab/`, and
-    every screenshot after that refused the internal URL. Twice, the
-    same way. The dev server was up (127.0.0.1:9990, `curl` 200). The
-    lever to try next is `switch_browser`, not `select_browser`. The
-    full account, including the three hypotheses NOT to spend time on,
-    is in "E10 step 3" near the top of this file.
+10. **Visual pass in Chrome — done for step 3 (2026-09-18).** It ran in
+    the owner's Chrome (deviceId `da2a0786-…`, `isLocal: true`, the
+    loopback pair confirmed by `netstat` on both sides of `navigate`)
+    against a **freshly started** dev server on 127.0.0.1:9990, and
+    `navigate` worked on the first attempt. All four of step 3's
+    deliverables were seen: the drop zone's two invitations, the 🖼 row
+    with its 재생 위치에 넣기 button, the import sentence, and — the
+    point of the commit — **both assets and the timeline thumbnails
+    coming back after a reload**, which is the stalled-restore bug
+    fixed. A placed picture still draws nothing on the stage, as step 3
+    intends. The full account, including why the "other PC" hypothesis
+    is ruled out and what to do if the symptom returns, is in "E10 step
+    3" near the top of this file. **The pass also found that the repo
+    has no image fixture** — see the gap in "E10 issues" below. Steps 4
+    and 5 get their own passes.
 
 ### E10 issues
 
@@ -1207,10 +1266,25 @@ and pushed; step 3 is not.
 - **`tester-a11y` — 0 blockers, 2 minors**, both extensions of debt
   entries that already existed. In CLAUDE.md's "Known tech debt" with
   the rest; that list is not duplicated here.
-- **The Chrome visual pass is blocked** — `navigate` succeeds while the
-  tab stays on `chrome://newtab/`. See "E10 step 3" near the top of this
-  file for what was tried, what the next lever is (`switch_browser`),
-  and which three hypotheses to leave alone.
+- **The Chrome visual pass ran and found nothing wrong with step 3**
+  (2026-09-18). The earlier "blocked" note is superseded: the connected
+  Chrome IS on this PC (`netstat` shows the loopback pair appear at
+  `navigate`), and the run that worked differed only in having a
+  freshly started dev server. If `navigate` ever again reports success
+  while the tab stays on `chrome://newtab/`, restart `npm run dev`
+  first. See "E10 step 3" near the top of this file.
+- **Gap, not a block: the repo has no image fixture.** `e2e/fixtures/`
+  holds `sample-h264.mp4` and `sample-silence.mp4` only, and the whole
+  repository contains no `.png` / `.jpg` / `.webp` / `.gif`. The visual
+  pass used a 320×180 PNG made in the scratchpad, which is not something
+  a spec can do. Step 4's and step 5's e2e work needs one; adding a
+  small PNG to `e2e/fixtures/` is the cheapest preparation for the next
+  step.
+- **Confirmed by eye: a placed picture leaves no trace on the stage.**
+  The status line says the image was placed and the preview does not
+  change. This is the "step 3 must not ship on its own" point, now
+  observed rather than reasoned about, and it is why steps 4 and 5
+  follow.
 
 **From step 2 (the engine):**
 
@@ -2306,22 +2380,24 @@ plan's steps, in order, with the gate at each point:
 
 ## Blocked / needs the owner
 
-1. **E10 step 3 is waiting to be committed.** `main` = `origin/main` =
-   `51cfdde`, 0 ahead and 0 behind; `51cfdde` is a hooks fix another
-   session pushed and is unrelated to E10, and `6a3f758` (E10 step 2) is
-   its parent. Step 3's media work is done, the gate is green
-   (2026-09-18, unit 838 / e2e 142), and the tree is uncommitted — the
-   owner must be asked before the commit, and again before the push.
+1. **E10 step 3 is committed and pushed — nothing is owed here.**
+   `main` = `origin/main` = `b0799e8`, 0 ahead and 0 behind; its parent
+   chain is `6a3f758` (E10 step 2) under the unrelated hooks fix
+   `51cfdde`. The gate was green at the commit (2026-09-18, unit 838 /
+   e2e 142) and the Chrome visual pass is done (see "E10 step 3" near
+   the top of this file). The one thing carried forward is not a block:
+   **`e2e/fixtures/` has no image fixture**, and step 4 will want one.
 
-   **The commit recipe, which has now worked six times:**
+   **The commit recipe is kept because step 4 will need it again; it has
+   now worked seven times:**
 
-   1. Stage step 3's source and spec files — the new `src/ui/images.ts`,
-      `src/ui/images.test.ts`, `src/ui/media.test.ts`, and the changed
+   1. Stage the unit's own source and spec files by name, plus
+      `docs/STATUS.md`. (For step 3 that was the new `src/ui/images.ts`,
+      `src/ui/images.test.ts`, `src/ui/media.test.ts` and the changed
       `src/ui/media.ts`, `src/ui/MediaBin.tsx`,
       `src/ui/ExportButton.tsx`, `src/ui/Preview.tsx`, `src/App.tsx`,
       `src/store/projectStore.ts`, `src/styles.css`,
-      `e2e/editor.spec.ts`, `e2e/narrow-layout.spec.ts`; plus
-      `docs/STATUS.md`.
+      `e2e/editor.spec.ts`, `e2e/narrow-layout.spec.ts`.)
    2. Stage `CLAUDE.md` **by hunk** — take the "Known tech debt" hunks
       and DROP the hunk containing `ui-ux-guide`, which is the owner's
       own uncommitted edit. Check `git diff -U0 -- CLAUDE.md` at the
