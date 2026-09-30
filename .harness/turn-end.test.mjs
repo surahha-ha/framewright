@@ -46,6 +46,16 @@ test('⭐ prompt_id 가 없어도 이벤트는 만든다 — 빠진 turn 은 계
   assert.deepEqual(stopEventFrom(JSON.stringify({ session_id: 's-1' })), { session: 's-1', event: 'stop', gate: GATE });
 });
 
+test('⭐ 서브에이전트 안에서 온 페이로드(SubagentStop 에 잘못 건 경우)면 stop 에 agent 가 실린다 — 리포트가 메인 판정에서 뺄 수 있게', () => {
+  assert.deepEqual(stopEventFrom(payload({ hook_event_name: 'SubagentStop', agent_id: 'abc123' })), {
+    session: 's-1',
+    turn: 'p-1',
+    agent: 'abc123',
+    event: 'stop',
+    gate: GATE,
+  });
+});
+
 test('페이로드가 JSON 이 아니거나 객체가 아니면 null — 없는 사실은 적지 않는다', () => {
   assert.equal(stopEventFrom(''), null);
   assert.equal(stopEventFrom('{broken'), null);
@@ -132,6 +142,14 @@ test('audit 이벤트는 stop 과 같은 session·turn 을 싣고 수치는 --au
   );
   assert.deepEqual(ev, { session: 's-1', turn: 'p-1', event: 'audit', gate: 'test-first', total: 10, inScope: 3, missing: 2, deny: 1, ask: 1 });
   assert.ok(!('list' in ev), '파일 목록(경로 원문)은 로그에 싣지 않는다');
+});
+
+test('서브에이전트의 stop 에서 나온 audit 은 같은 agent 를 싣는다 — 메인 검증 축의 시계열에 섞이지 않게', () => {
+  const nums = { total: 10, inScope: 3, missing: 2, deny: 1, ask: 1 };
+  const sub = auditEventFrom({ session: 's-1', turn: 'p-1', agent: 'abc123', event: 'stop', gate: GATE }, nums);
+  assert.equal(sub.agent, 'abc123');
+  const main = auditEventFrom({ session: 's-1', turn: 'p-1', event: 'stop', gate: GATE }, nums);
+  assert.equal('agent' in main, false);
 });
 
 test('⭐ 훅 경로 — auditOnStop:true 면 stop 뒤에 turn 이 실린 audit 이 한 줄 더 남는다', () => {

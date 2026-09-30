@@ -74,15 +74,24 @@ export function isPairablePrefix(prefix) {
  *
  * - `turn` = 프롬프트 한 번(사람이 위임한 단위) — v2 완주율의 **분모 단위**.
  * - `call` = 도구 호출 하나 — `fire(ask)` ↔ `after` 를 접두사 근사가 아니라 **정확히** 짝짓는 열쇠.
+ * - `agent` = 서브에이전트 식별자(`agent_id`) — **서브에이전트 안에서 난 이벤트에만** 실린다(2026-09-30 실측).
+ *   서브는 `session_id`·`prompt_id` 가 메인과 **같은 값**이라 그것으로는 못 가른다. 리포트는 `agent` 가 없는
+ *   이벤트만으로 v2 턴 판정(분모·중단·검증 축)을 한다(`docs/16` §5.4). `agent_type` 은 싣지 않는다 — `--agent` 로
+ *   띄운 세션의 메인 이벤트에도 실려 판정 열쇠가 못 되고, 사용자 정의 에이전트 이름은 설치처 고유값이다.
  * 없는 것은 생략한다(빈 값과 없음을 구분). 파싱 실패면 빈 객체 — 식별자가 없다고 판정을 막지 않는다.
  * @param {string} raw 훅 stdin 원문
- * @returns {{session?: string, turn?: string, call?: string}}
+ * @returns {{session?: string, turn?: string, call?: string, agent?: string}}
  */
 export function extractContext(raw) {
   try {
     const p = JSON.parse(raw);
     const pick = (v) => (typeof v === 'string' && v ? v : undefined);
-    const ctx = { session: pick(p?.session_id), turn: pick(p?.prompt_id), call: pick(p?.tool_use_id) };
+    const ctx = {
+      session: pick(p?.session_id),
+      turn: pick(p?.prompt_id),
+      call: pick(p?.tool_use_id),
+      agent: pick(p?.agent_id),
+    };
     return Object.fromEntries(Object.entries(ctx).filter(([, v]) => v !== undefined));
   } catch {
     return {};

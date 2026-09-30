@@ -94,7 +94,19 @@ test('⭐ v2 턴 — 분모는 게이트가 본 턴, 분자 후보는 발동 없
     { ...fire(3, 'deny', 'x'), turn: 't2' },
     { ...pass(4), turn: 't3' },
   ]);
-  assert.deepEqual(s.turns, { gated: 3, fired: 1, quiet: 2, eventsWithoutTurn: 0, outsideWindow: 0 });
+  assert.deepEqual(s.turns, {
+    gated: 3,
+    fired: 1,
+    quiet: 2,
+    eventsWithoutTurn: 0,
+    outsideWindow: 0,
+    subOnly: 0,
+    // 턴 시작 관찰 (결정 이력 2026-09-30(3)) — turn-start 가 없는 로그라 세 턴 전부 폴백(턴 시작 미관찰)이다.
+    started: 0,
+    unobservedStart: 3,
+    unstarted: 0,
+    notification: 0,
+  });
   assert.equal(s.window, null, '창을 안 주면 창 표기가 없다 — 누적이 기본');
   assert.match(render(s), /게이트가 본 턴 3 · 발동 있는 턴 1 → 무발동 턴 2\/3 \(게이트 축만/);
 });
@@ -917,7 +929,7 @@ test('⭐ 임계는 설정 슬롯이다 — 설치처가 낮추면 그 값에서
 test('⭐ 내장 이력은 전 설치처 공통 변경 — 첫 항목이 2026-09-18 의 완주 분모 재정의다', () => {
   assert.deepEqual(
     DEFINITION_CHANGES.map((c) => c.at),
-    ['2026-09-18'],
+    ['2026-09-18', '2026-09-30'],
   );
   assert.match(DEFINITION_CHANGES[0].what, /분모/, '무엇이 바뀌었는지가 항목 안에 있다');
 });
@@ -927,11 +939,11 @@ test('⭐ 창이 변경 지점을 걸치면 경고가 뜨고 무엇이 바뀌었
   const crossed = crossedDefinitionChanges(metricsSlots(null).changes, span);
   assert.deepEqual(
     crossed.map((c) => c.at),
-    ['2026-09-18'],
+    ['2026-09-18', '2026-09-30'],
   );
   const out = renderDefinitionNotice(crossed, span).join('\n');
   assert.match(out, /2026-09-04 ~ 2026-10-02/, '어느 범위가 걸치는지 범위를 밝힌다');
-  assert.match(out, /정의 변경 지점 1건/);
+  assert.match(out, /정의 변경 지점 2건/);
   assert.match(out, /섞어 읽지 마세요/, '이전 구간과 섞지 말라는 지시');
   assert.match(out, /· 2026-09-18 — .*분모/, '무엇이 바뀌었는지 한 줄');
 });
@@ -941,7 +953,7 @@ test('⭐ 변경 지점 한쪽에만 있는 창은 경고가 없다 — 경계�
   const before = aggregationSpan([], parseWindow(['--from', '2026-09-04', '--to', '2026-09-18']));
   assert.deepEqual(crossedDefinitionChanges(slots.changes, before), [], '--to 는 제외 경계라 전부 옛 정의');
   assert.deepEqual(renderDefinitionNotice([], before), [], '걸친 것이 없으면 줄 자체가 없다');
-  const after = aggregationSpan([], parseWindow(['--from', '2026-09-18', '--to', '2026-10-02']));
+  const after = aggregationSpan([], parseWindow(['--from', '2026-09-18', '--to', '2026-09-30']));
   assert.deepEqual(crossedDefinitionChanges(slots.changes, after), [], '--from 은 포함 경계라 전부 새 정의');
 });
 
@@ -956,7 +968,7 @@ test('⭐ 창을 안 주면 로그의 첫~끝이 범위다 — 변경 전후가 
   );
   const onlyBefore = aggregationSpan([evAt('2026-09-10T00:00:00Z'), evAt('2026-09-17T23:59:59Z')]);
   assert.deepEqual(crossedDefinitionChanges(slots.changes, onlyBefore), []);
-  const onlyAfter = aggregationSpan([evAt('2026-09-18T00:00:00Z'), evAt('2026-09-30T00:00:00Z')]);
+  const onlyAfter = aggregationSpan([evAt('2026-09-18T00:00:00Z'), evAt('2026-09-29T00:00:00Z')]);
   assert.deepEqual(crossedDefinitionChanges(slots.changes, onlyAfter), [], '변경 시각에 시작한 로그는 전부 새 정의');
   // 마지막 이벤트가 변경 시각과 같으면 그 한 건은 새 정의 쪽이라 섞인 것이다
   const endsAtChange = aggregationSpan([evAt('2026-09-10T00:00:00Z'), evAt('2026-09-18T00:00:00Z')]);
@@ -986,18 +998,18 @@ test('⭐ 설치처 고유 변경은 내장 이력과 합쳐져 시간 순으로
   });
   assert.deepEqual(
     slots.changes.map((c) => c.at),
-    ['2026-08-01', '2026-09-18', '2026-09-18T12:00:00Z'],
+    ['2026-08-01', '2026-09-18', '2026-09-18T12:00:00Z', '2026-09-30'],
   );
   assert.equal(slots.rejected, 0);
   const span = aggregationSpan([], parseWindow(['--from', '2026-09-04', '--to', '2026-10-02']));
   const crossed = crossedDefinitionChanges(slots.changes, span);
   assert.deepEqual(
     crossed.map((c) => c.at),
-    ['2026-09-18', '2026-09-18T12:00:00Z'],
+    ['2026-09-18', '2026-09-18T12:00:00Z', '2026-09-30'],
     '내장 항목과 고유 항목이 한 판정에 같이 든다',
   );
   const out = renderDefinitionNotice(crossed, span).join('\n');
-  assert.match(out, /정의 변경 지점 2건/);
+  assert.match(out, /정의 변경 지점 3건/);
   assert.match(out, /경계표/, '고유 항목의 내용도 그대로 보인다');
 });
 
@@ -1007,7 +1019,7 @@ test('⭐ 이력이 비어도, 설정이 없어도 동작한다 — 걸칠 것�
   assert.deepEqual(renderDefinitionNotice([], span), []);
   assert.deepEqual(
     metricsSlots({}).changes.map((c) => c.at),
-    ['2026-09-18'],
+    ['2026-09-18', '2026-09-30'],
     'metrics 슬롯이 아예 없어도 내장 이력은 산다',
   );
   const empty = aggregationSpan([]);
@@ -1026,11 +1038,295 @@ test('⭐ 읽을 수 없는 이력 항목은 조용히 사라지지 않는다 �
   assert.equal(slots.rejected, 2, '날짜를 못 읽는 것과 설명이 없는 것 둘 다 제외된다');
   assert.deepEqual(
     slots.changes.map((c) => c.at),
-    ['2026-09-18'],
+    ['2026-09-18', '2026-09-30'],
     '나머지 판정은 그대로 돈다',
   );
   const out = renderDefinitionNotice([], aggregationSpan([]), slots.rejected).join('\n');
   assert.match(out, /2건/);
   assert.match(out, /at/, '무엇을 채워야 하는지 필드 이름으로 말한다');
   assert.match(out, /what/);
+});
+
+// ── 서브에이전트 이벤트를 메인 턴 판정에서 가려낸다 (docs/16 §5.4 · 결정 이력 2026-09-30) ──────────────
+// 여기서 지키는 계약: **분모·중단·검증 축의 턴 판정은 메인 이벤트(agent 없음)만으로** 한다 — 서브는 메인과 같은
+// prompt_id 를 쓰므로 섞으면 메인에 Stop 이 없는 턴이 서브 이벤트만으로 "게이트가 본 턴" 이 되어 중단으로 세어진다.
+// **발동 축은 메인+서브 모두** — 서브의 ask 도 사람의 개입을 요구했다. **agent 없는 옛 로그는 전부 메인.**
+
+const sub = (e, agent = 'a1') => ({ ...e, agent });
+// 턴 시작 — UserPromptSubmit 훅이 남기는 메인 사람 턴의 존재 (결정 이력 2026-09-30(3)). 메인에서만 발화한다(실측).
+const begin = (m, turn, session = 's1', origin) => ({
+  ts: t(m), event: 'turn-start', gate: 'turn-start', session, turn, ...(origin ? { origin } : {}),
+});
+
+test('⭐ 서브 이벤트만 있는 턴은 분모에서 빠지고 제외 수가 게이트 축·완주 줄에 보인다', () => {
+  const s = summarize([
+    au(0, null, 5), // 직전 audit — 첫 audit 은 비교 대상이 없어 미판정이다
+    begin(1, 't1'), gp(1, 't1'), stop(2, 't1'), au(2, 't1', 5),
+    // t2 — 메인엔 턴 시작도 Stop 도 게이트 이벤트도 없다(턴 종료 훅 미로드 등). 서브 이벤트만 붙었다.
+    sub(gp(3, 't2')), sub(gp(4, 't2')),
+    begin(5, 't3'), gp(5, 't3'), stop(6, 't3'), au(6, 't3', 5),
+  ]);
+  assert.equal(s.turns.gated, 2, '분모는 메인이 본 턴 둘');
+  assert.equal(s.turns.subOnly, 1);
+  assert.equal(s.turnEnd.interrupted, 0, '서브 이벤트만으로 중단이 되지 않는다');
+  assert.equal(s.complete.denominator, 2);
+  assert.equal(s.complete.done, 2);
+  const out = render(s);
+  assert.match(out, /v2 턴\(게이트 축\)[^\n]*· 서브에이전트 이벤트만 있는 턴 1 제외\(메인 판정 없음\)/);
+  assert.match(out, /v2 완주\(세 축\)[^\n]*· 서브에이전트 이벤트만 있는 턴 1 제외\(메인 판정 없음\)/);
+});
+
+test('⭐ 백그라운드 순서 — 메인 Stop 뒤에 같은 턴으로 기록된 서브 이벤트가 와도 정상 종료다', () => {
+  const s = summarize([
+    gp(1, 't1'), stop(2, 't1'), //          메인: 서브를 띄우고 턴을 끝냈다
+    sub(gp(3, 't1')), sub(gp(4, 't1')), //   서브: 그 뒤에 같은 prompt_id 로 기록
+    gp(5, 't2'), stop(6, 't2'), //          완료 알림을 받은 다음 턴
+  ]);
+  assert.equal(s.turns.gated, 2);
+  assert.equal(s.turns.subOnly, 0, '메인 이벤트가 있는 턴은 서브 이벤트가 붙어도 서브 전용 턴이 아니다');
+  assert.deepEqual(
+    { completed: s.turnEnd.completed, interrupted: s.turnEnd.interrupted, undetermined: s.turnEnd.undetermined },
+    { completed: 2, interrupted: 0, undetermined: 0 },
+  );
+});
+
+test('⭐ 순서 판정도 메인 이벤트만 — 뒤 턴 뒤로 늘어진 서브 이벤트가 메인의 중단을 미판정으로 덮지 않는다', () => {
+  const s = summarize([
+    stop(0, 't0'),
+    gp(1, 't1'), //                         메인 t1: Stop 없음 → 뒤에 t2 가 있으니 중단
+    gp(2, 't2'), stop(3, 't2'),
+    sub(gp(4, 't1')), //                    t1 로 기록된 서브 이벤트가 세션의 맨 끝에 온다
+  ]);
+  assert.equal(s.turnEnd.interrupted, 1);
+  assert.equal(s.turnEnd.undetermined, 0);
+});
+
+test('⭐ 서브의 stop·audit 은 메인 턴의 정상 종료·검증 그린이 되지 않는다', () => {
+  const s = summarize([
+    stop(0, 't0'), au(0, null, 5),
+    gp(1, 't1'), sub(stop(2, 't1')), sub(au(2, 't1', 5)), // 메인 Stop 없음 — 서브 것만
+    gp(3, 't2'), stop(4, 't2'), au(4, 't2', 5),
+  ]);
+  assert.equal(s.turnEnd.completed, 1, 't2 만 정상 종료');
+  assert.equal(s.turnEnd.interrupted, 1, 't1 은 메인 Stop 이 없고 뒤 턴이 있다');
+  assert.equal(s.verify.unobserved, 1, 't1 의 턴 종료 audit 은 서브 것뿐이라 미수집');
+});
+
+test('⭐ 서브의 발동은 발동 축에 잡힌다 — 서브의 ask 도 사람의 개입이다', () => {
+  const s = summarize([
+    gp(1, 't1'), sub({ ...fire(2, 'ask', 'git push'), turn: 't1', session: 's1' }), stop(3, 't1'), au(3, 't1', 5),
+  ]);
+  assert.equal(s.turns.fired, 1);
+  assert.equal(s.complete.failGate, 1);
+  assert.equal(s.complete.done, 0);
+  assert.equal(s.gate.fires, 1, 'v1 지표 4 도 서브 발동을 센다');
+});
+
+test('⭐ 서브 전용 턴의 발동은 분모 밖이지만 v1 발동 수에는 남는다', () => {
+  const s = summarize([
+    begin(1, 't1'), gp(1, 't1'), stop(2, 't1'),
+    sub({ ...fire(3, 'deny', 'git push'), turn: 't2', session: 's1' }), // t2 는 턴 시작이 없다
+  ]);
+  assert.equal(s.turns.gated, 1);
+  assert.equal(s.turns.subOnly, 1);
+  assert.equal(s.gate.fires, 1);
+});
+
+test('⭐ agent 없는 옛 로그는 전부 메인 — 판정이 종전과 같고 새 제외 표기도 없다', () => {
+  const events = [
+    stop(0, 't0'), au(0, null, 5),
+    gp(1, 't1'), stop(2, 't1'), au(2, 't1', 5),
+    gp(3, 't2'), //                                        중단
+    { ...fire(5, 'deny', 'x'), turn: 't3', session: 's1' }, stop(6, 't3'), au(6, 't3', 6),
+    gp(7, 't4'), //                                        세션 마지막 — 미판정
+  ];
+  const s = summarize(events);
+  assert.equal(s.turns.gated, 4);
+  assert.equal(s.turns.subOnly, 0);
+  assert.deepEqual(
+    { completed: s.turnEnd.completed, interrupted: s.turnEnd.interrupted, undetermined: s.turnEnd.undetermined },
+    { completed: 2, interrupted: 1, undetermined: 1 },
+  );
+  assert.deepEqual(
+    { done: s.complete.done, failed: s.complete.failed, excluded: s.complete.excluded },
+    { done: 1, failed: 2, excluded: 1 },
+  );
+  assert.doesNotMatch(render(s), /서브에이전트/);
+});
+
+test('⭐ 계약 — agent 는 식별자 필드다: 어느 이벤트에 실려도 위반·관찰 0, 빈 값이면 위반', () => {
+  const a = auditContract([
+    sub({ ...pass(1), turn: 't1', session: 's1', call: 'toolu_1' }),
+    sub({ ...fire(2, 'ask', 'git push'), turn: 't1', session: 's1' }),
+    sub(after(3, 'git push')),
+    sub(stop(4, 't1')),
+    sub(au(4, 't1', 3)),
+  ]);
+  assert.equal(violationCount(a), 0);
+  assert.equal(observationCount(a), 0);
+  const empty = auditContract([{ ...pass(1), agent: '' }]);
+  assert.ok(empty.violations['agent 빈 값']);
+});
+
+test('⭐ 정의 변경 교차 — 2026-09-30 을 걸친 창은 서브에이전트 분리 항목을 경고하고 소급 불가를 말한다', () => {
+  const span = aggregationSpan([], parseWindow(['--from', '2026-09-18', '--to', '2026-10-02']));
+  const crossed = crossedDefinitionChanges(metricsSlots(null).changes, span);
+  assert.deepEqual(crossed.map((c) => c.at), ['2026-09-30']);
+  const out = renderDefinitionNotice(crossed, span).join('\n');
+  assert.match(out, /· 2026-09-30 — .*서브에이전트/);
+  assert.match(out, /소급 불가/);
+  assert.match(out, /이 날짜 이전 이벤트는 메인으로 간주/);
+});
+
+// ── 메인 사람 턴의 존재를 직접 관찰한다 — 턴 시작(turn-start) (docs/16 §5.4 · 결정 이력 2026-09-30(3)) ─────────
+// 여기서 지키는 계약: 게이트 훅 matcher 가 셸뿐이라 **메인이 위임만 한 턴은 메인 게이트 이벤트가 0** 이다.
+// "메인 이벤트가 있는 턴만 분모" 로 두면 v2 가 늘리려는 위임 턴이 측정에서 사라진다. 턴 시작이 관찰된 세션은
+// 분모 = **턴 시작이 있고 게이트가 (메인이든 서브든) 본 턴**. 턴 시작이 하나도 없는 세션은 분모만 서브 포함으로
+// 폴백하고 "턴 시작 미관찰" 을 표기한다 — 서브 전용 턴을 떨구지 않는다. stop·audit·순서는 어느 쪽이든 메인만.
+
+test('⭐ 위임만 한 메인 턴(메인 게이트 이벤트 0 · 서브만 셸 사용)이 분모에 들고 정상 종료·완주로 판정된다', () => {
+  const s = summarize([
+    au(0, null, 5),
+    begin(1, 't1'), sub(gp(2, 't1')), sub(gp(3, 't1')), stop(4, 't1'), au(4, 't1', 5),
+  ]);
+  assert.equal(s.turns.gated, 1, '위임 턴이 분모에 있다');
+  assert.equal(s.turns.subOnly, 0, '턴 시작이 있는 턴은 서브 전용 턴으로 제외되지 않는다');
+  assert.equal(s.turns.started, 1);
+  assert.equal(s.turnEnd.completed, 1);
+  assert.deepEqual({ done: s.complete.done, denominator: s.complete.denominator }, { done: 1, denominator: 1 });
+  assert.doesNotMatch(render(s), /턴 시작 미관찰/, '턴 시작이 관찰된 세션엔 폴백 표기가 없다');
+});
+
+test('⭐ 백그라운드 위임 — 메인 Stop 뒤의 서브 이벤트와 완료 알림 턴이 와도 두 턴 모두 정상 종료다', () => {
+  const s = summarize([
+    begin(1, 't1'), stop(2, 't1'), //                         메인: 서브를 띄우고 셸 없이 턴을 끝냈다
+    sub(gp(3, 't1')), sub(gp(4, 't1')), //                     서브: 그 뒤에 같은 prompt_id 로 기록
+    begin(5, 't2', 's1', 'task-notification'), gp(6, 't2'), stop(7, 't2'), // 완료 알림으로 시작한 턴
+  ]);
+  assert.equal(s.turns.gated, 2);
+  assert.equal(s.turns.notification, 1);
+  assert.deepEqual(
+    { completed: s.turnEnd.completed, interrupted: s.turnEnd.interrupted, undetermined: s.turnEnd.undetermined },
+    { completed: 2, interrupted: 0, undetermined: 0 },
+  );
+  assert.match(render(s), /v2 턴\(게이트 축\)[^\n]*· 그중 완료 알림으로 시작한 턴 1/);
+});
+
+test('⭐ 턴 시작 관찰 세션 — 턴 시작 없는 서브 전용 턴·메인 턴은 분모 밖이고 제외 수가 보인다', () => {
+  const s = summarize([
+    au(0, null, 5),
+    begin(1, 't1'), gp(1, 't1'), stop(2, 't1'), au(2, 't1', 5),
+    sub(gp(3, 'tx')), //                    로컬 명령 id 등 — 턴 시작 없는 prompt_id 에 귀속된 서브 이벤트
+    gp(4, 'ty'), //                         턴 시작 없이 메인 게이트 이벤트만 — 턴 시작 훅 누락 의심
+    begin(5, 't2'), gp(5, 't2'), stop(6, 't2'), au(6, 't2', 5),
+  ]);
+  assert.equal(s.turns.gated, 2);
+  assert.equal(s.turns.subOnly, 1);
+  assert.equal(s.turns.unstarted, 1);
+  assert.equal(s.turnEnd.interrupted, 0, '분모 밖 턴은 중단으로 세지 않는다');
+  const out = render(s);
+  assert.match(out, /v2 턴\(게이트 축\)[^\n]*· 서브에이전트 이벤트만 있는 턴 1 제외/);
+  assert.match(out, /v2 턴\(게이트 축\)[^\n]*· 턴 시작 없는 메인 턴 1 제외\(턴 시작 훅 누락 의심\)/);
+  assert.match(out, /v2 완주\(세 축\)[^\n]*· 턴 시작 없는 메인 턴 1 제외/);
+});
+
+test('⭐ 위임 턴 도중의 중단 — 메인 Stop 이 없고 뒤에 턴 시작이 오면 중단이다(뒤로 늘어진 서브 이벤트가 덮지 않는다)', () => {
+  const s = summarize([
+    stop(0, 't0'), au(0, null, 5),
+    begin(1, 't1'), sub(gp(2, 't1')), //    위임 중 사람이 끊었다 — 메인 Stop 없음
+    begin(3, 't2'), gp(4, 't2'), stop(5, 't2'), au(5, 't2', 5),
+    sub(gp(6, 't1')), //                    끊긴 턴의 서브가 뒤 턴 너머까지 기록
+  ]);
+  assert.equal(s.turns.gated, 2);
+  assert.equal(s.turnEnd.interrupted, 1);
+  assert.equal(s.turnEnd.undetermined, 0);
+  assert.equal(s.complete.failInterrupted, 1);
+});
+
+test('⭐ 도구를 안 쓴 사람 턴(게이트 이벤트 0)은 턴 시작이 있어도 분모 밖이다 — docs/16 §3 "게이트가 본 턴" 유지', () => {
+  const s = summarize([begin(1, 't1'), stop(2, 't1'), begin(3, 't2'), gp(3, 't2'), stop(4, 't2')]);
+  assert.equal(s.turns.gated, 1);
+  assert.equal(s.turnEnd.stopsOutsideGate, 1, '게이트 밖 턴의 stop 으로 보인다');
+});
+
+test('⭐ 턴 시작 미배선 로그(agent 는 있고 turn-start 0) — 분모는 서브 포함으로 폴백하고 "턴 시작 미관찰" 을 표기한다', () => {
+  const s = summarize([
+    gp(1, 't1'), stop(2, 't1'),
+    sub(gp(3, 't2')), stop(4, 't2'), //     위임만 한 턴 — 메인 게이트 이벤트 0, 메인 Stop 있음
+    gp(5, 't3'), stop(6, 't3'),
+  ]);
+  assert.equal(s.turns.gated, 3, '위임 턴을 떨구지 않는다');
+  assert.equal(s.turns.subOnly, 0);
+  assert.equal(s.turns.unobservedStart, 3);
+  assert.equal(s.turnEnd.completed, 3);
+  const out = render(s);
+  assert.match(out, /v2 턴\(게이트 축\)[^\n]*· 턴 시작 미관찰\(/);
+});
+
+test('⭐ 세션 단위로 가른다 — 턴 시작 관찰 세션과 미관찰 세션이 섞이면 각자 규칙으로 세고 미관찰 수를 보인다', () => {
+  const s = summarize([
+    begin(1, 'a1', 'sA'), sub(gp(2, 'a1', 'sA')), stop(3, 'a1', 'sA'), // 관찰 세션 — 위임 턴
+    sub(gp(4, 'ax', 'sA')), //                                           관찰 세션 — 턴 시작 없는 서브 전용 → 제외
+    gp(5, 'b1', 'sB'), stop(6, 'b1', 'sB'), //                           미관찰 세션
+    sub(gp(7, 'b2', 'sB')), stop(8, 'b2', 'sB'), //                     미관찰 세션 — 서브 전용이어도 분모
+  ]);
+  assert.equal(s.turns.gated, 3);
+  assert.equal(s.turns.started, 1);
+  assert.equal(s.turns.unobservedStart, 2);
+  assert.equal(s.turns.subOnly, 1);
+  assert.match(render(s), /v2 턴\(게이트 축\)[^\n]*· 그중 턴 시작 미관찰 2\(/);
+});
+
+test('⭐ 옛 로그(agent·turn-start 모두 없음)는 판정 수가 종전과 같고 폴백 표기만 붙는다', () => {
+  const events = [
+    stop(0, 't0'), au(0, null, 5),
+    gp(1, 't1'), stop(2, 't1'), au(2, 't1', 5),
+    gp(3, 't2'),
+    { ...fire(5, 'deny', 'x'), turn: 't3', session: 's1' }, stop(6, 't3'), au(6, 't3', 6),
+    gp(7, 't4'),
+  ];
+  const s = summarize(events);
+  assert.deepEqual(
+    {
+      gated: s.turns.gated,
+      fired: s.turns.fired,
+      completed: s.turnEnd.completed,
+      interrupted: s.turnEnd.interrupted,
+      undetermined: s.turnEnd.undetermined,
+      stopsOutsideGate: s.turnEnd.stopsOutsideGate,
+      green: s.verify.green,
+      red: s.verify.red,
+      done: s.complete.done,
+      failed: s.complete.failed,
+      excluded: s.complete.excluded,
+    },
+    // 수기로 다시 센 값 — t1 완주 · t2 중단 · t3 발동+레드 · t4 미판정, t0 의 stop 은 게이트 밖
+    {
+      gated: 4, fired: 1, completed: 2, interrupted: 1, undetermined: 1, stopsOutsideGate: 1,
+      green: 1, red: 1, done: 1, failed: 2, excluded: 1,
+    },
+  );
+  const out = render(s);
+  assert.match(out, /v2 턴\(게이트 축\)  게이트가 본 턴 4 · 발동 있는 턴 1 → 무발동 턴 3\/4 \(게이트 축만/);
+  assert.match(out, /· 턴 시작 미관찰\(/);
+  assert.doesNotMatch(out, /서브에이전트/);
+});
+
+test('⭐ 계약 — turn-start 는 7종째 이벤트: gate·turn 필수 · origin 은 어휘 하나만 · 프롬프트 원문 필드는 계약 밖', () => {
+  const ok = auditContract([begin(1, 't1'), begin(2, 't2', 's1', 'task-notification')]);
+  assert.equal(violationCount(ok), 0);
+  assert.equal(observationCount(ok), 0);
+  const noTurn = auditContract([{ ts: t(1), event: 'turn-start', gate: 'turn-start', session: 's1' }]);
+  assert.ok(noTurn.violations['필수 필드 결손'].where.includes('turn-start.turn'));
+  const badOrigin = auditContract([begin(1, 't1', 's1', 'human')]);
+  assert.ok(badOrigin.violations['turn-start.origin 어휘 밖']);
+  const leaked = auditContract([{ ...begin(1, 't1'), prompt: 'x' }]);
+  assert.ok(leaked.observations['계약 밖 필드'].where.includes('turn-start.prompt'));
+});
+
+test('⭐ 정의 변경 이력 — 2026-09-30 항목은 한 건이고 턴 시작 관찰까지 포괄한다', () => {
+  const at930 = DEFINITION_CHANGES.filter((c) => c.at === '2026-09-30');
+  assert.equal(at930.length, 1, '같은 날 두 항목으로 쪼개지 않는다 — 중간 정의로 기록된 로그가 없다');
+  assert.match(at930[0].what, /턴 시작/);
+  assert.match(at930[0].what, /턴 시작 미관찰/);
 });

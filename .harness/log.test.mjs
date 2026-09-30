@@ -41,6 +41,38 @@ test('없는 식별자는 필드 자체가 생략된다 — 빈 값과 없음을
   assert.deepEqual(extractContext(JSON.stringify({ tool_input: { command: 'x' } })), {});
 });
 
+// 서브에이전트 식별자 (docs/13 §2 · docs/16 §5.4 — 2026-09-30). 실측: 서브에이전트 안에서 난 훅 이벤트에만
+// agent_id 가 실리고 메인 스레드 이벤트엔 없다. session·prompt 는 서브도 메인과 같은 값이라 그것으로는 못 가른다.
+test('⭐ 서브에이전트 안의 훅 페이로드는 agent 를 싣는다 — 메인 페이로드엔 키 자체가 없다', () => {
+  const sub = JSON.stringify({
+    session_id: 's1',
+    prompt_id: 'p1',
+    tool_use_id: 'toolu_2',
+    agent_id: 'a0f1e2d3c4b5a6978',
+    agent_type: 'general-purpose',
+  });
+  assert.deepEqual(extractContext(sub), { session: 's1', turn: 'p1', call: 'toolu_2', agent: 'a0f1e2d3c4b5a6978' });
+  const main = JSON.stringify({ session_id: 's1', prompt_id: 'p1', tool_use_id: 'toolu_1' });
+  assert.equal('agent' in extractContext(main), false, '메인 = 키 없음 (빈 값으로 싣지 않는다)');
+});
+
+test('⭐ agent_type 만 있는 페이로드(--agent 로 띄운 세션의 메인)는 서브가 아니다 — 판정 열쇠는 agent_id 하나', () => {
+  const raw = JSON.stringify({ session_id: 's1', prompt_id: 'p1', agent_type: 'reviewer' });
+  assert.deepEqual(extractContext(raw), { session: 's1', turn: 'p1' });
+  assert.deepEqual(extractContext(JSON.stringify({ session_id: 's1', agent_id: '' })), { session: 's1' });
+});
+
+test('⭐ 서브 이벤트는 agent 를 실은 채 로그에 남고 메인 이벤트엔 agent 키가 없다', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'harness-log-'));
+  const sub = extractContext(JSON.stringify({ session_id: 's1', prompt_id: 'p1', agent_id: 'abc123' }));
+  const main = extractContext(JSON.stringify({ session_id: 's1', prompt_id: 'p1' }));
+  logEvent({ ...sub, event: 'pass', gate: 'g', cmdPrefix: 'git' }, root);
+  logEvent({ ...main, event: 'pass', gate: 'g', cmdPrefix: 'git' }, root);
+  const { events } = readLog(root);
+  assert.equal(events[0].agent, 'abc123');
+  assert.equal('agent' in events[1], false);
+});
+
 test('페이로드가 JSON 이 아니면 빈 객체 — 식별자 부재가 판정을 막지 않는다', () => {
   assert.deepEqual(extractContext('git status'), {});
   assert.deepEqual(extractContext(''), {});

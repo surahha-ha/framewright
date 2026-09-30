@@ -60,6 +60,18 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "timeout": 10,
+            "command": "node \"$CLAUDE_PROJECT_DIR/.harness/turn-start.mjs\""
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

@@ -52,6 +52,7 @@ export function auditEventFrom(stopEvent, numbers) {
   return {
     ...(stopEvent.session ? { session: stopEvent.session } : {}),
     ...(stopEvent.turn ? { turn: stopEvent.turn } : {}),
+    ...(stopEvent.agent ? { agent: stopEvent.agent } : {}),
     event: 'audit',
     gate: 'test-first',
     total: numbers.total,
@@ -68,7 +69,7 @@ export function auditEventFrom(stopEvent, numbers) {
  * 빠진 `stop` 은 스키마 계약 검사에서 **위반**으로 드러나야 하기 때문이다(조용히 버리면 "훅이 안 돌았다"
  * 와 "환경이 열쇠를 안 줬다" 가 똑같이 보인다 — 골격 공통 규약 4).
  * @param {string} raw
- * @returns {{event:'stop', gate:string, session?:string, turn?:string}|null}
+ * @returns {{event:'stop', gate:string, session?:string, turn?:string, agent?:string}|null}
  */
 export function stopEventFrom(raw) {
   let parsed;
@@ -78,10 +79,12 @@ export function stopEventFrom(raw) {
     return null;
   }
   if (!parsed || typeof parsed !== 'object') return null;
-  const { session, turn } = extractContext(raw);
+  const { session, turn, agent } = extractContext(raw);
   return {
     ...(session ? { session } : {}),
     ...(turn ? { turn } : {}),
+    // SubagentStop 에 잘못 걸려도 서브의 stop 임이 남아야 리포트가 메인 턴 판정에서 뺀다 (docs/16 §5.4).
+    ...(agent ? { agent } : {}),
     event: 'stop',
     gate: GATE,
   };

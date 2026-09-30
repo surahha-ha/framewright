@@ -134,6 +134,15 @@ export const DEFINITION_CHANGES = [
       'v2 완주 줄의 분모 재정의 — 거짓은 한 축이면 확정 · 참은 세 축 전부 · 첫 stop 이전 턴 제외' +
       ' (같은 이벤트를 다시 세는 변경이라 옛 창도 소급 재계산된다 — docs/16 §3.1)',
   },
+  {
+    at: '2026-09-30',
+    what:
+      'v2 턴 판정(분모·중단·검증 축)에서 서브에이전트 이벤트(agent 필드)를 뺌 — 발동 축은 메인+서브 모두 · 서브 이벤트만 있는 턴은 분모 밖' +
+      ' (관찰 변경이라 이전 이벤트는 소급 불가 — 이 날짜 이전 이벤트는 메인으로 간주 — docs/16 §5.4)' +
+      // 같은 날 추기(결정 이력 2026-09-30(3)) — 위 규칙만으로 기록된 로그는 없다(설치처 전파 전에 고쳤다). 한 항목으로 둔다.
+      ' · 추기: 턴 시작(turn-start) 이벤트 추가 — 턴 시작이 관찰된 세션은 분모 = 턴 시작이 있고 게이트가(메인·서브 무관) 본 턴,' +
+      ' 턴 시작 없는 턴은 분모 밖 · 턴 시작이 없는 세션은 서브 이벤트만 있는 턴도 분모에 넣고 "턴 시작 미관찰" 표기',
+  },
 ];
 
 /** `YYYY-MM-DD`(UTC 자정) 또는 ISO 일시를 ms 로. 못 읽으면 NaN — 창 인자와 같은 해석이다. */
@@ -269,7 +278,21 @@ export function summarize(events, opts = {}) {
   const passes = sorted.filter((e) => e.event === 'pass');
   const afters = sorted.filter((e) => e.event === 'after' && !e.probe);
   const notes = sorted.filter((e) => e.event === 'note');
-  const stops = sorted.filter((e) => e.event === 'stop');
+  // ⭐ 메인 = agent 가 없는 이벤트 (docs/16 §5.4 · 결정 이력 2026-09-30). 서브에이전트는 메인과 같은 prompt_id 를
+  //    쓰므로 섞으면 "메인에 Stop 이 없는 턴" 이 서브 이벤트만으로 게이트가 본 턴이 되고 중단으로 세어진다.
+  //    v2 턴 판정(분모·중단·검증 축)은 메인만, **발동 축은 메인+서브 모두**(서브의 ask 도 사람의 개입이다).
+  //    agent 필드가 생기기 전 로그는 전부 메인으로 간주한다 — 원자료에 없어 소급할 수 없다.
+  const isMain = (e) => !e.agent;
+  const stops = sorted.filter((e) => e.event === 'stop' && isMain(e));
+  // ⭐ 턴 시작 관찰 (docs/16 §5.4 · 결정 이력 2026-09-30(3)). 게이트 훅 matcher 가 셸뿐이라 메인이 위임만 한 턴은
+  //    메인 게이트 이벤트가 0 이다 — "메인 이벤트가 있는 턴" 으로 분모를 잡으면 **위임 턴이 측정에서 사라진다.**
+  //    UserPromptSubmit 훅(turn-start.mjs)이 메인 턴의 존재를 직접 남긴다(서브 안에서는 발화하지 않음 — 실측).
+  //    턴 시작이 하나라도 있는 **세션**은 그 규칙으로, 하나도 없는 세션(도입 이전·미배선)은 폴백으로 센다.
+  const starts = sorted.filter((e) => e.event === 'turn-start' && isMain(e) && e.turn);
+  const startedSessions = new Set(starts.map((e) => e.session).filter(Boolean));
+  const startedTurns = new Set(starts.map((e) => e.turn));
+  const notificationTurns = new Set(starts.filter((e) => e.origin === 'task-notification').map((e) => e.turn));
+  const inStartedSession = (e) => Boolean(e.session) && startedSessions.has(e.session);
   // ⭐ 경계표가 비어 있던 audit(inScope 0)은 완주율 시계열에서 뺀다 — "잰 것이 없어 미달 0"
   //    을 "다 닫혀서 미달 0" 으로 읽으면 완주율이 거짓 그린이 된다 (3회차 실적용에서 실측된 결함).
   const tfAudits = sorted.filter(
@@ -307,39 +330,66 @@ export function summarize(events, opts = {}) {
 
   // v2 — 턴 단위 (docs/16). 분모 = 게이트가 본 턴(pass 나 fire 가 하나라도 있는 turn), 분자 후보 = 발동 없는 턴.
   //   turn 이 없는 이벤트(페이로드 식별자 이전 로그)는 분모에 넣지 않고 **제외 수를 보인다** — 0 으로 둔갑 금지.
+  //   분모는 세션마다 둘 중 하나로 정한다 (결정 이력 2026-09-30(3)):
+  //   · 턴 시작 관찰 세션 — **턴 시작이 있고** 게이트가 (메인이든 서브든) 본 턴. 턴 시작 없는 턴은 사람 턴이 아니거나
+  //     턴 시작 훅이 빠진 것이라 분모 밖 — 서브 이벤트만 있으면 subOnly, 메인 이벤트가 있으면 unstarted 로 수를 보인다.
+  //   · 턴 시작 미관찰 세션(폴백) — 게이트가 (메인이든 서브든) 본 턴. 서브 전용 턴을 떨구면 위임 턴이 사라진다.
+  //   게이트 이벤트가 없는 턴(질문·설명만)은 어느 쪽이든 분모 밖이다 — §3 "게이트가 본 턴" 은 그대로다.
   const allGatedTurns = new Set();
+  const subGatedTurns = new Set(); // 턴 시작 관찰 세션의, 턴 시작 없는 서브 전용 턴
+  const unstartedTurns = new Set(); // 턴 시작 관찰 세션의, 턴 시작 없는 메인 게이트 이벤트 턴
   const firedTurns = new Set();
   let eventsWithoutTurn = 0;
   for (const e of [...passes, ...fires]) {
-    if (e.turn) allGatedTurns.add(e.turn);
-    else eventsWithoutTurn++;
+    if (!e.turn) eventsWithoutTurn++;
+    else if (!inStartedSession(e) || startedTurns.has(e.turn)) allGatedTurns.add(e.turn);
+    else if (isMain(e)) unstartedTurns.add(e.turn);
+    else subGatedTurns.add(e.turn);
   }
-  for (const e of fires) if (e.turn) firedTurns.add(e.turn);
+  for (const e of fires) if (e.turn) firedTurns.add(e.turn); // 발동 축 — 메인+서브 모두
+  for (const turn of allGatedTurns) subGatedTurns.delete(turn);
+  for (const turn of unstartedTurns) subGatedTurns.delete(turn);
 
   // v2 ㄴ 축 — 사람 중단 없음 (docs/16 §5.1 실측으로 확정된 3분기). `stop` 은 Stop 훅이 턴마다 남긴다.
   //   Stop 있음 = 정상 종료 · 없는데 같은 세션에 뒤 턴이 있음 = 중단 · 없고 세션 마지막 턴 = 미판정(관찰 경계).
   //   ⭐ 마지막 턴을 중단으로 세지 않는다 — 관찰이 끝난 자리와 사람이 끊은 자리는 다르다.
   //   ⭐ 첫 stop 이전에 끝난 턴은 "관찰 이전" 으로 제외한다 — 훅이 없던 기간을 전부 중단으로 읽으면 창작이다.
   //   분모는 게이트 축과 같은 "게이트가 본 턴" 이다 — 축이 다르다고 분모를 따로 두면 두 축을 합칠 수 없다.
-  const turnInfo = new Map(); // turn → { session, first, last }
-  for (const e of sorted) {
-    if (!e.turn) continue;
-    const t = String(e.ts);
-    const info = turnInfo.get(e.turn) || { session: e.session, first: t, last: t };
-    if (!info.session && e.session) info.session = e.session;
-    if (t < info.first) info.first = t;
-    if (t > info.last) info.last = t;
-    turnInfo.set(e.turn, info);
-  }
+  //   ⭐ 턴의 시작·끝(순서 판정)도 메인 이벤트만으로 잡는다 — 백그라운드 서브는 메인 Stop 뒤에도 같은 턴으로
+  //      기록되므로, 섞으면 턴의 끝이 뒤 턴 너머로 늘어나 중단이 미판정으로 덮인다.
+  const buildTurnInfo = (list) => {
+    const map = new Map(); // turn → { session, first, last }
+    for (const e of list) {
+      if (!e.turn) continue;
+      const t = String(e.ts);
+      const info = map.get(e.turn) || { session: e.session, first: t, last: t };
+      if (!info.session && e.session) info.session = e.session;
+      if (t < info.first) info.first = t;
+      if (t > info.last) info.last = t;
+      map.set(e.turn, info);
+    }
+    return map;
+  };
+  //   턴 시작 관찰 세션에선 메인 이벤트에 turn-start 가 들어 있어, 위임만 한 턴도 메인 기준 시작·끝을 갖는다.
+  const mainTurnInfo = buildTurnInfo(sorted.filter(isMain));
+  // 메인 이벤트가 하나도 없는 턴(서브 전용) — 창 판정과 폴백 세션의 순서 판정에만 쓰는 전체 이벤트 기준 시각.
+  const needsAny = subGatedTurns.size > 0 || [...allGatedTurns].some((turn) => !mainTurnInfo.has(turn));
+  const anyTurnInfo = needsAny ? buildTurnInfo(sorted) : mainTurnInfo;
+  // 순서 판정용 — 메인 기준이 있으면 그것, 없으면(폴백 세션의 서브 전용 턴) 전체 이벤트 기준.
+  const turnInfo = new Map(mainTurnInfo);
+  for (const turn of allGatedTurns) if (!turnInfo.has(turn)) turnInfo.set(turn, anyTurnInfo.get(turn));
   // 기간 창 — 턴이 분모에 드는 시각(첫 이벤트)이 창 안인 턴만 분모. 문맥(turnInfo·stops·audit 시계열)은 전체.
-  const inWindow = (turn) => {
+  const inWindow = (turn, info = turnInfo) => {
     if (!window) return true;
-    const ms = Date.parse(turnInfo.get(turn)?.first);
+    const ms = Date.parse(info.get(turn)?.first);
     if (!Number.isFinite(ms)) return false; // ts 를 못 읽는 턴은 창 안이라고 단정하지 않는다
     return (window.from === null || ms >= window.from) && (window.to === null || ms < window.to);
   };
-  const gatedTurns = new Set([...allGatedTurns].filter(inWindow));
+  const gatedTurns = new Set([...allGatedTurns].filter((turn) => inWindow(turn)));
   const turnsOutsideWindow = allGatedTurns.size - gatedTurns.size;
+  const subOnlyTurns = [...subGatedTurns].filter((turn) => inWindow(turn, anyTurnInfo)).length;
+  const unstartedCount = [...unstartedTurns].filter((turn) => inWindow(turn, mainTurnInfo)).length;
+  const startedGated = [...gatedTurns].filter((turn) => startedTurns.has(turn)).length;
   const stoppedTurns = new Set(stops.filter((e) => e.turn).map((e) => e.turn));
   const boundary = stops.length > 0 ? String(stops[0].ts) : null;
   const turnEnd = {
@@ -376,7 +426,10 @@ export function summarize(events, opts = {}) {
       else turnEnd.undetermined++;
       stopVerdict.set(turn, laterTurnInSession ? 'interrupted' : 'undetermined');
     }
-    for (const turn of stoppedTurns) if (!allGatedTurns.has(turn) && inWindow(turn)) turnEnd.stopsOutsideGate++;
+    // 서브 전용·턴 시작 없는 턴의 stop 은 여기서 세지 않는다 — 도구를 안 쓴 턴이 아니고, 이미 제외 수가 보인다.
+    for (const turn of stoppedTurns)
+      if (!allGatedTurns.has(turn) && !subGatedTurns.has(turn) && !unstartedTurns.has(turn) && inWindow(turn))
+        turnEnd.stopsOutsideGate++;
   }
   turnEnd.judged = turnEnd.completed + turnEnd.interrupted;
 
@@ -387,7 +440,10 @@ export function summarize(events, opts = {}) {
   //   ⭐ "미달 0" 을 쓰지 않는 이유: 유예(grandfather)된 기존 위반이 있는 설치처는 모든 턴이 영원히 레드가 된다
   //      (실측: 한 설치처 경계 안 39 · 테스트 없음 27). 턴이 한 일은 늘렸는가/안 늘렸는가다.
   //   첫 audit(비교 대상 없음) = 미판정 · 그 턴에 turn 있는 audit 없음 = 미수집 · inScope 0 은 경계표 없음이라 시계열 밖.
-  const auditSeries = sorted.filter((e) => e.event === 'audit' && e.gate === 'test-first' && e.inScope > 0);
+  //   서브의 audit(SubagentStop 에 잘못 건 경우)은 메인 턴의 검증 근거가 아니므로 시계열에서 뺀다.
+  const auditSeries = sorted.filter(
+    (e) => e.event === 'audit' && e.gate === 'test-first' && e.inScope > 0 && isMain(e),
+  );
   const verify = {
     observed: auditSeries.some((e) => e.turn),
     green: 0,
@@ -518,6 +574,12 @@ export function summarize(events, opts = {}) {
       quiet: [...gatedTurns].filter((turn) => !firedTurns.has(turn)).length,
       eventsWithoutTurn,
       outsideWindow: turnsOutsideWindow,
+      subOnly: subOnlyTurns, // 서브에이전트 이벤트만 있는 턴 — 분모 밖 (docs/16 §5.4)
+      // 턴 시작 관찰 (결정 이력 2026-09-30(3)) — 분모의 구성과 턴 시작 규칙으로 뺀 수.
+      started: startedGated, // 분모 중 턴 시작이 관찰된 턴
+      unobservedStart: gatedTurns.size - startedGated, // 분모 중 턴 시작 미관찰 세션의 턴(폴백)
+      unstarted: unstartedCount, // 턴 시작 관찰 세션의, 턴 시작 없는 메인 게이트 이벤트 턴 — 분모 밖
+      notification: [...gatedTurns].filter((turn) => notificationTurns.has(turn)).length, // 분모 중 완료 알림 턴
     },
     window: window ? { label: window.label } : null,
     turnEnd,
@@ -608,7 +670,23 @@ export function render(s) {
   // v2 — 턴 단위 완주 (docs/16). 게이트 축 하나뿐임을 표기에 박는다 — 중단·검증 그린 축이 붙기 전까지
   // 이 수는 "개입 없이 완주" 가 아니라 "게이트 발동 없이 지나감" 이다.
   const t = s.turns;
-  const excluded = t.eventsWithoutTurn > 0 ? ` · turn 없는 이벤트 ${t.eventsWithoutTurn} 제외(식별자 이전 로그)` : '';
+  // 서브 전용 턴 — 분모가 메인 기준임을 제외 수로 드러낸다(0 이면 표기 없음 — agent 필드 이전 로그는 전부 메인).
+  const subOnlyNote = t.subOnly > 0 ? ` · 서브에이전트 이벤트만 있는 턴 ${t.subOnly} 제외(메인 판정 없음)` : '';
+  // 턴 시작 관찰 — 분모가 어느 규칙으로 세어졌는지를 줄 안에 박는다 (결정 이력 2026-09-30(3)).
+  //   폴백(턴 시작 미관찰) 턴이 있으면 반드시 표기한다 — 그 턴들은 서브 전용 턴도 분모에 들어 있다.
+  const fallbackWhy = '(turn-start 없는 세션 — 분모에서 메인·서브 이벤트를 가르지 않음)';
+  const startNote =
+    (t.notification > 0 ? ` · 그중 완료 알림으로 시작한 턴 ${t.notification}` : '') +
+    (t.unobservedStart > 0
+      ? t.started > 0
+        ? ` · 그중 턴 시작 미관찰 ${t.unobservedStart}${fallbackWhy}`
+        : ` · 턴 시작 미관찰${fallbackWhy}`
+      : '') +
+    (t.unstarted > 0 ? ` · 턴 시작 없는 메인 턴 ${t.unstarted} 제외(턴 시작 훅 누락 의심)` : '');
+  const excluded =
+    (t.eventsWithoutTurn > 0 ? ` · turn 없는 이벤트 ${t.eventsWithoutTurn} 제외(식별자 이전 로그)` : '') +
+    subOnlyNote +
+    startNote;
   // 기간 창 — 아래 v2 턴 줄들의 분모가 잘렸음을 그 줄들 앞에 박는다. 창 밖 턴 수를 보여 누적과 헷갈리지 않게 한다.
   if (s.window) {
     lines.push(
@@ -668,7 +746,9 @@ export function render(s) {
           (c.preHook > 0
             ? ` · 관찰 이전 ${c.preHook} 제외(첫 stop 이전 턴 — 정상 종료가 성립할 수 없는 구간)`
             : '') +
-          (c.denominator === 0 ? ' · 아직 완주도 실패도 확정된 턴이 없습니다' : '')
+          subOnlyNote +
+          (c.denominator === 0 ? ' · 아직 완주도 실패도 확정된 턴이 없습니다' : '') +
+          startNote
         : missing(`${lacking.join('·')} 미수집 — 세 축이 다 붙기 전에는 완주율을 내지 않습니다`)),
   );
   if (s.probesExcluded > 0) lines.push(`  (프로브 ${s.probesExcluded}건은 전 지표에서 제외)`);
@@ -692,10 +772,13 @@ export function render(s) {
 // ⭐ 위반과 관찰을 가른다. 위반 = 계약 문장에 어긋남. 관찰 = 계약 밖이지만 눈에 띄어야 하는 것
 //    (계약 밖 필드, 사람이 쓴 note.text 의 경로 — 사람 서술은 §3 의 대상이 아니지만 같은 반출 위험).
 
-const CONTRACT_EVENTS = ['fire', 'pass', 'after', 'audit', 'note', 'stop'];
-// session·turn·call 은 환경이 준 식별자다(docs/13 §3 · docs/16) — 원문 흔적 검사(C9)의 대상이 아니다.
-const CONTRACT_COMMON = ['ts', 'session', 'turn', 'call', 'event'];
-const CONTRACT_IDS = ['session', 'turn', 'call'];
+// turn-start 는 2026-09-30(3) 추가 7종째 — 메인 턴이 있었다는 사실 하나(UserPromptSubmit 훅, turn-start.mjs).
+const CONTRACT_EVENTS = ['fire', 'pass', 'after', 'audit', 'note', 'stop', 'turn-start'];
+const TURN_START_ORIGINS = ['task-notification'];
+// session·turn·call·agent 는 환경이 준 식별자다(docs/13 §3 · docs/16) — 원문 흔적 검사(C9)의 대상이 아니다.
+// agent(서브에이전트 식별자)는 2026-09-30 additive — 서브 안에서 난 이벤트에만 실리는 선택 필드다.
+const CONTRACT_COMMON = ['ts', 'session', 'turn', 'call', 'agent', 'event'];
+const CONTRACT_IDS = ['session', 'turn', 'call', 'agent'];
 /** 이벤트별 필수·허용 필드 — docs/13 §3 스키마 + 결정 이력의 additive 필드. */
 const CONTRACT_FIELDS = {
   fire: { req: ['gate', 'rule', 'decision', 'probe', 'cmdPrefix'], opt: ['outcome'] },
@@ -705,6 +788,8 @@ const CONTRACT_FIELDS = {
   note: { req: ['label'], opt: ['text', 'value', 'rule'] },
   // stop 은 턴 종료의 사실 하나뿐이다 — turn 이 없으면 짝지을 수 없으므로 식별자인데도 필수다 (docs/16 §5 기준 3).
   stop: { req: ['gate', 'turn'], opt: [] },
+  // turn-start 도 같은 이유로 turn 이 필수다. origin 은 완료 알림 턴의 분류 하나뿐 — 프롬프트 원문은 계약 밖이다.
+  'turn-start': { req: ['gate', 'turn'], opt: ['origin'] },
 };
 const ABS_PATH = /(^|[\s"'=;])([A-Za-z]:[\\/]|\/[A-Za-z]|~\/)/;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -776,6 +861,9 @@ export function auditContract(events, opts = {}) {
     }
     if (e.event === 'stop') {
       if ('probe' in e || 'decision' in e || 'cmdPrefix' in e) violate('stop 에 판정·명령 필드');
+    }
+    if (e.event === 'turn-start') {
+      if ('origin' in e && !TURN_START_ORIGINS.includes(e.origin)) violate('turn-start.origin 어휘 밖');
     }
     if (e.event === 'pass') {
       if ('probe' in e || 'decision' in e) violate('pass 에 판정 필드');
