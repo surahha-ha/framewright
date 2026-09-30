@@ -179,3 +179,257 @@ test('설정이 없어도 stop 은 남고 종료코드 0 — 선실측은 있으
   assert.equal(r.status, 0);
   assert.deepEqual(readLog(root).events.map((e) => e.event), ['stop']);
 });
+
+// ── 골격 6 「완료 전 증거 확인」 — 턴 종료 시점의 판정 (docs/01 §6) ──────────────────────────────
+// 여기서 지키는 계약: **기본(관찰)은 stdout 에 아무것도 쓰지 않는다**(기존 계약 그대로 — 미충족이어도 막지 않는다),
+// **판정은 수치만 남긴다**, **차단은 mode: 'block' 을 적었을 때만 · 턴당 한 번 · 막은 Stop 은 stop 으로 적지 않는다**
+// (턴이 끝나지 않았다), **판정 실패는 stop 기록을 막지 않는다**(fail-open).
+
+import { utimesSync } from 'node:fs';
+
+const EV_GATE = 'done-evidence';
+const evConfig = (mode, extra = '', timeoutMs = undefined) => `export default {
+  ${extra}
+  qualityCycle: { evidence: { ${mode ? `mode: '${mode}',` : ''} ${timeoutMs ? `scanTimeoutMs: ${timeoutMs},` : ''} types: [
+    { id: 'code', what: '계산 코드', files: [/^src\\/.*\\.js$/],
+      evidence: [{ id: 'unit', pattern: /(^|[;&|(]\\s*)run-tests\\b/, what: '단위 테스트 실행' }] },
+  ] } },
+};
+`;
+/**
+ * 합성 설치처 — 증거 슬롯이 채워진 git 저장소. 턴 p-1 이 60초 전에 시작했고 30초 전에 src/calc.js 를 고쳤다.
+ * `ranAgo`(초)를 주면 그만큼 전에 증거(unit)가 실행된 것으로 적는다 — 40 이면 편집 앞, 10 이면 편집 뒤.
+ * `firstShellAgo`(초)는 턴 시작 기록 대신 그 턴의 첫 셸 명령만 남긴다(턴 시작 훅이 없는 설치처).
+ * `slowGit`(초)은 상태 조회 때마다 그만큼 걸리는 훅을 돌게 해 git 을 느리게 만든다 · `timeoutMs` 는 스캔 제한 시간.
+ */
+function evSite({ mode, ranAgo, git = true, start = true, extra = '', firstShellAgo, slowGit, timeoutMs } = {}) {
+  const root = fresh();
+  const now = Date.now();
+  if (git) spawnSync('git', ['init', '-q'], { cwd: root });
+  if (slowGit) spawnSync('git', ['config', 'core.fsmonitor', `sleep ${slowGit} #`], { cwd: root });
+  writeFileSync(path.join(root, 'harness.config.mjs'), evConfig(mode, extra, timeoutMs), 'utf8');
+  mkdirSync(path.join(root, 'src'), { recursive: true });
+  const target = path.join(root, 'src', 'calc.js');
+  writeFileSync(target, 'export const x = 1;\n', 'utf8');
+  utimesSync(target, (now - 30_000) / 1000, (now - 30_000) / 1000);
+  if (start) {
+    logEvent({ ts: new Date(now - 60_000).toISOString(), event: 'turn-start', gate: 'turn-start', session: 's-1', turn: 'p-1' }, root);
+  }
+  if (firstShellAgo !== undefined) {
+    logEvent(
+      { ts: new Date(now - firstShellAgo * 1000).toISOString(), event: 'pass', gate: 'danger-guard', cmdPrefix: 'ls', session: 's-1', turn: 'p-1' },
+      root,
+    );
+  }
+  if (ranAgo !== undefined) {
+    logEvent(
+      { ts: new Date(now - ranAgo * 1000).toISOString(), event: 'evidence', gate: EV_GATE, session: 's-1', turn: 'p-1', change: 'code', run: 'unit' },
+      root,
+    );
+  }
+  return root;
+}
+const evAudit = (root) => readLog(root).events.filter((e) => e.event === 'audit' && e.gate === EV_GATE);
+const numbers = ({ types, required, fresh: f, stale, missing, rejected, blocked }) => ({ types, required, fresh: f, stale, missing, rejected, blocked });
+
+test('⭐ 증거(관찰) — 바뀐 유형에 증거 실행이 없으면 "증거 없음" 으로 남고, stdout 은 비어 있고, stop 도 그대로 남는다', () => {
+  const root = evSite();
+  const r = run(root, payload());
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '', '관찰 모드는 미충족이어도 아무것도 막지 않는다');
+  const { events } = readLog(root);
+  assert.deepEqual(events.map((e) => e.event), ['turn-start', 'stop', 'audit']);
+  const [a] = evAudit(root);
+  assert.equal(a.turn, 'p-1');
+  assert.equal(a.session, 's-1');
+  assert.deepEqual(numbers(a), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0, blocked: 0 });
+});
+
+test('⭐ 증거(관찰) — 편집 앞의 실행은 "편집 뒤 미실행", 편집 뒤의 실행은 충족이다', () => {
+  const stale = evSite({ ranAgo: 40 });
+  assert.equal(run(stale, payload()).stdout, '');
+  assert.deepEqual(numbers(evAudit(stale)[0]), { types: 1, required: 1, fresh: 0, stale: 1, missing: 0, rejected: 0, blocked: 0 });
+  const met = evSite({ ranAgo: 10 });
+  run(met, payload());
+  assert.deepEqual(numbers(evAudit(met)[0]), { types: 1, required: 1, fresh: 1, stale: 0, missing: 0, rejected: 0, blocked: 0 });
+});
+
+test('⭐ 증거(차단) — 미충족이면 Stop 을 막고 사유를 돌려주며, 그 Stop 은 stop 으로 적지 않는다(턴이 끝나지 않았다)', () => {
+  const root = evSite({ mode: 'block', ranAgo: 40 });
+  const r = run(root, payload());
+  assert.equal(r.status, 0);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.decision, 'block');
+  assert.match(out.reason, /계산 코드: 단위 테스트 실행 — 마지막 변경 뒤에 실행되지 않았습니다/);
+  assert.match(out.reason, /qualityCycle\.evidence\.types/);
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'audit']);
+  assert.deepEqual(numbers(evAudit(root)[0]), { types: 1, required: 1, fresh: 0, stale: 1, missing: 0, rejected: 0, blocked: 1 });
+});
+
+test('⭐ 증거(차단) — 한 번 막은 뒤의 Stop(stop_hook_active)은 다시 막지 않고 stop 을 적는다 — 턴당 한 번', () => {
+  const root = evSite({ mode: 'block', ranAgo: 40 });
+  const r = run(root, payload({ stop_hook_active: true }));
+  assert.equal(r.stdout, '');
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'stop', 'audit']);
+  assert.equal(evAudit(root)[0].blocked, 0);
+  assert.equal(evAudit(root)[0].stale, 1);
+});
+
+test('⭐ 증거(차단) — 충족이면 막지 않는다', () => {
+  const root = evSite({ mode: 'block', ranAgo: 10 });
+  const r = run(root, payload());
+  assert.equal(r.stdout, '');
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'stop', 'audit']);
+});
+
+test('⭐ 증거(차단) — 증거 실행이 로그에 한 번도 없으면 막지 않고 stderr 로 연결 확인을 알린다', () => {
+  const root = evSite({ mode: 'block' });
+  const r = run(root, payload());
+  assert.equal(r.stdout, '');
+  assert.match(r.stderr, /연결/);
+  assert.deepEqual(numbers(evAudit(root)[0]), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0, blocked: 0 });
+  assert.ok(readLog(root).events.some((e) => e.event === 'stop'));
+});
+
+test('⭐ 증거 — 잘못 적힌 mode 는 차단으로 추측하지 않는다: 막지 않고, 못 읽은 수가 기록되고, stderr 로 알린다', () => {
+  const root = evSite({ mode: 'blok', ranAgo: 40 });
+  const r = run(root, payload());
+  assert.equal(r.stdout, '');
+  assert.match(r.stderr, /mode/);
+  assert.equal(evAudit(root)[0].rejected, 1);
+  assert.equal(evAudit(root)[0].stale, 1);
+});
+
+test('증거 — 턴의 시작을 모르면(턴 시작·그 턴의 이벤트 모두 없음) 판정하지 않는다 — stop 은 남는다', () => {
+  const root = evSite({ start: false });
+  const r = run(root, payload());
+  assert.equal(r.status, 0);
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['stop']);
+  assert.match(r.stderr, /턴의 시작/);
+});
+
+test('증거 — 서브에이전트의 Stop(잘못 건 경우)에서는 판정하지 않는다 — 완료 주장은 메인 턴의 것이다', () => {
+  const root = evSite({ mode: 'block', ranAgo: 40 });
+  const r = run(root, payload({ hook_event_name: 'SubagentStop', agent_id: 'abc123' }));
+  assert.equal(r.stdout, '');
+  assert.deepEqual(evAudit(root), []);
+});
+
+/** 판정하지 못한 턴의 기록 — 수치를 지어내지 않고 "못 했다" 만 싣는다. */
+const UNJUDGED = { session: 's-1', turn: 'p-1', event: 'audit', gate: EV_GATE, failed: 1, rejected: 0, blocked: 0 };
+const withoutTs = (events) => events.map(({ ts: _ts, ...rest }) => rest);
+
+test('⭐ 증거 — git 저장소가 아니어도 stop 은 남고 종료코드 0 이다(fail-open) — 판정 불가로 기록되고 stderr 로 알린다', () => {
+  const root = evSite({ git: false, mode: 'block', ranAgo: 40 });
+  const r = run(root, payload());
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '');
+  assert.match(r.stderr, /done-evidence/);
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'stop', 'audit']);
+  // 수치 0 으로 적으면 "바뀐 것이 없던 턴" 과 구별되지 않는다 — 못 쟀다는 사실만 남긴다.
+  assert.deepEqual(withoutTs(evAudit(root)), [UNJUDGED]);
+});
+
+test('⭐ 증거(차단) — stop_hook_active 가 오지 않는 환경에서도 턴당 한 번이다: 같은 턴의 두 번째 Stop 은 막지 않고 stop 을 적는다', () => {
+  const root = evSite({ mode: 'block', ranAgo: 40 });
+  const noFlag = JSON.stringify({ session_id: 's-1', prompt_id: 'p-1', hook_event_name: 'Stop' });
+  const first = run(root, noFlag);
+  assert.equal(JSON.parse(first.stdout).decision, 'block');
+  const second = run(root, noFlag);
+  assert.equal(second.status, 0);
+  assert.equal(second.stdout, '', '같은 턴을 두 번 보류하지 않는다');
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'audit', 'stop', 'audit']);
+  assert.deepEqual(evAudit(root).map((a) => a.blocked), [1, 0]);
+});
+
+/**
+ * 환경 확인 — 시험 대상 코드와 무관하게, `slowGit` 으로 만든 저장소의 git 이 실제로 느린가(한 번만 잰다).
+ * 느려지지 않는 환경에서는 아래 두 테스트가 아무것도 증명하지 못하므로 건너뛰고 그렇게 말한다.
+ */
+let slowGitWorks;
+function gitCanBeSlowed() {
+  if (slowGitWorks === undefined) {
+    const probe = spawnSync('git', ['status', '--porcelain'], { cwd: evSite({ slowGit: 6 }), encoding: 'utf8', timeout: 1500 });
+    slowGitWorks = Boolean(probe.error && probe.error.code === 'ETIMEDOUT');
+  }
+  return slowGitWorks;
+}
+const SLOW_SKIP = '이 환경의 git 은 이 방법으로 느려지지 않는다 — 느린 git 에서의 동작을 검증하지 못했다';
+
+test('⭐ 증거(관찰) — 작업 트리 스캔이 끝나기 전에 훅이 죽어도 stop 은 이미 남아 있다 — 느린 git 이 중단 축을 오염시키지 않는다', (t) => {
+  if (!gitCanBeSlowed()) {
+    t.skip(SLOW_SKIP);
+    return;
+  }
+  const root = evSite({ slowGit: 6 });
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: payload(),
+    encoding: 'utf8',
+    timeout: 2500, // 환경의 훅 타임아웃 노릇 — 스캔 도중에 훅을 죽인다
+    env: { ...process.env, HARNESS_ROOT: root, CLAUDE_PROJECT_DIR: '' },
+  });
+  assert.equal(r.error && r.error.code, 'ETIMEDOUT', '훅이 스캔 도중에 죽어야 이 테스트가 순서를 증명한다');
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'stop']);
+});
+
+test('⭐ 증거(차단) — git 이 제한 시간 안에 답하지 않으면 막지 않고 끝낸다: stop 이 남고 판정 불가가 기록된다', (t) => {
+  if (!gitCanBeSlowed()) {
+    t.skip(SLOW_SKIP);
+    return;
+  }
+  const root = evSite({ mode: 'block', ranAgo: 40, slowGit: 6, timeoutMs: 400 });
+  const started = Date.now();
+  const r = run(root, payload());
+  const elapsed = Date.now() - started;
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '', '못 잰 턴을 막지 않는다');
+  assert.match(r.stderr, /제한 시간/);
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'stop', 'audit']);
+  assert.deepEqual(withoutTs(evAudit(root)), [UNJUDGED]);
+  assert.ok(elapsed < 5000, `제한 시간(400ms) 뒤에도 ${elapsed}ms 를 붙잡혀 있었다`);
+});
+
+test('증거 — 턴 시작 기록이 없으면 그 턴의 가장 이른 이벤트부터로 판정한다(턴 시작 훅이 없는 설치처의 폴백)', () => {
+  const root = evSite({ start: false, firstShellAgo: 50 });
+  const r = run(root, payload());
+  assert.equal(r.status, 0);
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['pass', 'stop', 'audit']);
+  assert.deepEqual(numbers(evAudit(root)[0]), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0, blocked: 0 });
+});
+
+test('증거(차단) — 보류된 Stop 에서는 턴 종료 선실측도 남기지 않는다 — 턴이 끝나지 않았다', () => {
+  const root = evSite({
+    mode: 'block',
+    ranAgo: 40,
+    extra: `testFirst: { enabled: false, auditOnStop: true, scopes: [{ decision: 'deny', pattern: /^src\\/.*\\.js$/, what: '계산' }], exempt: [] },`,
+  });
+  spawnSync('git', ['add', '.'], { cwd: root });
+  const r = run(root, payload());
+  assert.equal(JSON.parse(r.stdout).decision, 'block');
+  const { events } = readLog(root);
+  assert.deepEqual(events.map((e) => `${e.event}:${e.gate}`), ['turn-start:turn-start', `evidence:${EV_GATE}`, `audit:${EV_GATE}`]);
+});
+
+test('증거 — 턴 종료 선실측(auditOnStop)과 함께 켜도 각자 한 줄씩 남는다', () => {
+  const root = evSite({
+    ranAgo: 10,
+    extra: `testFirst: { enabled: false, auditOnStop: true, scopes: [{ decision: 'deny', pattern: /^src\\/.*\\.js$/, what: '계산' }], exempt: [] },`,
+  });
+  spawnSync('git', ['add', '.'], { cwd: root });
+  run(root, payload());
+  const audits = readLog(root).events.filter((e) => e.event === 'audit').map((e) => e.gate);
+  assert.deepEqual(audits, ['test-first', EV_GATE]);
+});
+
+test('--status: 증거 슬롯의 상태가 함께 보인다 — 꺼짐과 설정됨을 가르고, 종료코드는 종전대로 stop 기준이다', () => {
+  const off = fresh();
+  writeFileSync(path.join(off, 'harness.config.mjs'), 'export default {};\n', 'utf8');
+  const a = run(off, '', ['--status']);
+  assert.equal(a.status, 1);
+  assert.match(a.stdout, /\[done-evidence\] 꺼짐/);
+  const on = evSite({ ranAgo: 10 });
+  run(on, payload());
+  const b = run(on, '', ['--status']);
+  assert.equal(b.status, 0);
+  assert.match(b.stdout, /\[done-evidence\] 설정됨\(관찰\) — 유형 1 · 필수 증거 1 · 증거 실행 관찰 1건 · 턴 종료 판정 1건/);
+});

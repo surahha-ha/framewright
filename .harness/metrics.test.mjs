@@ -1330,3 +1330,126 @@ test('⭐ 정의 변경 이력 — 2026-09-30 항목은 한 건이고 턴 시작
   assert.match(at930[0].what, /턴 시작/);
   assert.match(at930[0].what, /턴 시작 미관찰/);
 });
+
+// ── 골격 6 「완료 전 증거 확인」 — 리포트 줄과 계약 (docs/01 §6 · docs/13 §2 `evidence`) ─────────────────
+// 여기서 지키는 계약: **판단할 것은 새 감시 장치가 아니라 리포트 줄에 얹힌다**, **턴의 판정은 그 턴의 마지막 판정 기록**,
+// **증거 없음과 편집 뒤 미실행을 가른다**, **유형에 드는 변경이 없는 턴은 충족도 미충족도 아니다**,
+// **이 줄은 기존 지표(v1 5종 · v2 세 축)의 어느 수도 바꾸지 않는다.**
+
+const ea = (m, turn, n, session = 's1') => ({
+  ts: t(m), event: 'audit', gate: 'done-evidence', session, turn,
+  types: 1, required: 2, fresh: 0, stale: 0, missing: 0, rejected: 0, blocked: 0, ...n,
+});
+const er = (m, turn, extra = {}) => ({
+  ts: t(m), event: 'evidence', gate: 'done-evidence', session: 's1', turn, change: 'code', run: 'unit', ...extra,
+});
+
+test('⭐ 증거 판정 기록이 없으면 그 줄은 미수집이고 어느 슬롯을 채우면 되는지 말한다', () => {
+  const s = summarize([gp(1, 't1'), stop(2, 't1')]);
+  assert.equal(s.evidence.observed, false);
+  assert.match(render(s), /완료 전 증거\s+미수집 — 턴 종료 증거 판정 기록이 0 — qualityCycle\.evidence\.types/);
+});
+
+test('⭐ 증거 줄 — 충족 · 편집 뒤 미실행 · 증거 없음 · 해당 없음을 턴 단위로 가른다', () => {
+  const s = summarize([
+    gp(1, 't1'), er(2, 't1'), ea(3, 't1', { fresh: 2 }), //              충족
+    gp(4, 't2'), ea(5, 't2', { fresh: 1, stale: 1 }), //                 편집 뒤 미실행
+    gp(6, 't3'), ea(7, 't3', { stale: 1, missing: 1 }), //               증거 없음(하나라도 없으면 없음 쪽)
+    gp(8, 't4'), ea(9, 't4', { types: 0, required: 0 }), //              유형에 드는 변경 없음
+    gp(10, 't5'), ea(11, 't5', { fresh: 1, stale: 1, blocked: 1 }), //   완료 보류 → 재실행 →
+    er(12, 't5'), ea(13, 't5', { fresh: 2 }), //                          … 마지막 기록이 충족
+  ]);
+  assert.deepEqual(s.evidence, {
+    observed: true, judged: 4, met: 2, unmet: 2, stale: 1, missing: 1, none: 1, failed: 0, blocked: 1, rejected: 0, runs: 2,
+  });
+  const out = render(s);
+  assert.match(
+    out,
+    /완료 전 증거\s+판정 턴 4 = 충족 2 · 미충족 2\(편집 뒤 미실행 1 · 증거 없음 1\) · 유형에 드는 변경 없는 턴 1\(해당 없음\) · 완료 보류 1턴/,
+  );
+  assert.match(out, /실행 여부만 — 통과 여부 아님/);
+});
+
+test('⭐ 증거 줄은 기존 지표를 하나도 바꾸지 않는다 — v1 5종과 v2 세 축의 수가 그대로다', () => {
+  const base = [
+    gp(1, 't1'), stop(2, 't1'), au(2, 't1', 5),
+    { ...fire(3, 'ask', 'git push'), turn: 't2', session: 's1' }, stop(4, 't2'), au(4, 't2', 5),
+    gp(5, 't3'), gp(7, 't4'), stop(8, 't4'), au(8, 't4', 6),
+  ];
+  const withEvidence = [
+    ...base,
+    er(1, 't1'), ea(2, 't1', { fresh: 2 }),
+    er(3, 't2', { agent: 'a1' }), ea(4, 't2', { stale: 2 }),
+    ea(8, 't4', { missing: 2 }),
+  ];
+  const { evidence: _a, ...before } = summarize(base);
+  const { evidence: _b, ...afterAdding } = summarize(withEvidence);
+  assert.deepEqual(afterAdding, before);
+});
+
+test('⭐ 슬롯을 못 읽은 항목이 있으면 그 줄이 말한다 — 조용히 덜 판정하지 않는다', () => {
+  const s = summarize([gp(1, 't1'), er(1, 't1'), ea(2, 't1', { fresh: 2, rejected: 3 })]);
+  assert.equal(s.evidence.rejected, 3);
+  assert.match(render(s), /⚠️ 슬롯 항목 3건을 읽지 못해 판정에서 뺌/);
+});
+
+test('⭐ 판정은 있는데 증거 실행 관찰이 0 이면 연결을 의심하라고 말한다 — 전부 "증거 없음" 은 미연결과 구별되지 않는다', () => {
+  const s = summarize([
+    gp(1, 't1'),
+    // 변경만 남긴 기록(run 없음)은 증거 실행이 아니다 — 이것을 세면 증거를 한 번도 못 본 곳이 "관찰됨" 으로 읽힌다.
+    { ts: t(1), event: 'evidence', gate: 'done-evidence', session: 's1', turn: 't1', change: 'tree' },
+    ea(2, 't1', { missing: 2 }),
+  ]);
+  assert.equal(s.evidence.runs, 0);
+  assert.match(render(s), /⚠️ 증거 실행 관찰 0 — 실행 후 훅\(danger-guard\.mjs --post\) 연결/);
+});
+
+test('⭐ 증거 줄 — 판정하지 못한 턴은 "해당 없음" 도 충족도 아니다: 판정 불가로 따로 세고 줄이 말한다', () => {
+  const unjudged = (m, turn) => ({
+    ts: t(m), event: 'audit', gate: 'done-evidence', session: 's1', turn, failed: 1, rejected: 0, blocked: 0,
+  });
+  const s = summarize([
+    gp(1, 't1'), er(2, 't1'), ea(3, 't1', { fresh: 2 }),
+    gp(4, 't2'), unjudged(5, 't2'),
+    gp(6, 't3'), unjudged(7, 't3'),
+  ]);
+  assert.deepEqual(s.evidence, {
+    observed: true, judged: 1, met: 1, unmet: 0, stale: 0, missing: 0, none: 0, failed: 2, blocked: 0, rejected: 0, runs: 1,
+  });
+  assert.match(render(s), /완료 전 증거\s+판정 턴 1 = 충족 1 · 미충족 0 · ⚠️ 판정 불가 2턴/);
+  // 판정 불가 기록도 수치만 실은 audit 이다 — 계약 위반이 아니다.
+  assert.equal(violationCount(auditContract([unjudged(1, 't1')])), 0);
+});
+
+test('증거 줄 — 서브에이전트의 판정 기록은 세지 않고, 기간 창은 다른 v2 줄과 같은 규칙으로 자른다', () => {
+  const events = [
+    gp(1, 't1'), er(1, 't1'), ea(2, 't1', { fresh: 2 }),
+    gp(10, 't2'), ea(11, 't2', { missing: 2 }),
+    { ...ea(12, 't3', { missing: 2 }), agent: 'a1' },
+  ];
+  assert.equal(summarize(events).evidence.judged, 2);
+  const s = summarize(events, { window: win(5, 20) });
+  assert.deepEqual(
+    { judged: s.evidence.judged, met: s.evidence.met, missing: s.evidence.missing },
+    { judged: 1, met: 0, missing: 1 },
+  );
+});
+
+test('⭐ 계약 — evidence 는 8종째 이벤트: gate·change 필수 · run 선택 · 둘 다 식별자 꼴이어야 한다', () => {
+  const ok = auditContract([
+    er(1, 't1'),
+    { ts: t(2), event: 'evidence', gate: 'done-evidence', session: 's1', turn: 't1', change: 'tree' },
+    ea(3, 't1', { fresh: 2 }),
+  ]);
+  assert.equal(violationCount(ok), 0);
+  assert.equal(observationCount(ok), 0);
+  const noChange = auditContract([{ ts: t(1), event: 'evidence', gate: 'done-evidence', run: 'unit' }]);
+  assert.ok(noChange.violations['필수 필드 결손'].where.includes('evidence.change'));
+  // 식별자 자리에 명령·경로 조각이 실리면 위반이다 — 원문이 들어올 수 있는 자리를 꼴로 막는다.
+  const leaked = auditContract([er(1, 't1', { run: 'run-tests --filter x' }), er(2, 't1', { change: 'src/calc.js' })]);
+  assert.deepEqual(leaked.violations['evidence 식별자 꼴 아님(원문 의심)'].where.sort(), ['evidence.change', 'evidence.run']);
+  const withCommand = auditContract([er(1, 't1', { cmdPrefix: 'git status' })]);
+  assert.ok(withCommand.violations['evidence 에 판정·명령 필드']);
+  const extra = auditContract([er(1, 't1', { file: 'x' })]);
+  assert.ok(extra.observations['계약 밖 필드'].where.includes('evidence.file'));
+});

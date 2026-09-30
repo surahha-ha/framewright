@@ -15,6 +15,7 @@
  * 사용:
  *   (훅) stdin 으로 도구 입력 JSON 을 받는다 — PreToolUse 에 건다
  *   node skeletons/danger-guard.mjs --post           # PostToolUse 훅 — ask 후 실제 실행을 `after` 로 기록
+ *                                                    #   + 증거 슬롯(qualityCycle.evidence)에 걸린 실행을 `evidence` 로 기록 (골격 6)
  *   node skeletons/danger-guard.mjs --cmd "<명령>"   # 단건 판정 (점검용 — 계측 로그에 안 남는다)
  *   node skeletons/danger-guard.mjs --status         # 활성 확인 (설정·규칙 수)
  *
@@ -28,6 +29,7 @@
 import { loadConfig, compile, emitDecision, readStdin, CONFIG_NAME } from './lib/config.mjs';
 import { logEvent, normalizeCmdPrefix, readLog, extractContext } from './lib/log.mjs';
 import { readPromotions, promotionStateFor, currentPatternOf } from './lib/promotions.mjs';
+import { evidenceSlot, evidenceEventsFromPost } from './lib/evidence.mjs';
 
 /** 기본 복구 문구 — 규칙에 `recover` 가 없을 때. 없는 것보다는 낫지만 규칙마다 적는 편이 훨씬 낫다. */
 const DEFAULT_RECOVER = {
@@ -208,6 +210,14 @@ async function main() {
         probe: hit.probe,
         cmdPrefix: normalizeCmdPrefix(command),
       });
+    }
+    // 골격 6 「완료 전 증거 확인」 — 실행된 명령을 증거 슬롯에 대고 분류해 식별자만 남긴다 (docs/01 §6 · docs/13 §2).
+    // 가드 판정과 무관한 관찰이고, 이 실행 지점에 얹는 이유는 하나다: 명령 원문이 보이는 자리가 여기뿐이고
+    // 훅을 새로 걸지 않기 위해서다. 슬롯이 비어 있으면 아무것도 하지 않는다. 실패해도 위 기록과 종료코드는 그대로다.
+    try {
+      for (const ev of evidenceEventsFromPost(raw, evidenceSlot(loaded.config))) logEvent(ev);
+    } catch (e) {
+      process.stderr.write(`[done-evidence] 증거 분류 실패 — ${e.message.split('\n')[0]} (가드 판정에는 영향 없음)\n`);
     }
     process.exit(0);
   }

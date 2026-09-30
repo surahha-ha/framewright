@@ -43,6 +43,7 @@ import {
   UNPARSED_PREFIX,
 } from './lib/log.mjs';
 import { projectRoot, loadConfig } from './lib/config.mjs';
+import { GATE as EVIDENCE_GATE, EVIDENCE_ID } from './lib/evidence.mjs';
 import {
   readPromotions,
   appendPromotion,
@@ -524,6 +525,59 @@ export function summarize(events, opts = {}) {
     complete.denominator = complete.done + complete.failed;
   }
 
+  // 골격 6 「완료 전 증거 확인」 (docs/01 §6) — 턴 종료 훅이 남긴 판정 기록(audit · gate done-evidence)을 턴 단위로 센다.
+  //   ⭐ 어느 기존 지표의 분모·분자에도 들지 않는다 — v1 5종도 v2 세 축·완주 줄도 이벤트 종류와 gate 로 거른다.
+  //      닿는 곳은 하나다: 턴의 처음·끝 시각(`buildTurnInfo`)은 메인 이벤트 **전부**로 잡으므로 이 기록도 거기엔 든다.
+  //      턴 안(증거 실행)이나 턴 종료 직후(판정 기록)에 적히는 것이라 순서 판정을 바꾸는 입력은 찾지 못했다
+  //      (고정 테스트 + 합성 로그 대조) — "보지 않는다" 가 아니라 "수를 바꾸는 경우를 못 찾았다" 이다.
+  //   ⭐ 판정하지 못한 턴(`failed` — 작업 트리를 읽지 못함)은 해당 없음도 충족도 아니다. 따로 세고 줄이 말한다.
+  //   ⭐ 턴의 판정 = 그 턴의 **마지막** 기록. 차단 모드에서 한 번 보류된 턴은 기록이 둘이고, 끝난 상태가 판정이다.
+  //   ⭐ 유형에 드는 변경이 없던 턴(types 0)은 충족도 미충족도 아니다 — 분모에 넣으면 비율이 부푼다(안 잰 것 ≠ 0).
+  //   필수 증거 중 하나라도 실행 자체가 없으면 "증거 없음", 실행은 다 있는데 마지막 변경보다 앞이면 "편집 뒤 미실행".
+  //   메인 기록만 센다(서브의 Stop 에서는 판정하지 않는다). 창은 다른 v2 줄과 같은 규칙 — 턴의 첫 이벤트 시각.
+  const evidenceByTurn = new Map(); // turn → { last, blocked }
+  for (const e of sorted) {
+    if (e.event !== 'audit' || e.gate !== EVIDENCE_GATE || !isMain(e) || !e.turn) continue;
+    const cur = evidenceByTurn.get(e.turn) || { last: e, blocked: false };
+    cur.last = e;
+    if (e.blocked > 0) cur.blocked = true;
+    evidenceByTurn.set(e.turn, cur);
+  }
+  const evidence = {
+    observed: evidenceByTurn.size > 0,
+    judged: 0,
+    met: 0,
+    unmet: 0,
+    stale: 0, // 미충족 중 편집 뒤 미실행 턴
+    missing: 0, // 미충족 중 증거 없음 턴
+    none: 0, // 유형에 드는 변경이 없던 턴 — 해당 없음
+    failed: 0, // 판정 불가 턴 — 작업 트리를 읽지 못했다(git 시간 초과·git 아님). 해당 없음(잰 결과)과 다르다
+    blocked: 0, // 완료 보류가 한 번이라도 있었던 턴 (차단 모드)
+    rejected: 0, // 가장 최근 판정 기록 시점에 못 읽은 슬롯 항목 수
+    runs: sorted.filter((e) => e.event === 'evidence' && e.gate === EVIDENCE_GATE && typeof e.run === 'string').length,
+  };
+  let latestEvidenceAudit = null;
+  for (const [turn, { last, blocked }] of evidenceByTurn) {
+    if (!latestEvidenceAudit || String(last.ts) > String(latestEvidenceAudit.ts)) latestEvidenceAudit = last;
+    if (!inWindow(turn, mainTurnInfo)) continue;
+    if (blocked) evidence.blocked++;
+    if (last.failed > 0) {
+      evidence.failed++;
+    } else if (!(last.types > 0)) {
+      evidence.none++;
+    } else if (last.missing > 0) {
+      evidence.unmet++;
+      evidence.missing++;
+    } else if (last.stale > 0) {
+      evidence.unmet++;
+      evidence.stale++;
+    } else {
+      evidence.met++;
+    }
+  }
+  evidence.judged = evidence.met + evidence.unmet;
+  if (latestEvidenceAudit && latestEvidenceAudit.rejected > 0) evidence.rejected = latestEvidenceAudit.rejected;
+
   // 지표 3 — 인접 발동 간 시간(분). 발동이 2건 미만이면 잴 수 없다.
   const gaps = [];
   for (let i = 1; i < fires.length; i++) {
@@ -585,6 +639,7 @@ export function summarize(events, opts = {}) {
     turnEnd,
     verify,
     complete,
+    evidence,
     gap: { fires: fires.length, medianMinutes: median(gaps) },
     gate: {
       fires: fires.length,
@@ -751,6 +806,30 @@ export function render(s) {
           startNote
         : missing(`${lacking.join('·')} 미수집 — 세 축이 다 붙기 전에는 완주율을 내지 않습니다`)),
   );
+  // 골격 6 「완료 전 증거 확인」 — 관찰 결과를 새 감시 장치가 아니라 이 줄에 얹는다 (docs/01 §6).
+  //   무엇을 본 것인지(실행 여부)와 무엇이 아닌지(통과 여부 · v2 축)를 줄 안에 박는다 — "충족" 이 검증 통과로 읽히면 안 된다.
+  const ev = s.evidence;
+  lines.push(
+    `완료 전 증거      ` +
+      (ev.observed
+        ? `판정 턴 ${ev.judged} = 충족 ${ev.met} · 미충족 ${ev.unmet}` +
+          (ev.unmet > 0 ? `(편집 뒤 미실행 ${ev.stale} · 증거 없음 ${ev.missing})` : '') +
+          (ev.failed > 0
+            ? ` · ⚠️ 판정 불가 ${ev.failed}턴(작업 트리를 읽지 못함 — git 시간 초과·git 저장소 아님. 턴 종료 훅의 stderr 확인)`
+            : '') +
+          (ev.none > 0 ? ` · 유형에 드는 변경 없는 턴 ${ev.none}(해당 없음)` : '') +
+          (ev.blocked > 0 ? ` · 완료 보류 ${ev.blocked}턴(차단 모드)` : '') +
+          ` (필수 증거가 마지막 변경 뒤에 실행됐는가 — 실행 여부만 — 통과 여부 아님 · v2 세 축에 들지 않음)` +
+          (ev.rejected > 0
+            ? ` · ⚠️ 슬롯 항목 ${ev.rejected}건을 읽지 못해 판정에서 뺌 — turn-end.mjs --status 로 내역`
+            : '') +
+          (ev.runs === 0 && ev.judged > 0
+            ? ` · ⚠️ 증거 실행 관찰 0 — 실행 후 훅(danger-guard.mjs --post) 연결과 패턴을 확인하세요(설정≠연결)`
+            : '')
+        : missing(
+            '턴 종료 증거 판정 기록이 0 — qualityCycle.evidence.types 를 채우면 턴 종료 훅이 남깁니다 (골격 6 · 기본은 관찰)',
+          )),
+  );
   if (s.probesExcluded > 0) lines.push(`  (프로브 ${s.probesExcluded}건은 전 지표에서 제외)`);
   if (s.promotedPasses > 0)
     lines.push(`  (부가 — 승격 allow 매치 ${s.promotedPasses}건 · --promotions 로 상태 확인)`);
@@ -773,7 +852,8 @@ export function render(s) {
 //    (계약 밖 필드, 사람이 쓴 note.text 의 경로 — 사람 서술은 §3 의 대상이 아니지만 같은 반출 위험).
 
 // turn-start 는 2026-09-30(3) 추가 7종째 — 메인 턴이 있었다는 사실 하나(UserPromptSubmit 훅, turn-start.mjs).
-const CONTRACT_EVENTS = ['fire', 'pass', 'after', 'audit', 'note', 'stop', 'turn-start'];
+// evidence 는 2026-09-30(5) 추가 8종째 — 증거 슬롯에 걸린 명령이 실제 실행됐다는 사실 하나(실행 후 훅, lib/evidence.mjs).
+const CONTRACT_EVENTS = ['fire', 'pass', 'after', 'audit', 'note', 'stop', 'turn-start', 'evidence'];
 const TURN_START_ORIGINS = ['task-notification'];
 // session·turn·call·agent 는 환경이 준 식별자다(docs/13 §3 · docs/16) — 원문 흔적 검사(C9)의 대상이 아니다.
 // agent(서브에이전트 식별자)는 2026-09-30 additive — 서브 안에서 난 이벤트에만 실리는 선택 필드다.
@@ -790,6 +870,8 @@ const CONTRACT_FIELDS = {
   stop: { req: ['gate', 'turn'], opt: [] },
   // turn-start 도 같은 이유로 turn 이 필수다. origin 은 완료 알림 턴의 분류 하나뿐 — 프롬프트 원문은 계약 밖이다.
   'turn-start': { req: ['gate', 'turn'], opt: ['origin'] },
+  // evidence 는 유형 식별자(change)가 필수, 증거 식별자(run)는 증거 실행일 때만. 둘 다 설정이 준 id 다 — 명령 원문은 계약 밖이다.
+  evidence: { req: ['gate', 'change'], opt: ['run'] },
 };
 const ABS_PATH = /(^|[\s"'=;])([A-Za-z]:[\\/]|\/[A-Za-z]|~\/)/;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -864,6 +946,13 @@ export function auditContract(events, opts = {}) {
     }
     if (e.event === 'turn-start') {
       if ('origin' in e && !TURN_START_ORIGINS.includes(e.origin)) violate('turn-start.origin 어휘 밖');
+    }
+    if (e.event === 'evidence') {
+      // 식별자 자리는 꼴로 검사한다 — 분류는 원문을 보고 하지만 남는 것은 id 뿐이어야 한다 (docs/13 §3).
+      for (const k of ['change', 'run'])
+        if (k in e && (typeof e[k] !== 'string' || !EVIDENCE_ID.test(e[k])))
+          violate('evidence 식별자 꼴 아님(원문 의심)', `evidence.${k}`);
+      if ('probe' in e || 'decision' in e || 'cmdPrefix' in e) violate('evidence 에 판정·명령 필드');
     }
     if (e.event === 'pass') {
       if ('probe' in e || 'decision' in e) violate('pass 에 판정 필드');
