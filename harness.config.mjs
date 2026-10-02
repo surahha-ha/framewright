@@ -90,8 +90,10 @@ export default {
       },
       {
         id: 'announce-git-write',
+        // merge 갈래에서 merge-base 만 뺀다 — 끝의 \b 가 하이픈 앞에서도 서서 조회인 merge-base 를 merge 로 잡았다
+        // (2026-10-02 판정: 44건 중 오탐 2건이 이 원인, 재적용 시 정탐 42건 유지). merge-file 등은 그대로 잡는다.
         pattern:
-          /(^|[;&|(]\s*)git\s+(commit|push|rebase|merge|tag|branch\s+-[dD])\b/,
+          /(^|[;&|(]\s*)git\s+(commit|push|rebase|merge(?!-base\b)|tag|branch\s+-[dD])\b/,
         why: 'CLAUDE.md 규칙 — git 조작은 실행 전에 알리고 소유자의 답을 기다립니다(유일한 하드 스톱).',
         recover:
           '무엇을 커밋·푸시할지 먼저 보고하고 승인 뒤 실행하세요. 조회(status·log·diff)는 자유입니다.',
