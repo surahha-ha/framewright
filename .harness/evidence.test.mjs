@@ -15,7 +15,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,11 +26,10 @@ import {
   turnStartMs,
   judge,
   scanChanged,
-  shouldBlock,
-  blockReason,
   evidenceAuditEvent,
   statusLines,
   SCAN_TIMEOUT_MS,
+  isFailurePayload,
 } from './lib/evidence.mjs';
 import { readLog, logEvent } from './lib/log.mjs';
 
@@ -85,23 +84,20 @@ test('슬롯이 없거나 유형이 비어 있으면 "아직 안 정함" — 아
   assert.equal(evidenceSlot({ qualityCycle: { evidence: { types: [] } } }).configured, false);
 });
 
-test('⭐ 기본 동작은 관찰이다 — mode 를 안 적으면 차단하지 않는다', () => {
+test('⭐ 유형을 채우면 켜지고 전부 읽힌다', () => {
   const s = slot();
   assert.equal(s.configured, true);
-  assert.equal(s.mode, 'observe');
   assert.equal(s.types.length, 2);
   assert.deepEqual(s.rejected, []);
 });
 
-test('mode: block 은 적어야만 켜진다', () => {
-  assert.equal(slot({ mode: 'block' }).mode, 'block');
-});
-
-test('⭐ 잘못 적힌 mode 는 차단으로 추측하지 않고, 조용히 넘어가지도 않는다 — 관찰로 두고 못 읽었다고 말한다', () => {
-  const s = slot({ mode: 'blok' });
-  assert.equal(s.mode, 'observe');
-  assert.equal(s.rejected.length, 1);
-  assert.match(s.rejected[0], /mode/);
+test('⭐ mode 는 읽지 않는다(2026-10-08 차단 모드 제거) — 어떤 값이 남아 있어도 못 읽음 없이 적지 않은 것과 같은 슬롯이다', () => {
+  for (const mode of ['block', 'observe', 'blok', 1]) {
+    const s = slot({ mode });
+    assert.deepEqual(s, slot(), String(mode));
+    assert.deepEqual(s.rejected, [], String(mode));
+    assert.equal('mode' in s, false, String(mode));
+  }
 });
 
 test('⭐ 잘못 채운 유형은 통째로 판정에서 빠지고 이유가 남는다 — 나머지 유형은 그대로 돈다', () => {
@@ -232,7 +228,7 @@ const post = (command, over = {}) =>
 test('⭐ 증거 명령이 실행되면 (유형, 증거) 식별자만 실은 evidence 이벤트가 나온다 — 원문은 없다', () => {
   const evs = evidenceEventsFromPost(post('cd /somewhere/private && run-tests --filter secret-case'), slot());
   assert.deepEqual(evs, [
-    { session: 's-1', turn: 'p-1', call: 'c-1', event: 'evidence', gate: GATE, change: 'code', run: 'unit' },
+    { session: 's-1', turn: 'p-1', call: 'c-1', event: 'evidence', gate: GATE, change: 'code', run: 'unit', exit: 'zero' },
   ]);
   const text = JSON.stringify(evs);
   assert.ok(!text.includes('private') && !text.includes('secret-case'), '명령 원문은 로그 대상이 아니다');
@@ -298,7 +294,7 @@ test('⭐ g·y 플래그가 붙은 패턴도 매번 처음부터 맞춘다 — �
     events: [{ ts: '2026-01-10T06:00:30.000Z', event: 'evidence', gate: GATE, change: 'code', run: 'unit' }],
     sinceMs: Date.parse('2026-01-10T06:00:00.000Z'),
   });
-  assert.deepEqual(v.counts, { types: 1, required: 1, fresh: 0, stale: 1, missing: 0 });
+  assert.deepEqual(v.counts, { types: 1, required: 1, fresh: 0, stale: 1, missing: 0, red: 0, unverified: 0 });
   // 같은 명령을 연달아 분류해도 매번 같은 결과다.
   for (let i = 0; i < 3; i++) {
     assert.deepEqual(evidenceEventsFromPost(post('run-tests'), stateful).map((e) => `${e.change}:${e.run ?? ''}`), ['code:unit']);
@@ -310,22 +306,22 @@ test('⭐ g·y 플래그가 붙은 패턴도 매번 처음부터 맞춘다 — �
 
 test('이 턴에 유형에 드는 변경이 없으면 필요한 증거도 없다', () => {
   const v = judge({ slot: slot(), files: [file('docs/readme.txt', 10)], events: [], sinceMs: T0 });
-  assert.deepEqual(v.counts, { types: 0, required: 0, fresh: 0, stale: 0, missing: 0 });
+  assert.deepEqual(v.counts, { types: 0, required: 0, fresh: 0, stale: 0, missing: 0, red: 0, unverified: 0 });
   assert.deepEqual(v.types, []);
 });
 
 test('⭐ 유형에 드는 변경이 있는데 증거 실행이 없으면 "증거 없음" 이다', () => {
   const v = judge({ slot: slot(), files: [file('src/calc.js', 10)], events: [], sinceMs: T0 });
-  assert.deepEqual(v.counts, { types: 1, required: 2, fresh: 0, stale: 0, missing: 2 });
+  assert.deepEqual(v.counts, { types: 1, required: 2, fresh: 0, stale: 0, missing: 2, red: 0, unverified: 0 });
   assert.equal(statusOfReq(v, 'code', 'unit'), 'missing');
 });
 
 test('⭐ 마지막 변경 뒤에 실행된 증거만 충족이다 — 변경 앞의 실행은 "편집 뒤 미실행"', () => {
   const files = [file('src/calc.js', 30)];
   const before = judge({ slot: slot(), files, events: [ran(20, 'code', 'unit'), ran(21, 'code', 'lint')], sinceMs: T0 });
-  assert.deepEqual(before.counts, { types: 1, required: 2, fresh: 0, stale: 2, missing: 0 });
+  assert.deepEqual(before.counts, { types: 1, required: 2, fresh: 0, stale: 2, missing: 0, red: 0, unverified: 0 });
   const after = judge({ slot: slot(), files, events: [ran(40, 'code', 'unit'), ran(41, 'code', 'lint')], sinceMs: T0 });
-  assert.deepEqual(after.counts, { types: 1, required: 2, fresh: 2, stale: 0, missing: 0 });
+  assert.deepEqual(after.counts, { types: 1, required: 2, fresh: 2, stale: 0, missing: 0, red: 0, unverified: 2 });
 });
 
 test('⭐ 편집 → 실행 → 다시 편집 이면 그 실행은 증거가 아니다 — 재실행 안 한 그린', () => {
@@ -337,7 +333,7 @@ test('⭐ 편집 → 실행 → 다시 편집 이면 그 실행은 증거가 아
   });
   assert.equal(statusOfReq(v, 'code', 'unit'), 'stale');
   assert.equal(statusOfReq(v, 'code', 'lint'), 'fresh');
-  assert.deepEqual(v.counts, { types: 1, required: 2, fresh: 1, stale: 1, missing: 0 });
+  assert.deepEqual(v.counts, { types: 1, required: 2, fresh: 1, stale: 1, missing: 0, red: 0, unverified: 1 });
 });
 
 test('같은 증거를 여러 번 돌렸으면 가장 늦은 실행으로 판정한다', () => {
@@ -379,7 +375,7 @@ test('실행 전 기록이 발동(fire — 사람이 승인한 ask)이어도 그
 
 test('⭐ 명령으로만 드러나는 변경 — 변경 명령 뒤에 확인 명령이 있어야 충족이다', () => {
   const none = judge({ slot: slot(), files: [], events: [ran(10, 'tree')], sinceMs: T0 });
-  assert.deepEqual(none.counts, { types: 1, required: 1, fresh: 0, stale: 0, missing: 1 });
+  assert.deepEqual(none.counts, { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, red: 0, unverified: 0 });
   const stale = judge({ slot: slot(), files: [], events: [ran(10, 'tree', 'list'), ran(20, 'tree')], sinceMs: T0 });
   assert.equal(statusOfReq(stale, 'tree', 'list'), 'stale');
   const fresh = judge({ slot: slot(), files: [], events: [ran(20, 'tree'), ran(30, 'tree', 'list')], sinceMs: T0 });
@@ -393,7 +389,7 @@ test('증거 명령만 돌고 변경이 없으면 그 유형은 판정 대상이
 
 test('⭐ 다른 유형의 증거는 이 유형의 증거가 아니다 — 증거 id 가 같아도 유형이 다르면 따로 센다', () => {
   const v = judge({ slot: slot(), files: [file('src/calc.js', 10)], events: [ran(20, 'tree', 'list')], sinceMs: T0 });
-  assert.deepEqual(v.counts, { types: 1, required: 2, fresh: 0, stale: 0, missing: 2 });
+  assert.deepEqual(v.counts, { types: 1, required: 2, fresh: 0, stale: 0, missing: 2, red: 0, unverified: 0 });
   // 두 유형이 같은 이름('check')의 증거를 각자 다른 명령으로 요구한다. 한쪽의 실행이 다른 쪽을 충족시키면 안 된다.
   const twin = evidenceSlot({
     qualityCycle: {
@@ -417,7 +413,7 @@ test('⭐ 서브에이전트가 돌린 증거도 인정한다 — 증거는 누�
     events: [ran(20, 'code', 'unit', { agent: 'abc123' }), ran(21, 'code', 'lint', { agent: 'abc123' })],
     sinceMs: T0,
   });
-  assert.deepEqual(v.counts, { types: 1, required: 2, fresh: 2, stale: 0, missing: 0 });
+  assert.deepEqual(v.counts, { types: 1, required: 2, fresh: 2, stale: 0, missing: 0, red: 0, unverified: 2 });
 });
 
 test('턴 시작 이전의 실행·변경 명령은 이 턴의 것이 아니다', () => {
@@ -471,58 +467,16 @@ test('서브에이전트 안에서 온 turn-start 는 턴의 시작으로 삼지
   assert.equal(turnStartMs(events, 'p-1'), at(5));
 });
 
-// ── 차단 판단 · 복구 경로 ─────────────────────────────────────────────────────────
+// ── 판정 기록 ─────────────────────────────────────────────────────────────────
 
 const unmet = () => judge({ slot: slot(), files: [file('src/calc.js', 30)], events: [ran(20, 'code', 'unit')], sinceMs: T0 });
-const someRun = [ran(-100, 'code', 'unit')];
 
-test('⭐ 관찰 모드는 미충족이어도 막지 않는다', () => {
-  assert.equal(shouldBlock({ slot: slot(), verdict: unmet(), stopHookActive: false, events: someRun }).block, false);
-});
-
-test('⭐ 차단 모드 — 미충족이면 막는다 · 충족이면 막지 않는다', () => {
-  const s = slot({ mode: 'block' });
-  assert.equal(shouldBlock({ slot: s, verdict: unmet(), stopHookActive: false, events: someRun }).block, true);
-  const met = judge({ slot: s, files: [file('src/calc.js', 30)], events: [ran(40, 'code', 'unit'), ran(41, 'code', 'lint')], sinceMs: T0 });
-  assert.equal(shouldBlock({ slot: s, verdict: met, stopHookActive: false, events: someRun }).block, false);
-});
-
-test('⭐ 차단은 턴당 한 번이다 — 이미 한 번 막은 뒤(stop_hook_active)에는 다시 막지 않는다', () => {
-  const r = shouldBlock({ slot: slot({ mode: 'block' }), verdict: unmet(), stopHookActive: true, events: someRun });
-  assert.equal(r.block, false);
-});
-
-const heldAt = (turn, blocked = 1) => ({
-  ts: iso(50), event: 'audit', gate: GATE, turn, types: 1, required: 2, fresh: 0, stale: 1, missing: 1, rejected: 0, blocked,
-});
-
-test('⭐ 턴당 한 번은 로그로도 지킨다 — 같은 턴에 이미 보류한 기록이 있으면 stop_hook_active 가 없어도 다시 막지 않는다', () => {
-  const s = slot({ mode: 'block' });
-  const ask = (events) => shouldBlock({ slot: s, verdict: unmet(), stopHookActive: false, events, turn: 'p-1' }).block;
-  assert.equal(ask([...someRun, heldAt('p-1')]), false);
-  // 다른 턴의 보류는 이 턴을 면제하지 않는다 · 보류하지 않은 판정 기록(blocked 0)은 보류가 아니다.
-  assert.equal(ask([...someRun, heldAt('p-0')]), true);
-  assert.equal(ask([...someRun, heldAt('p-1', 0)]), true);
-});
-
-test('⭐ 증거 실행이 한 번도 관찰된 적 없으면 막지 않는다 — 실행 후 훅이 연결됐는지 알 수 없다', () => {
-  const r = shouldBlock({ slot: slot({ mode: 'block' }), verdict: unmet(), stopHookActive: false, events: [] });
-  assert.equal(r.block, false);
-  assert.match(r.withheld, /연결/);
-});
-
-test('⭐ 차단 사유는 무엇이 없는지 · 무엇을 하면 통과하는지 · 표가 틀렸으면 어디를 고치는지를 담는다', () => {
-  const reason = blockReason(unmet());
-  assert.match(reason, /계산 코드/);
-  assert.match(reason, /단위 테스트 실행/);
-  assert.match(reason, /마지막 변경 뒤에 실행되지 않았습니다/); // unit — 편집 앞의 실행
-  assert.match(reason, /이 턴에 실행된 적이 없습니다/); // lint — 증거 없음
-  assert.match(reason, /다시 실행/);
-  assert.match(reason, /qualityCycle\.evidence\.types/);
+const judgedAt = (turn) => ({
+  ts: iso(50), event: 'audit', gate: GATE, turn, types: 1, required: 2, fresh: 0, stale: 1, missing: 1, rejected: 0,
 });
 
 test('판정 기록(audit)은 수치만 싣는다 — stop 과 같은 session·turn, 유형 이름·경로는 없다', () => {
-  const ev = evidenceAuditEvent({ session: 's-1', turn: 'p-1', event: 'stop', gate: 'turn-end' }, unmet(), slot({ mode: 'blok' }), true);
+  const ev = evidenceAuditEvent({ session: 's-1', turn: 'p-1', event: 'stop', gate: 'turn-end' }, unmet(), slot({ scanTimeoutMs: -1 }));
   assert.deepEqual(ev, {
     session: 's-1',
     turn: 'p-1',
@@ -533,8 +487,9 @@ test('판정 기록(audit)은 수치만 싣는다 — stop 과 같은 session·t
     fresh: 0,
     stale: 1,
     missing: 1,
+    red: 0,
+    unverified: 0,
     rejected: 1,
-    blocked: 1,
   });
 });
 
@@ -692,7 +647,7 @@ test('⭐ 활성 확인 줄 — 꺼짐 · 못 읽음 · 관찰 0 을 서로 다�
   assert.ok(unread.some((l) => /못 읽은 항목: types\[0\] — /.test(l)), '무엇을 못 읽었는지 내역이 보인다');
 
   const idle = statusLines(slot(), []);
-  assert.match(idle[0], /^\[done-evidence\] 설정됨\(관찰\) — 유형 2 · 필수 증거 3 · 증거 실행 관찰 0건 · 턴 종료 판정 0건$/);
+  assert.match(idle[0], /^\[done-evidence\] 설정됨\(관찰\) — 유형 2 · 필수 증거 3 · 증거 실행 관찰 0건\(그중 실패로 끝남 0\) · 턴 종료 판정 0건$/);
   assert.ok(idle.some((l) => /증거 실행 관찰 0 — 실행 후 훅/.test(l)));
   assert.ok(idle.some((l) => /턴 종료 판정 0 — 턴 종료 훅/.test(l)));
   assert.ok(idle.some((l) => /턴 시작 관찰 0 — .*첫 셸 명령 앞의 편집/.test(l)), '턴 시작 훅이 없으면 판정이 과소임을 말한다');
@@ -703,11 +658,12 @@ test('활성 확인 줄 — 증거 실행·턴 종료 판정·턴 시작이 다 
     { ts: iso(0), event: 'turn-start', gate: 'turn-start', turn: 'p-1' },
     ran(10, 'code', 'unit'),
     ran(11, 'tree'), // 변경만 남긴 기록은 증거 실행이 아니다
-    heldAt('p-1', 0),
+    ran(12, 'code', 'unit', { exit: 'nonzero' }), // 실패 실행도 관찰됐다 — 실패 이벤트 배선이 살아 있다
+    judgedAt('p-1'),
   ];
-  const lines = statusLines(slot({ mode: 'block' }), events);
+  const lines = statusLines(slot(), events);
   assert.equal(lines.length, 1);
-  assert.match(lines[0], /^\[done-evidence\] 설정됨\(차단\) — 유형 2 · 필수 증거 3 · 증거 실행 관찰 1건 · 턴 종료 판정 1건\(최근 2026-01-10T06:00:50Z\)$/);
+  assert.match(lines[0], /^\[done-evidence\] 설정됨\(관찰\) — 유형 2 · 필수 증거 3 · 증거 실행 관찰 2건\(그중 실패로 끝남 1\) · 턴 종료 판정 1건\(최근 2026-01-10T06:00:50Z\)$/);
 });
 
 // ── 실행 후 훅 경로 — 기존 배선(danger-guard.mjs --post) 그대로 ──────────────────────────
@@ -742,7 +698,7 @@ test('⭐ 실행 후 훅 — 증거 명령이면 evidence 한 줄이 남고, std
   assert.equal(events.length, 1);
   const { ts, ...rest } = events[0];
   assert.ok(ts);
-  assert.deepEqual(rest, { session: 's-1', turn: 'p-1', call: 'c-1', event: 'evidence', gate: GATE, change: 'code', run: 'unit' });
+  assert.deepEqual(rest, { session: 's-1', turn: 'p-1', call: 'c-1', event: 'evidence', gate: GATE, change: 'code', run: 'unit', exit: 'zero' });
 });
 
 test('실행 후 훅 — 증거와 무관한 명령은 종전대로 아무것도 남기지 않고, ask 규칙의 after 기록은 그대로다', () => {
@@ -758,4 +714,311 @@ test('실행 후 훅 — 증거 슬롯이 없는 설정에서는 종전과 똑�
   const r = runPost(root, post('run-tests'));
   assert.equal(r.status, 0);
   assert.deepEqual(readLog(root).events, []);
+});
+
+// ── 대화 건넴(messages) — 파일도 명령도 아닌 변경: 마지막 응답 본문으로 건넨 구문 ─────────────────
+// 계약: ①건넴은 "이 턴에 바뀌었다" 로 센다 ②건넴은 마지막 변경 시각을 밀지 않는다(건네기 전에 돌린 확인이 충족)
+//       ③메시지가 없으면 해당 없음(null — 0 이 아니다) ④messages 를 안 쓴 슬롯은 판정 결과 모양이 종전 그대로
+//       ⑤본문은 어디에도 옮기지 않는다.
+
+const HANDOFF = {
+  id: 'sql-handoff',
+  what: '대화로 건넨 데이터 변경 구문',
+  messages: [/```[^\n]*\n(?:(?!```)[\s\S])*?\b(?:DELETE\s+FROM|UPDATE\s+\S+\s+SET|INSERT\s+INTO)\b/],
+  evidence: [{ id: 'dry-select', pattern: /(^|[;&|(]\s*)db-query\b.*\bSELECT\b/, what: '같은 조건의 조회 실행' }],
+};
+const hoSlot = (over = {}, extraTypes = []) =>
+  evidenceSlot({ qualityCycle: { evidence: { types: [HANDOFF, ...extraTypes], ...over } } });
+const SQL_MSG = '정리 구문입니다.\n```sql\nDELETE FROM synthetic_table WHERE flag = 1;\n```\n실행해 주세요.';
+const PLAIN_MSG = '끝났습니다. 구문은 없습니다.';
+
+test('슬롯 — messages 만 적은 유형도 읽힌다(files·changeCommands 는 비어도 된다)', () => {
+  const s = hoSlot();
+  assert.deepEqual(s.rejected, []);
+  assert.equal(s.types.length, 1);
+  assert.equal(s.types[0].messages.length, 1);
+  assert.deepEqual(s.types[0].files, []);
+  assert.deepEqual(s.types[0].changeCommands, []);
+});
+
+test('⭐ 슬롯 — messages 도 files·changeCommands 와 같은 거절 규칙: 배열 아님 · 읽을 수 없는 패턴 · 셋 다 비어 있음', () => {
+  const ev = [{ id: 'e', pattern: /^go\b/ }];
+  const s = evidenceSlot({
+    qualityCycle: {
+      evidence: {
+        types: [
+          { id: 'a', messages: /DELETE/, evidence: ev },
+          { id: 'b', messages: ['('], evidence: ev },
+          { id: 'c', messages: [], evidence: ev },
+          { id: 'd', evidence: ev },
+        ],
+      },
+    },
+  });
+  assert.equal(s.types.length, 0);
+  assert.deepEqual(s.rejected, [
+    'types[0] — messages 가 배열이 아닙니다 (패턴 하나여도 [ ] 로 감쌉니다)',
+    'types[1] — messages 에 읽을 수 없는 패턴이 있습니다 (정규식 리터럴을 권합니다)',
+    'types[2] — files · changeCommands · messages 가 모두 비어 있습니다 — 무엇이 바뀌면 이 유형인지 알 수 없습니다',
+    // messages 를 적지 않은 유형에는 종전 문구 그대로다.
+    'types[3] — files 와 changeCommands 가 모두 비어 있습니다 — 무엇이 바뀌면 이 유형인지 알 수 없습니다',
+  ]);
+});
+
+test('⭐ ① 건넴 + 같은 턴에 앞서 돌린 조회 → 충족 — 건넴은 마지막 변경 시각을 밀지 않는다', () => {
+  const v = judge({ slot: hoSlot(), files: [], events: [ran(20, 'sql-handoff', 'dry-select')], sinceMs: T0, message: SQL_MSG });
+  assert.deepEqual(v.counts, { types: 1, required: 1, fresh: 1, stale: 0, missing: 0, red: 0, unverified: 1 });
+  assert.equal(v.handoffs, 1);
+  assert.deepEqual(v.types, [
+    { id: 'sql-handoff', what: '대화로 건넨 데이터 변경 구문', handoff: true, requires: [{ id: 'dry-select', what: '같은 조건의 조회 실행', status: 'fresh', unverified: true }] },
+  ]);
+});
+
+test('⭐ ① 건넴과 같은 턴의 파일 변경이 함께 있으면 종전 규칙 — 조회는 그 마지막 변경 뒤여야 한다', () => {
+  const both = evidenceSlot({ qualityCycle: { evidence: { types: [{ ...HANDOFF, files: [/^scripts\/.*\.sql$/] }] } } });
+  const stale = judge({ slot: both, files: [file('scripts/a.sql', 30)], events: [ran(20, 'sql-handoff', 'dry-select')], sinceMs: T0, message: SQL_MSG });
+  assert.deepEqual(stale.counts, { types: 1, required: 1, fresh: 0, stale: 1, missing: 0, red: 0, unverified: 0 });
+  const fresh = judge({ slot: both, files: [file('scripts/a.sql', 30)], events: [ran(40, 'sql-handoff', 'dry-select')], sinceMs: T0, message: SQL_MSG });
+  assert.deepEqual(fresh.counts, { types: 1, required: 1, fresh: 1, stale: 0, missing: 0, red: 0, unverified: 1 });
+});
+
+test('⭐ ② 건넴 + 이 턴에 조회 없음 → 증거 없음 — 턴 시작 전의 조회는 이 턴의 증거가 아니다', () => {
+  const none = judge({ slot: hoSlot(), files: [], events: [], sinceMs: T0, message: SQL_MSG });
+  assert.deepEqual(none.counts, { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, red: 0, unverified: 0 });
+  const before = judge({ slot: hoSlot(), files: [], events: [ran(-10, 'sql-handoff', 'dry-select')], sinceMs: T0, message: SQL_MSG });
+  assert.deepEqual(before.counts, { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, red: 0, unverified: 0 });
+});
+
+test('건넴 패턴에 걸리지 않는 본문이면 그 유형은 해당 없음 — 건넴 0 은 잰 결과다', () => {
+  const v = judge({ slot: hoSlot(), files: [], events: [], sinceMs: T0, message: PLAIN_MSG });
+  assert.deepEqual(v.counts, { types: 0, required: 0, fresh: 0, stale: 0, missing: 0, red: 0, unverified: 0 });
+  assert.equal(v.handoffs, 0);
+});
+
+test('⭐ ③ 메시지가 없으면(문자열 아님) 건넴은 해당 없음 — handoffs 는 null 이고 기록에도 싣지 않는다(0 으로 적지 않는다)', () => {
+  const v = judge({ slot: hoSlot(), files: [], events: [], sinceMs: T0 });
+  assert.equal(v.handoffs, null);
+  assert.deepEqual(v.counts, { types: 0, required: 0, fresh: 0, stale: 0, missing: 0, red: 0, unverified: 0 });
+  const ev = evidenceAuditEvent({ session: 's-1', turn: 'p-1' }, v, hoSlot());
+  assert.deepEqual(ev, {
+    session: 's-1', turn: 'p-1', event: 'audit', gate: GATE,
+    types: 0, required: 0, fresh: 0, stale: 0, missing: 0, red: 0, unverified: 0, rejected: 0,
+  });
+  const measured = evidenceAuditEvent({ session: 's-1', turn: 'p-1' }, judge({ slot: hoSlot(), files: [], events: [], sinceMs: T0, message: SQL_MSG }), hoSlot());
+  assert.equal(measured.handoffs, 1);
+});
+
+test('⭐ ④ messages 를 쓰지 않는 슬롯 — 본문이 무엇이든 판정 결과는 본문 없이 낸 것과 같다(handoffs 키도 없다)', () => {
+  const input = { slot: slot(), files: [file('src/calc.js', 30)], events: [ran(20, 'code', 'unit')], sinceMs: T0 };
+  const without = judge(input);
+  const withMsg = judge({ ...input, message: SQL_MSG });
+  assert.deepEqual(withMsg, without);
+  assert.equal('handoffs' in withMsg, false);
+  assert.deepEqual(Object.keys(evidenceAuditEvent({ turn: 'p-1' }, withMsg, slot())), [
+    'turn', 'event', 'gate', 'types', 'required', 'fresh', 'stale', 'missing', 'red', 'unverified', 'rejected',
+  ]);
+});
+
+test('⭐ ⑤ 판정 결과·기록 어디에도 본문이 없다', () => {
+  const v = judge({ slot: hoSlot(), files: [], events: [], sinceMs: T0, message: SQL_MSG });
+  const all = JSON.stringify(v) + JSON.stringify(evidenceAuditEvent({ turn: 'p-1' }, v, hoSlot()));
+  assert.ok(!all.includes('synthetic_table'));
+  assert.ok(!all.includes('DELETE'));
+});
+
+test('실행 후 훅 분류 — messages 만 적은 유형도 증거 실행을 식별자로 남긴다', () => {
+  assert.deepEqual(
+    evidenceEventsFromPost(post('db-query "SELECT count(*) FROM synthetic_table WHERE flag = 1"'), hoSlot()).map(({ change, run }) => `${change}:${run}`),
+    ['sql-handoff:dry-select'],
+  );
+});
+
+// ── 실패 관찰 — PostToolUseFailure 를 같은 --post 로 받아 결과를 어휘 하나(exit)로만 남긴다 ─────────────────
+// 계약: ①성공·실패는 **어느 이벤트가 불렸는지**로 가른다(실패 이벤트의 `Exit code N` 첫 줄) ②모르는 것은 zero 로 적지
+//       않는다(결과 미상) ③판정은 **최신 실행** 기준 ④실패(red)는 충족에 섞이지 않는다 ⑤error 본문·숫자 코드는 어디에도
+//       남지 않는다 ⑥가림 판정은 Bash 에만. 키 구조는 2026-10-02 실측(2.1.287)에서 왔고, 본문은 지어낸 짧은 문자열이다.
+
+const failPost = (command, error, over = {}) =>
+  JSON.stringify({
+    session_id: 's-1',
+    prompt_id: 'p-1',
+    tool_use_id: 'c-1',
+    hook_event_name: 'PostToolUseFailure',
+    tool_name: 'PowerShell',
+    tool_input: { command },
+    error,
+    is_interrupt: false,
+    duration_ms: 12,
+    ...over,
+  });
+const exitsOf = (raw, s = slot()) => evidenceEventsFromPost(raw, s).filter((e) => e.run).map((e) => e.exit);
+
+test('⭐ 실패 관찰 — 성공 이벤트는 zero · `Exit code N` 첫 줄의 실패 이벤트는 nonzero · 코드 줄 없는 실패는 nostart', () => {
+  assert.deepEqual(exitsOf(post('run-tests')), ['zero']);
+  assert.deepEqual(exitsOf(failPost('run-tests', 'Exit code 1\nsome output')), ['nonzero']);
+  assert.deepEqual(exitsOf(failPost('run-tests', 'Exit code 3')), ['nonzero']);
+  assert.deepEqual(exitsOf(failPost('run-tests', 'shell could not be started')), ['nostart']);
+  // 코드 줄이 첫 줄이 아니면 코드로 읽지 않는다 — 문서가 정한 열쇠는 첫 줄이다.
+  assert.deepEqual(exitsOf(failPost('run-tests', 'Command timed out\nExit code 1')), ['nostart']);
+});
+
+test('실패 관찰 — 이벤트 이름이 없는 환경에서도 tool_response 없음 + error 문자열이면 실패 이벤트로 읽는다', () => {
+  const raw = JSON.stringify({ prompt_id: 'p-1', tool_name: 'Bash', tool_input: { command: 'run-tests' }, error: 'Exit code 2' });
+  assert.equal(isFailurePayload(JSON.parse(raw)), true);
+  assert.deepEqual(exitsOf(raw), ['nonzero']);
+  assert.equal(isFailurePayload(JSON.parse(post('run-tests'))), false);
+  // 이벤트 이름이 성공 쪽이면 error 필드가 있어도 실패로 읽지 않는다.
+  assert.equal(isFailurePayload({ hook_event_name: 'PostToolUse', error: 'x' }), false);
+});
+
+test('⭐ 실패 관찰 — 성공인지 실패인지 모르는 페이로드에는 exit 를 싣지 않는다(zero 로 적지 않는다)', () => {
+  const unknown = JSON.stringify({ prompt_id: 'p-1', tool_name: 'Bash', tool_input: { command: 'run-tests' } });
+  const [ev] = evidenceEventsFromPost(unknown, slot());
+  assert.equal(ev.run, 'unit');
+  assert.equal('exit' in ev, false);
+});
+
+test('⭐ 실패 관찰 — 중단(is_interrupt)된 실패는 증거가 아니다 · 변경 명령은 남는다', () => {
+  const evs = evidenceEventsFromPost(failPost('tree-tool add ../x; run-tests', 'Exit code 1', { is_interrupt: true }), slot());
+  assert.deepEqual(evs.map((e) => `${e.change}:${e.run ?? ''}`), ['tree:']);
+  assert.equal(evs.some((e) => 'exit' in e), false, '변경 기록에는 exit 가 붙지 않는다');
+});
+
+test('⭐ 실패 관찰 — 백그라운드로 시작한 실행은 결과를 알기 전에 성공 이벤트가 온다: background(결과 미상)', () => {
+  const bg = post('run-tests', { tool_response: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg-1' } });
+  assert.deepEqual(exitsOf(bg), ['background']);
+});
+
+test('⭐ 가림 — Bash 에서 증거 뒤에 파이프가 있으면 masked · || true 도 masked · pipefail 면제 없음 · 증거가 마지막 단이면 가리지 않는다', () => {
+  assert.deepEqual(exitsOf(post('run-tests | tail -5')), ['masked']);
+  assert.deepEqual(exitsOf(post('run-tests 2>&1 |& tee out.txt')), ['masked']);
+  assert.deepEqual(exitsOf(post('run-tests || true')), ['masked']);
+  assert.deepEqual(exitsOf(post('set -o pipefail; run-tests | tail -5')), ['masked']);
+  assert.deepEqual(exitsOf(post('cat list.txt | run-tests')), ['zero']);
+  // 실패 이벤트로 왔으면 파이프가 있어도 실패다 — 실제로 0 이 아닌 코드로 끝났다.
+  assert.deepEqual(exitsOf(failPost('run-tests | tail -5', 'Exit code 1', { tool_name: 'Bash' })), ['nonzero']);
+});
+
+test('⭐ 가림 — 증거 뒤에 종료코드를 대체할 수 있는 연결자(||, ;, 단독 &, 줄바꿈)가 오면 결과 미상이다 · && 는 가리지 않는다', () => {
+  assert.deepEqual(exitsOf(post('run-tests || echo failed')), ['masked']);
+  assert.deepEqual(exitsOf(post('run-tests; echo done')), ['masked']);
+  assert.deepEqual(exitsOf(post('run-tests\necho hi')), ['masked']);
+  assert.deepEqual(exitsOf(post('run-tests &')), ['masked']);
+  // && 는 실패에서 단락돼 0 이 아닌 코드가 그대로 남는다 · 리디렉션의 & 는 연결자가 아니다.
+  assert.deepEqual(exitsOf(post('run-tests && echo ok')), ['zero']);
+  assert.deepEqual(exitsOf(post('run-tests 2>&1')), ['zero']);
+  assert.deepEqual(exitsOf(post('run-tests &> out.txt')), ['zero']);
+  // 연결자가 증거 **앞**에만 있으면 증거가 마지막이라 가리지 않는다.
+  assert.deepEqual(exitsOf(post('echo start; run-tests')), ['zero']);
+});
+
+test('⭐ 가림 — pipefail 은 면제하지 않는다: 끄는 구문·파이프 뒤에서 켬·인용 속 단어를 가리지 못한다', () => {
+  assert.deepEqual(exitsOf(post('set +o pipefail; run-tests | tail')), ['masked']);
+  assert.deepEqual(exitsOf(post('run-tests | tail; set -o pipefail')), ['masked']);
+  assert.deepEqual(exitsOf(post('grep pipefail x; run-tests | tail')), ['masked']);
+});
+
+test('⭐ 판정 — 최신 실행이 같은 시작 시각으로 둘 이상이면 불리한 쪽을 택한다(실패 > 결과 미상 > 0 으로 끝남)', () => {
+  const files = [file('src/calc.js', 10)];
+  const tie = (a, b) =>
+    judge({ slot: slot(), files, events: [ranX(30, 'unit', a), ranX(30, 'unit', b), ranX(31, 'lint', 'zero')], sinceMs: T0 });
+  assert.equal(statusOfReq(tie('zero', 'nonzero'), 'code', 'unit'), 'red');
+  assert.equal(statusOfReq(tie('nonzero', 'zero'), 'code', 'unit'), 'red');
+  const unknown = tie('zero', 'masked');
+  assert.equal(unknown.counts.unverified, 1);
+  assert.equal(tie('masked', 'zero').counts.unverified, 1);
+  assert.equal(statusOfReq(tie('masked', 'nostart'), 'code', 'unit'), 'red');
+});
+
+test('가림 — PowerShell 은 가림 판정을 하지 않는다: 파이프가 있어도 이벤트 종류를 따른다', () => {
+  assert.deepEqual(exitsOf(post('run-tests | Select-Object -Last 5', { tool_name: 'PowerShell' })), ['zero']);
+  assert.deepEqual(exitsOf(failPost('run-tests | Select-Object -Last 5', 'Exit code 1')), ['nonzero']);
+});
+
+test('실패 관찰 — 서브에이전트 안의 실패 이벤트도 agent 를 싣고 증거로 남는다', () => {
+  const [ev] = evidenceEventsFromPost(failPost('run-tests', 'Exit code 1', { agent_id: 'sub-1' }), slot());
+  assert.equal(ev.agent, 'sub-1');
+  assert.equal(ev.exit, 'nonzero');
+});
+
+test('⭐ 실패 관찰 — error 본문·숫자 코드는 이벤트 어디에도 없다', () => {
+  const evs = evidenceEventsFromPost(failPost('run-tests', 'Exit code 42\nMARKER-body-zq7 secret detail'), slot());
+  const text = JSON.stringify(evs);
+  assert.ok(!text.includes('MARKER-body-zq7'));
+  assert.ok(!text.includes('42'));
+  assert.ok(!text.includes('Exit code'));
+});
+
+const ranX = (sec, run, exit, extra = {}) => ran(sec, 'code', run, { ...(exit ? { exit } : {}), ...extra });
+
+test('⭐ 판정 — 최신 실행 기준: 실패 → 재실행 통과면 충족, 통과 → 재실행 실패면 실패로 끝남(red)', () => {
+  const files = [file('src/calc.js', 10)];
+  const recovered = judge({ slot: slot(), files, events: [ranX(20, 'unit', 'nonzero'), ranX(30, 'unit', 'zero'), ranX(31, 'lint', 'zero')], sinceMs: T0 });
+  assert.equal(statusOfReq(recovered, 'code', 'unit'), 'fresh');
+  assert.deepEqual(recovered.counts, { types: 1, required: 2, fresh: 2, stale: 0, missing: 0, red: 0, unverified: 0 });
+  const broke = judge({ slot: slot(), files, events: [ranX(20, 'unit', 'zero'), ranX(30, 'unit', 'nonzero'), ranX(31, 'lint', 'zero')], sinceMs: T0 });
+  assert.equal(statusOfReq(broke, 'code', 'unit'), 'red');
+  assert.deepEqual(broke.counts, { types: 1, required: 2, fresh: 1, stale: 0, missing: 0, red: 1, unverified: 0 });
+  const noStart = judge({ slot: slot(), files, events: [ranX(30, 'unit', 'nostart'), ranX(31, 'lint', 'zero')], sinceMs: T0 });
+  assert.equal(statusOfReq(noStart, 'code', 'unit'), 'red');
+});
+
+test('⭐ 판정 — 결과를 모르는 최신 실행(가림·백그라운드·exit 없는 과거 기록)은 충족이되 결과 미상으로 따로 센다', () => {
+  const files = [file('src/calc.js', 10)];
+  for (const exit of ['masked', 'background', undefined]) {
+    const v = judge({ slot: slot(), files, events: [ranX(30, 'unit', exit), ranX(31, 'lint', 'zero')], sinceMs: T0 });
+    assert.deepEqual(v.counts, { types: 1, required: 2, fresh: 2, stale: 0, missing: 0, red: 0, unverified: 1 }, String(exit));
+    const unit = v.types[0].requires.find((r) => r.id === 'unit');
+    assert.deepEqual(unit, { id: 'unit', what: '단위 테스트 실행', status: 'fresh', unverified: true });
+  }
+});
+
+test('⭐ 판정 — 편집 → 실패 → 편집이면 그 실패는 마지막 변경 앞이라 편집 뒤 미실행이다(red 아님)', () => {
+  const v = judge({
+    slot: slot(),
+    files: [file('src/calc.js', 10), file('src/other.js', 50)],
+    events: [ranX(30, 'unit', 'nonzero'), ranX(60, 'lint', 'zero')],
+    sinceMs: T0,
+  });
+  assert.equal(statusOfReq(v, 'code', 'unit'), 'stale');
+  assert.equal(v.counts.red, 0);
+});
+
+const redVerdict = () =>
+  judge({ slot: slot(), files: [file('src/calc.js', 10)], events: [ranX(30, 'unit', 'nonzero'), ranX(31, 'lint', 'zero')], sinceMs: T0 });
+const maskedVerdict = () =>
+  judge({ slot: slot(), files: [file('src/calc.js', 10)], events: [ranX(30, 'unit', 'masked'), ranX(31, 'lint', 'zero')], sinceMs: T0 });
+
+test('판정 기록 — red·unverified 수치가 실린다', () => {
+  const r = evidenceAuditEvent({ turn: 'p-1' }, redVerdict(), slot());
+  assert.equal(r.red, 1);
+  assert.equal(r.unverified, 0);
+  assert.equal(r.fresh, 1);
+  const m = evidenceAuditEvent({ turn: 'p-1' }, maskedVerdict(), slot());
+  assert.deepEqual([m.red, m.unverified, m.fresh], [0, 1, 2]);
+});
+
+test('⭐ 활성 확인 — 실패 실행 관찰이 0 이면 실패 관찰 배선 미확인이라고 말한다(실패로 끝남 0 ≠ 실패 없음)', () => {
+  const events = [{ ts: iso(0), event: 'turn-start', gate: 'turn-start', turn: 'p-1' }, ranX(10, 'unit', 'zero'), judgedAt('p-1')];
+  const lines = statusLines(slot(), events);
+  assert.match(lines[0], /증거 실행 관찰 1건\(그중 실패로 끝남 0\)/);
+  assert.ok(lines.some((l) => /실패 실행 관찰 0 — 실패 관찰 배선 미확인: .*PostToolUseFailure.*'실패로 끝남 0' 을 '실패 없음' 으로 읽지 않습니다/.test(l)));
+  // 실패 실행이 한 번이라도 관찰되면 그 경고는 없다.
+  const seen = statusLines(slot(), [...events, ranX(20, 'unit', 'nostart')]);
+  assert.ok(!seen.some((l) => /실패 관찰 배선 미확인/.test(l)));
+});
+
+test('⭐ 실행 후 훅 — 실패 이벤트도 같은 --post 로 받아 exit 어휘만 남기고, ask 규칙이어도 after 는 만들지 않으며, 본문은 로그에 없다', () => {
+  const root = site();
+  const r = runPost(root, failPost('wipe-all; run-tests', 'Exit code 1\nMARKER-body-zq7', { tool_name: 'Bash' }));
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '');
+  const { events } = readLog(root);
+  assert.deepEqual(events.map((e) => `${e.event}:${e.exit ?? ''}`), ['evidence:nonzero'], '실패 페이로드에서 after 를 만들지 않는다');
+  const raw = readFileSync(path.join(root, '.harness', 'log.jsonl'), 'utf8');
+  assert.ok(!raw.includes('MARKER-body-zq7'));
+  assert.ok(!raw.includes('Exit code'));
+  // 같은 명령이 성공 이벤트로 오면 after 는 종전대로 남는다.
+  runPost(root, post('wipe-all; run-tests'));
+  assert.deepEqual(readLog(root).events.map((e) => `${e.event}:${e.exit ?? ''}`), ['evidence:nonzero', 'after:', 'evidence:zero']);
 });

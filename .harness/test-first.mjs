@@ -64,9 +64,69 @@ export function classify(relPath, tf) {
 }
 
 /**
+ * 루트 치환 경로 한 칸을 정규화한다 — 구분자 '/' 통일 · 앞의 './' 제거 · 끝에 '/' 하나.
+ * 끝 '/' 를 붙이는 이유: 'src/main/java' 가 'src/main/javaX/…' 까지 접두로 삼키면 엉뚱한 트리가 치환된다.
+ * @returns {{value:string}|{why:string}}
+ */
+function normRoot(v) {
+  if (typeof v !== 'string') return { why: `문자열이 아닙니다 (받은 값: ${typeof v})` };
+  let s = norm(v).trim().replace(/\/{2,}/g, '/');
+  while (s.startsWith('./')) s = s.slice(2);
+  if (s.startsWith('/') || /^[A-Za-z]:/.test(s)) return { why: `절대경로입니다 (${v}) — 설치처 루트 기준 상대경로로 씁니다` };
+  if (s.split('/').includes('..')) return { why: `'..' 이 들어 있습니다 (${v}) — 설치처 루트 밖은 관할이 아닙니다` };
+  s = s.replace(/\/+$/, '');
+  if (!s || s === '.') return { why: `비어 있습니다 (${JSON.stringify(v)}) — 루트 전체를 치환하면 모든 파일이 걸립니다` };
+  return { value: `${s}/` };
+}
+
+/**
+ * `testLookup.rootSwap` 을 읽는다. 순수 함수.
+ * 형식: `[{ from: 'src/main/java/', to: 'src/test/java/' }, …]` — 설치처 루트 기준 상대경로 쌍.
+ * 미설정이면 쌍 0 · 거절 0 이다(종전 판정과 같다). 못 읽은 항목은 버리지 않고 `rejected` 에 사유로 남긴다 —
+ * 조용히 빼면 "치환을 켰다" 고 믿는 채로 전부 "테스트 없음" 으로 세어진다.
+ * @returns {{pairs:{from:string,to:string}[], rejected:string[]}}
+ */
+export function rootSwapOf(lookup) {
+  const raw = lookup ? lookup.rootSwap : undefined;
+  if (raw === undefined || raw === null) return { pairs: [], rejected: [] };
+  if (!Array.isArray(raw)) {
+    return { pairs: [], rejected: ['rootSwap — 배열이 아닙니다 ([{ from, to }, …] 꼴이어야 합니다)'] };
+  }
+  const pairs = [];
+  const rejected = [];
+  raw.forEach((item, i) => {
+    const where = `rootSwap[${i}]`;
+    if (!item || typeof item !== 'object') {
+      rejected.push(`${where} — 객체가 아닙니다 ({ from, to } 꼴이어야 합니다)`);
+      return;
+    }
+    const from = normRoot(item.from);
+    const to = normRoot(item.to);
+    if (from.why) rejected.push(`${where}.from — ${from.why}`);
+    if (to.why) rejected.push(`${where}.to — ${to.why}`);
+    if (!from.why && !to.why) pairs.push({ from: from.value, to: to.value });
+  });
+  return { pairs, rejected };
+}
+
+/**
+ * 대상 파일의 디렉토리를 테스트 루트 쪽으로 옮긴다. 첫 일치 쌍이 이긴다 — 순서가 곧 우선순위다.
+ * @returns {string|null} 일치하는 쌍이 없으면 null
+ */
+function swapRoot(dir, pairs) {
+  const key = dir ? `${dir}/` : '';
+  for (const { from, to } of pairs) {
+    if (key.startsWith(from)) return `${to}${key.slice(from.length)}`.replace(/\/$/, '');
+  }
+  return null;
+}
+
+/**
  * 대상 파일에 대응하는 테스트를 찾는다. 순수 함수 — 파일시스템은 io 로 주입한다.
+ * 탐색 기준 디렉토리는 대상 파일의 디렉토리이고, `testLookup.rootSwap` 쌍에 걸리면 **테스트 루트로 옮긴
+ * 디렉토리를 그 뒤에** 하나 더 본다. 두 기준 모두에 `dirs` 와 `pattern` 이 같은 규칙으로 붙는다.
  * @param {{listDir:(dir:string)=>string[]|null}} io listDir 은 없으면 null (디렉토리 부재는 오류가 아니다)
- * @returns {{found:string|null}|{error:string}}
+ * @returns {{found:string|null, swapped?:string}|{error:string}} swapped = 치환이 걸렸을 때 옮겨 간 디렉토리
  */
 export function findTest(relPath, tf, io) {
   const p = norm(relPath);
@@ -82,14 +142,20 @@ export function findTest(relPath, tf, io) {
   );
   const c = compile(src);
   if (c.error) return { error: `testLookup.pattern 이 깨졌습니다 — ${c.error}` };
-  for (const d of lookup.dirs || ['.']) {
-    const dirPath = d === '.' ? dir : dir ? `${dir}/${d}` : d;
-    const names = io.listDir(dirPath);
-    if (!names) continue;
-    const hit = names.find((n) => c.re.test(n));
-    if (hit) return { found: dirPath ? `${dirPath}/${hit}` : hit };
+  const sw = rootSwapOf(lookup);
+  if (sw.rejected.length) return { error: `testLookup.rootSwap 을 읽지 못했습니다 — ${sw.rejected.join(' · ')}` };
+  const swapped = swapRoot(dir, sw.pairs);
+  const bases = swapped === null ? [dir] : [dir, swapped];
+  for (const b of bases) {
+    for (const d of lookup.dirs || ['.']) {
+      const dirPath = d === '.' ? b : b ? `${b}/${d}` : d;
+      const names = io.listDir(dirPath);
+      if (!names) continue;
+      const hit = names.find((n) => c.re.test(n));
+      if (hit) return { found: dirPath ? `${dirPath}/${hit}` : hit };
+    }
   }
-  return { found: null };
+  return swapped === null ? { found: null } : { found: null, swapped };
 }
 
 /**
@@ -122,7 +188,9 @@ export function evaluate(relPath, config, io) {
     decision: cls.decision,
     why: `테스트 선행 영역입니다 (${cls.what}) — 대응 테스트를 찾지 못했습니다.`,
     recover:
-      `Red 를 먼저 쓰세요 — ${(lookup.dirs || ['.']).join('·')} 에 테스트 파일을 만들어 실패를 확인한 뒤 이 파일을 작성합니다. ` +
+      `Red 를 먼저 쓰세요 — ${(lookup.dirs || ['.']).join('·')}` +
+      (t.swapped !== undefined ? ` (테스트 루트 쪽은 ${t.swapped || '.'} 기준)` : '') +
+      ` 에 테스트 파일을 만들어 실패를 확인한 뒤 이 파일을 작성합니다. ` +
       `이 파일이 왜 대상인지 의문이면 ${CONFIG_NAME} 의 testFirst.scopes(경계표)를 보고, 표가 틀렸으면 표를 고치세요.`,
   };
 }
@@ -185,6 +253,9 @@ export function extractFilePath(raw) {
  * @returns {{total:number, inScope:number, missing:number, deny:number, ask:number, list:object[]}}
  */
 export function runAudit(root, config) {
+  // 치환 슬롯을 못 읽으면 경계 안 전부가 판정 불가로 빠져 "테스트 없음 0" 이 된다 — 거짓 그린을 남기느니 센 것이 없다고 실패한다.
+  const sw = rootSwapOf(((config && config.testFirst) || {}).testLookup);
+  if (sw.rejected.length) throw new Error(`testLookup.rootSwap 을 읽지 못했습니다 — ${sw.rejected.join(' · ')}`);
   const files = execSync('git ls-files', { cwd: root, encoding: 'utf8' })
     .split('\n')
     .filter(Boolean);
@@ -239,8 +310,12 @@ async function main() {
       empty: `[test-first] 설정됨 · 경계 없음 — 아무것도 판정하지 않습니다\n  경계표(testFirst.scopes)를 채우세요. 판별 질문: "정답을 입력·출력 표로 먼저 쓸 수 있나?" 애매하면 ask.\n`,
       active: `[test-first] 활성 — ${detail}\n`,
     }[s.state];
-    process.stdout.write(line + `  설정: ${loaded.path}\n`);
-    process.exit(s.state === 'active' ? 0 : 1);
+    const sw = rootSwapOf((loaded.config.testFirst || {}).testLookup);
+    const swLine =
+      (sw.pairs.length ? `  테스트 루트 치환 ${sw.pairs.length}쌍 (testLookup.rootSwap)\n` : '') +
+      sw.rejected.map((why) => `  ⚠️ 못 읽은 항목: testLookup.${why} — 이 슬롯이 고쳐질 때까지 판정하지 않습니다\n`).join('');
+    process.stdout.write(line + swLine + `  설정: ${loaded.path}\n`);
+    process.exit(s.state === 'active' && !sw.rejected.length ? 0 : 1);
   }
 
   if (!loaded.ok) {
@@ -252,6 +327,15 @@ async function main() {
   }
 
   if (argv.includes('--audit')) {
+    const sw = rootSwapOf((loaded.config.testFirst || {}).testLookup);
+    if (sw.rejected.length) {
+      process.stderr.write(
+        `[test-first] 선실측 불가 — testLookup.rootSwap 을 읽지 못했습니다.\n` +
+          sw.rejected.map((why) => `  ⚠️ ${why}\n`).join('') +
+          `  이대로 세면 경계 안 전부가 판정 불가로 빠져 "테스트 없음 0" 이 됩니다. 슬롯을 고친 뒤 다시 세세요.\n`,
+      );
+      process.exit(2);
+    }
     let a;
     try {
       a = runAudit(root, loaded.config);

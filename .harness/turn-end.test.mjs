@@ -181,9 +181,9 @@ test('설정이 없어도 stop 은 남고 종료코드 0 — 선실측은 있으
 });
 
 // ── 골격 6 「완료 전 증거 확인」 — 턴 종료 시점의 판정 (docs/01 §6) ──────────────────────────────
-// 여기서 지키는 계약: **기본(관찰)은 stdout 에 아무것도 쓰지 않는다**(기존 계약 그대로 — 미충족이어도 막지 않는다),
-// **판정은 수치만 남긴다**, **차단은 mode: 'block' 을 적었을 때만 · 턴당 한 번 · 막은 Stop 은 stop 으로 적지 않는다**
-// (턴이 끝나지 않았다), **판정 실패는 stop 기록을 막지 않는다**(fail-open).
+// 여기서 지키는 계약: **stdout 에 아무것도 쓰지 않는다**(기존 계약 그대로 — 미충족이어도 막지 않는다. 2026-10-08 차단 모드
+// 제거 — 설정에 mode 가 남아 있어도 같다), **판정은 수치만 남긴다**, **stop 을 판정보다 먼저 적는다**,
+// **판정 실패는 stop 기록을 막지 않는다**(fail-open).
 
 import { utimesSync } from 'node:fs';
 
@@ -230,7 +230,7 @@ function evSite({ mode, ranAgo, git = true, start = true, extra = '', firstShell
   return root;
 }
 const evAudit = (root) => readLog(root).events.filter((e) => e.event === 'audit' && e.gate === EV_GATE);
-const numbers = ({ types, required, fresh: f, stale, missing, rejected, blocked }) => ({ types, required, fresh: f, stale, missing, rejected, blocked });
+const numbers = ({ types, required, fresh: f, stale, missing, rejected }) => ({ types, required, fresh: f, stale, missing, rejected });
 
 test('⭐ 증거(관찰) — 바뀐 유형에 증거 실행이 없으면 "증거 없음" 으로 남고, stdout 은 비어 있고, stop 도 그대로 남는다', () => {
   const root = evSite();
@@ -242,62 +242,16 @@ test('⭐ 증거(관찰) — 바뀐 유형에 증거 실행이 없으면 "증거
   const [a] = evAudit(root);
   assert.equal(a.turn, 'p-1');
   assert.equal(a.session, 's-1');
-  assert.deepEqual(numbers(a), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0, blocked: 0 });
+  assert.deepEqual(numbers(a), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0 });
 });
 
 test('⭐ 증거(관찰) — 편집 앞의 실행은 "편집 뒤 미실행", 편집 뒤의 실행은 충족이다', () => {
   const stale = evSite({ ranAgo: 40 });
   assert.equal(run(stale, payload()).stdout, '');
-  assert.deepEqual(numbers(evAudit(stale)[0]), { types: 1, required: 1, fresh: 0, stale: 1, missing: 0, rejected: 0, blocked: 0 });
+  assert.deepEqual(numbers(evAudit(stale)[0]), { types: 1, required: 1, fresh: 0, stale: 1, missing: 0, rejected: 0 });
   const met = evSite({ ranAgo: 10 });
   run(met, payload());
-  assert.deepEqual(numbers(evAudit(met)[0]), { types: 1, required: 1, fresh: 1, stale: 0, missing: 0, rejected: 0, blocked: 0 });
-});
-
-test('⭐ 증거(차단) — 미충족이면 Stop 을 막고 사유를 돌려주며, 그 Stop 은 stop 으로 적지 않는다(턴이 끝나지 않았다)', () => {
-  const root = evSite({ mode: 'block', ranAgo: 40 });
-  const r = run(root, payload());
-  assert.equal(r.status, 0);
-  const out = JSON.parse(r.stdout);
-  assert.equal(out.decision, 'block');
-  assert.match(out.reason, /계산 코드: 단위 테스트 실행 — 마지막 변경 뒤에 실행되지 않았습니다/);
-  assert.match(out.reason, /qualityCycle\.evidence\.types/);
-  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'audit']);
-  assert.deepEqual(numbers(evAudit(root)[0]), { types: 1, required: 1, fresh: 0, stale: 1, missing: 0, rejected: 0, blocked: 1 });
-});
-
-test('⭐ 증거(차단) — 한 번 막은 뒤의 Stop(stop_hook_active)은 다시 막지 않고 stop 을 적는다 — 턴당 한 번', () => {
-  const root = evSite({ mode: 'block', ranAgo: 40 });
-  const r = run(root, payload({ stop_hook_active: true }));
-  assert.equal(r.stdout, '');
-  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'stop', 'audit']);
-  assert.equal(evAudit(root)[0].blocked, 0);
-  assert.equal(evAudit(root)[0].stale, 1);
-});
-
-test('⭐ 증거(차단) — 충족이면 막지 않는다', () => {
-  const root = evSite({ mode: 'block', ranAgo: 10 });
-  const r = run(root, payload());
-  assert.equal(r.stdout, '');
-  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'stop', 'audit']);
-});
-
-test('⭐ 증거(차단) — 증거 실행이 로그에 한 번도 없으면 막지 않고 stderr 로 연결 확인을 알린다', () => {
-  const root = evSite({ mode: 'block' });
-  const r = run(root, payload());
-  assert.equal(r.stdout, '');
-  assert.match(r.stderr, /연결/);
-  assert.deepEqual(numbers(evAudit(root)[0]), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0, blocked: 0 });
-  assert.ok(readLog(root).events.some((e) => e.event === 'stop'));
-});
-
-test('⭐ 증거 — 잘못 적힌 mode 는 차단으로 추측하지 않는다: 막지 않고, 못 읽은 수가 기록되고, stderr 로 알린다', () => {
-  const root = evSite({ mode: 'blok', ranAgo: 40 });
-  const r = run(root, payload());
-  assert.equal(r.stdout, '');
-  assert.match(r.stderr, /mode/);
-  assert.equal(evAudit(root)[0].rejected, 1);
-  assert.equal(evAudit(root)[0].stale, 1);
+  assert.deepEqual(numbers(evAudit(met)[0]), { types: 1, required: 1, fresh: 1, stale: 0, missing: 0, rejected: 0 });
 });
 
 test('증거 — 턴의 시작을 모르면(턴 시작·그 턴의 이벤트 모두 없음) 판정하지 않는다 — stop 은 남는다', () => {
@@ -309,18 +263,18 @@ test('증거 — 턴의 시작을 모르면(턴 시작·그 턴의 이벤트 모
 });
 
 test('증거 — 서브에이전트의 Stop(잘못 건 경우)에서는 판정하지 않는다 — 완료 주장은 메인 턴의 것이다', () => {
-  const root = evSite({ mode: 'block', ranAgo: 40 });
+  const root = evSite({ ranAgo: 40 });
   const r = run(root, payload({ hook_event_name: 'SubagentStop', agent_id: 'abc123' }));
   assert.equal(r.stdout, '');
   assert.deepEqual(evAudit(root), []);
 });
 
 /** 판정하지 못한 턴의 기록 — 수치를 지어내지 않고 "못 했다" 만 싣는다. */
-const UNJUDGED = { session: 's-1', turn: 'p-1', event: 'audit', gate: EV_GATE, failed: 1, rejected: 0, blocked: 0 };
+const UNJUDGED = { session: 's-1', turn: 'p-1', event: 'audit', gate: EV_GATE, failed: 1, rejected: 0 };
 const withoutTs = (events) => events.map(({ ts: _ts, ...rest }) => rest);
 
 test('⭐ 증거 — git 저장소가 아니어도 stop 은 남고 종료코드 0 이다(fail-open) — 판정 불가로 기록되고 stderr 로 알린다', () => {
-  const root = evSite({ git: false, mode: 'block', ranAgo: 40 });
+  const root = evSite({ git: false, ranAgo: 40 });
   const r = run(root, payload());
   assert.equal(r.status, 0);
   assert.equal(r.stdout, '');
@@ -330,16 +284,19 @@ test('⭐ 증거 — git 저장소가 아니어도 stop 은 남고 종료코드 
   assert.deepEqual(withoutTs(evAudit(root)), [UNJUDGED]);
 });
 
-test('⭐ 증거(차단) — stop_hook_active 가 오지 않는 환경에서도 턴당 한 번이다: 같은 턴의 두 번째 Stop 은 막지 않고 stop 을 적는다', () => {
-  const root = evSite({ mode: 'block', ranAgo: 40 });
-  const noFlag = JSON.stringify({ session_id: 's-1', prompt_id: 'p-1', hook_event_name: 'Stop' });
-  const first = run(root, noFlag);
-  assert.equal(JSON.parse(first.stdout).decision, 'block');
-  const second = run(root, noFlag);
-  assert.equal(second.status, 0);
-  assert.equal(second.stdout, '', '같은 턴을 두 번 보류하지 않는다');
-  assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'evidence', 'audit', 'stop', 'audit']);
-  assert.deepEqual(evAudit(root).map((a) => a.blocked), [1, 0]);
+test('⭐ 증거 — 설정에 mode 가 남아 있어도(2026-10-08 차단 모드 제거) 미충족 Stop 에 stdout 으로 아무것도 내지 않고 관찰과 같은 기록을 남긴다', () => {
+  for (const mode of ['block', 'blok']) {
+    const observe = evSite({ ranAgo: 40 });
+    const legacy = evSite({ mode, ranAgo: 40 });
+    const ro = run(observe, payload());
+    const rl = run(legacy, payload());
+    assert.equal(rl.status, 0, mode);
+    assert.equal(rl.stdout, '', mode);
+    assert.equal(rl.stderr, ro.stderr, mode);
+    assert.deepEqual(readLog(legacy).events.map((e) => e.event), ['turn-start', 'evidence', 'stop', 'audit'], mode);
+    assert.deepEqual(numbers(evAudit(legacy)[0]), { types: 1, required: 1, fresh: 0, stale: 1, missing: 0, rejected: 0 }, mode);
+    assert.deepEqual(withoutTs(readLog(legacy).events), withoutTs(readLog(observe).events), mode);
+  }
 });
 
 /**
@@ -372,12 +329,12 @@ test('⭐ 증거(관찰) — 작업 트리 스캔이 끝나기 전에 훅이 죽
   assert.deepEqual(readLog(root).events.map((e) => e.event), ['turn-start', 'stop']);
 });
 
-test('⭐ 증거(차단) — git 이 제한 시간 안에 답하지 않으면 막지 않고 끝낸다: stop 이 남고 판정 불가가 기록된다', (t) => {
+test('⭐ 증거 — git 이 제한 시간 안에 답하지 않으면 막지 않고 끝낸다: stop 이 남고 판정 불가가 기록된다', (t) => {
   if (!gitCanBeSlowed()) {
     t.skip(SLOW_SKIP);
     return;
   }
-  const root = evSite({ mode: 'block', ranAgo: 40, slowGit: 6, timeoutMs: 400 });
+  const root = evSite({ ranAgo: 40, slowGit: 6, timeoutMs: 400 });
   const started = Date.now();
   const r = run(root, payload());
   const elapsed = Date.now() - started;
@@ -394,20 +351,7 @@ test('증거 — 턴 시작 기록이 없으면 그 턴의 가장 이른 이벤�
   const r = run(root, payload());
   assert.equal(r.status, 0);
   assert.deepEqual(readLog(root).events.map((e) => e.event), ['pass', 'stop', 'audit']);
-  assert.deepEqual(numbers(evAudit(root)[0]), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0, blocked: 0 });
-});
-
-test('증거(차단) — 보류된 Stop 에서는 턴 종료 선실측도 남기지 않는다 — 턴이 끝나지 않았다', () => {
-  const root = evSite({
-    mode: 'block',
-    ranAgo: 40,
-    extra: `testFirst: { enabled: false, auditOnStop: true, scopes: [{ decision: 'deny', pattern: /^src\\/.*\\.js$/, what: '계산' }], exempt: [] },`,
-  });
-  spawnSync('git', ['add', '.'], { cwd: root });
-  const r = run(root, payload());
-  assert.equal(JSON.parse(r.stdout).decision, 'block');
-  const { events } = readLog(root);
-  assert.deepEqual(events.map((e) => `${e.event}:${e.gate}`), ['turn-start:turn-start', `evidence:${EV_GATE}`, `audit:${EV_GATE}`]);
+  assert.deepEqual(numbers(evAudit(root)[0]), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0 });
 });
 
 test('증거 — 턴 종료 선실측(auditOnStop)과 함께 켜도 각자 한 줄씩 남는다', () => {
@@ -431,5 +375,136 @@ test('--status: 증거 슬롯의 상태가 함께 보인다 — 꺼짐과 설정
   run(on, payload());
   const b = run(on, '', ['--status']);
   assert.equal(b.status, 0);
-  assert.match(b.stdout, /\[done-evidence\] 설정됨\(관찰\) — 유형 1 · 필수 증거 1 · 증거 실행 관찰 1건 · 턴 종료 판정 1건/);
+  assert.match(b.stdout, /\[done-evidence\] 설정됨\(관찰\) — 유형 1 · 필수 증거 1 · 증거 실행 관찰 1건\(그중 실패로 끝남 0\) · 턴 종료 판정 1건/);
+});
+
+// ── 완료 전 증거 확인 — 대화 건넴(messages) 훅 경로 ─────────────────────────────────────────
+// 계약: Stop 페이로드의 마지막 응답 본문을 판정에만 쓰고 **로그·stderr·stdout 어디에도 옮기지 않는다**,
+// 본문이 없으면 건넴은 해당 없음(기록에 handoffs 를 싣지 않는다), messages 를 안 쓴 슬롯은 출력이 종전과 같다.
+
+import { readFileSync } from 'node:fs';
+import { logPath } from './lib/log.mjs';
+
+const HO_CONFIG = `export default {
+  qualityCycle: { evidence: { types: [
+    { id: 'sql-handoff', what: '대화로 건넨 데이터 변경 구문',
+      messages: [/\`\`\`[^\\n]*\\n(?:(?!\`\`\`)[\\s\\S])*?\\b(?:DELETE\\s+FROM|UPDATE\\s+\\S+\\s+SET|INSERT\\s+INTO)\\b/],
+      evidence: [{ id: 'dry-select', pattern: /(^|[;&|(]\\s*)db-query\\b.*\\bSELECT\\b/, what: '같은 조건의 조회 실행' }] },
+  ] } },
+};
+`;
+const HO_MSG = '정리 구문입니다.\n```sql\nDELETE FROM synthetic_secret_tbl WHERE flag = 1;\n```\n';
+/** 합성 설치처 — 턴 p-1 이 60초 전에 시작했다. `ranAgo`(초) = 그 턴의 조회 실행, `priorRun` = 이전 턴의 조회 실행(연결 관찰용). */
+function hoSite({ ranAgo, priorRun = false } = {}) {
+  const root = fresh();
+  const now = Date.now();
+  spawnSync('git', ['init', '-q'], { cwd: root });
+  writeFileSync(path.join(root, 'harness.config.mjs'), HO_CONFIG, 'utf8');
+  const ev = (ago, o) => logEvent({ ts: new Date(now - ago * 1000).toISOString(), session: 's-1', ...o }, root);
+  if (priorRun) ev(600, { event: 'evidence', gate: EV_GATE, turn: 'p-0', change: 'sql-handoff', run: 'dry-select' });
+  ev(60, { event: 'turn-start', gate: 'turn-start', turn: 'p-1' });
+  if (ranAgo !== undefined) ev(ranAgo, { event: 'evidence', gate: EV_GATE, turn: 'p-1', change: 'sql-handoff', run: 'dry-select' });
+  return root;
+}
+const handoffNumbers = (a) => ({ ...numbers(a), handoffs: a.handoffs });
+
+test('⭐ 건넴(관찰) ① — 같은 턴에 건네기 전 조회를 돌렸으면 충족이다', () => {
+  const root = hoSite({ ranAgo: 20 });
+  const r = run(root, payload({ last_assistant_message: HO_MSG }));
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '');
+  assert.deepEqual(handoffNumbers(evAudit(root)[0]), { types: 1, required: 1, fresh: 1, stale: 0, missing: 0, rejected: 0, handoffs: 1 });
+});
+
+test('⭐ 건넴 ② — 조회 없이 건네면 증거 없음: 막지 않고 stop 이 남는다', () => {
+  const observe = hoSite({ priorRun: true });
+  const r = run(observe, payload({ last_assistant_message: HO_MSG }));
+  assert.equal(r.stdout, '');
+  assert.deepEqual(readLog(observe).events.map((e) => e.event), ['evidence', 'turn-start', 'stop', 'audit']);
+  assert.deepEqual(handoffNumbers(evAudit(observe)[0]), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0, handoffs: 1 });
+});
+
+test('⭐ 건넴 ③ — 페이로드에 본문이 없으면 해당 없음: handoffs 를 싣지 않고(0 이 아니다) stderr 로 알린다', () => {
+  const root = hoSite({ priorRun: true });
+  const r = run(root, JSON.stringify({ session_id: 's-1', prompt_id: 'p-1', hook_event_name: 'Stop', stop_hook_active: false }));
+  assert.equal(r.stdout, '');
+  assert.match(r.stderr, /last_assistant_message\)이 없어 대화 건넴\(messages\)은 판정하지 않았습니다 — 해당 없음/);
+  const [a] = evAudit(root);
+  assert.equal('handoffs' in a, false);
+  assert.deepEqual(numbers(a), { types: 0, required: 0, fresh: 0, stale: 0, missing: 0, rejected: 0 });
+});
+
+test('⭐ 건넴 ④ — messages 를 쓰지 않는 슬롯은 본문이 SQL 이어도 로그·stdout·stderr·종료코드가 본문 없는 Stop 과 같다', () => {
+  const a = evSite({ ranAgo: 40 });
+  const b = evSite({ ranAgo: 40 });
+  const ra = run(a, payload({ last_assistant_message: 'done' }));
+  const rb = run(b, payload({ last_assistant_message: HO_MSG }));
+  assert.equal(rb.status, ra.status);
+  assert.equal(rb.stdout, ra.stdout);
+  assert.equal(rb.stderr, ra.stderr);
+  assert.deepEqual(withoutTs(readLog(b).events), withoutTs(readLog(a).events));
+  assert.equal('handoffs' in evAudit(b)[0], false);
+});
+
+test('⭐ 건넴 ⑤ — 로그 파일·stderr·stdout 어디에도 본문이 없다', () => {
+  const root = hoSite({ priorRun: true });
+  const r = run(root, payload({ last_assistant_message: HO_MSG }));
+  // 판정이 실제로 돌았는지 먼저 확인한다 — 설정을 못 읽어 아무것도 안 했다면 아래 "없음" 은 공허하게 참이다.
+  assert.equal(evAudit(root)[0].handoffs, 1);
+  assert.equal(evAudit(root)[0].missing, 1);
+  const rawLog = readFileSync(logPath(root), 'utf8');
+  for (const s of [rawLog, r.stderr, r.stdout]) {
+    assert.ok(!s.includes('synthetic_secret_tbl'));
+    assert.ok(!s.includes('DELETE'));
+  }
+});
+
+test('⭐ 건넴 ⑥ — 서브에이전트의 Stop 에서는 본문이 SQL 이어도 판정하지 않는다', () => {
+  const root = hoSite({ priorRun: true });
+  const r = run(root, payload({ hook_event_name: 'SubagentStop', agent_id: 'abc123', last_assistant_message: HO_MSG }));
+  assert.equal(r.stdout, '');
+  assert.deepEqual(evAudit(root), []);
+  assert.deepEqual(readLog(root).events.map((e) => e.event), ['evidence', 'turn-start', 'stop']);
+  // 같은 설치처·같은 본문의 메인 Stop 은 판정된다 — 위의 "판정 없음" 이 설정 탓이 아니라 서브 제외 탓이다.
+  run(root, payload({ last_assistant_message: HO_MSG }));
+  assert.deepEqual(handoffNumbers(evAudit(root)[0]), { types: 1, required: 1, fresh: 0, stale: 0, missing: 1, rejected: 0, handoffs: 1 });
+});
+
+// ── 실패 관찰 — 편집 뒤 최신 증거 실행의 결과(exit)로 판정한다 ─────────────────────────────────────────
+// 계약: 실패로 끝남(red)은 미충족으로 세고 · 결과 미상(masked 등)은 충족 안에서 따로 세며 · 어느 쪽이든 무출력.
+
+/** 편집(30초 전) 뒤 10초 전에 증거가 실행됐고 그 결과가 `exit` 였던 설치처. */
+function exitSite(exit) {
+  const root = evSite();
+  logEvent(
+    { ts: new Date(Date.now() - 10_000).toISOString(), event: 'evidence', gate: EV_GATE, session: 's-1', turn: 'p-1', change: 'code', run: 'unit', exit },
+    root,
+  );
+  return root;
+}
+
+test('⭐ 실패 관찰 — 편집 뒤 최신 증거 실행이 실패로 끝났으면 실패로 끝남(red)으로 세고, 막지 않고 stop 을 남긴다', () => {
+  const root = exitSite('nonzero');
+  assert.equal(run(root, payload()).stdout, '');
+  const [a] = evAudit(root);
+  assert.deepEqual([a.fresh, a.red, a.unverified], [0, 1, 0]);
+  assert.ok(readLog(root).events.some((e) => e.event === 'stop'));
+});
+
+test('⭐ 실패 관찰 — 결과 미상(파이프 가림)은 충족이되 결과 미상으로 센다 · 0 으로 끝났으면 결과 미상도 아니다', () => {
+  const masked = exitSite('masked');
+  assert.equal(run(masked, payload()).stdout, '');
+  const [m] = evAudit(masked);
+  assert.deepEqual([m.fresh, m.red, m.unverified], [1, 0, 1]);
+  const zero = exitSite('zero');
+  assert.equal(run(zero, payload()).stdout, '');
+  const [z] = evAudit(zero);
+  assert.deepEqual([z.fresh, z.red, z.unverified], [1, 0, 0]);
+});
+
+test('실패 관찰(관찰) — 실패로 끝나도 아무것도 출력하지 않고 수치만 남긴다', () => {
+  const root = exitSite('nonzero');
+  const r = run(root, payload());
+  assert.equal(r.stdout, '');
+  assert.equal(evAudit(root)[0].red, 1);
 });

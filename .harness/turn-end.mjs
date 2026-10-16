@@ -8,8 +8,7 @@
  *
  * ⭐ 게이트가 아니다 — **fail-open.** 무엇도 막지 않고 stdout 에 아무것도 쓰지 않는다(Stop 훅의 stdout
  *    JSON 은 종료를 막는 프로토콜이라, 여기서 무언가 쓰면 계측이 개입이 된다). 기록 실패는 stderr 로만.
- *    **예외는 하나** — 설정에 `qualityCycle.evidence.mode: 'block'` 을 적은 설치처에서, 완료 전 증거가 미충족일 때
- *    턴당 한 번 종료를 보류한다(아래 "완료 전 증거 확인"). 적지 않으면 위 계약 그대로다.
+ *    (2026-10-08 완료 전 증거 확인의 차단 모드 제거 — 예외 없이 이 계약 그대로다. 설정의 `mode` 는 읽지 않는다.)
  * ⭐ 판정은 여기서 하지 않는다. "Stop 없음 = 중단" 은 리포트(`metrics.mjs`)가 같은 세션의 뒤 턴 유무로
  *    가른다 — 세션의 마지막 턴은 중단이 아니라 **미판정(관찰 경계)** 이다. 이 파일은 있었던 사실만 적는다.
  *
@@ -24,10 +23,13 @@
  *
  * 완료 전 증거 확인(골격 6 첫 조각 — `docs/01` §6 · `lib/evidence.mjs`): `qualityCycle.evidence.types` 가 채워져 있으면
  * 턴 종료 시점에 작업 트리를 훑어 "이 턴에 바뀐 유형마다 필수 증거가 마지막 변경 뒤에 실행됐는가" 를 판정하고
- * 수치만 `audit`(gate `done-evidence`, stop 과 같은 session·turn)으로 남긴다. 기본은 관찰 — 리포트 줄에만 얹힌다.
- * `mode: 'block'` 이면 미충족일 때 그 Stop 을 막고(사유에 복구 경로), 막은 Stop 은 `stop` 으로 적지 않는다.
- * 관찰 모드에서는 **stop 을 먼저 적고** 판정한다 — 판정이 느려도 중단 축의 관찰이 빠지지 않는다. 작업 트리 스캔에는
- * 제한 시간이 있고(`scanTimeoutMs`), 넘기면 막지 않고 판정 불가(`failed: 1`)로 적는다.
+ * 수치만 `audit`(gate `done-evidence`, stop 과 같은 session·turn)으로 남긴다. 관찰만 한다 — 리포트 줄에만 얹힌다.
+ * 미충족 = 편집 뒤 미실행 · 증거 없음 · **실패로 끝남**(`red` — 마지막 변경 뒤 최신 증거 실행이 0 이 아닌 코드로 끝났다.
+ * 실패 이벤트 `PostToolUseFailure` 를 같은 `--post` 에 걸었을 때만 보인다). 결과 미상(Bash 연결자 가림·백그라운드)은 충족 안에서 따로 센다.
+ * 유형에 `messages` 를 적었으면 Stop 페이로드의 마지막 응답 본문(`last_assistant_message`)도 판정에 넘긴다 — 대화로만
+ * 건넨 변경(구문 등)을 보는 유일한 자리다. 본문은 판정에만 쓰고 로그·stderr 에 옮기지 않는다(`handoffs` 수만 남는다).
+ * **stop 을 먼저 적고** 판정한다 — 판정이 느려도 중단 축의 관찰이 빠지지 않는다. 작업 트리 스캔에는
+ * 제한 시간이 있고(`scanTimeoutMs`), 넘기면 판정 불가(`failed: 1`)로 적는다.
  *
  * 사용:
  *   (훅) stdin 으로 Stop 페이로드 JSON 을 받는다 — Stop 에 건다 (matcher 없음)
@@ -45,8 +47,6 @@ import {
   turnStartMs,
   scanChanged,
   judge,
-  shouldBlock,
-  blockReason,
   evidenceAuditEvent,
   evidenceUnjudgedEvent,
   statusLines,
@@ -173,11 +173,7 @@ async function main() {
   }
   // ⭐ stop 을 판정(로그·작업 트리 읽기)보다 **먼저** 적는다 — 판정이 느리거나 훅이 도중에 죽어도 "턴이 끝났다" 는
   //    기록은 남아야 한다(안 남으면 v2 중단 축이 그 턴을 사람이 끊은 것으로 센다 — 이 조각이 기존 지표를 오염시킨다).
-  //    예외는 이 Stop 을 **막을 수 있는** 경우 하나다(차단 모드 · 메인 턴) — 막은 Stop 은 턴의 끝이 아니라서 stop 을
-  //    적으면 안 되고(적으면 그 뒤 사람이 끊은 턴이 정상 종료로 세어진다), 막을지는 판정이 끝나야 안다. 그때는 판정을
-  //    먼저 하되 작업 트리 스캔에 제한 시간이 걸려 있어 훅을 붙잡지 않는다(넘기면 판정 불가로 적고 막지 않는다).
-  const mayBlock = Boolean(slot && slot.configured && slot.mode === 'block' && !ev.agent);
-  if (!mayBlock) recordStop();
+  recordStop();
 
   let evidence = null;
   try {
@@ -187,22 +183,16 @@ async function main() {
       `[${EVIDENCE_GATE}] 완료 전 증거 판정 실패 — ${e.message.split('\n')[0]} (종료를 막지는 않습니다)\n`,
     );
   }
-  const blocked = Boolean(evidence && evidence.block);
-  if (mayBlock && !blocked) recordStop();
-
-  if (evidence) {
-    logEvent(evidence.audit);
-    // ⭐ stdout 에 쓰는 유일한 자리 — 슬롯이 `mode: 'block'` 이고 미충족일 때, 턴당 한 번.
-    if (blocked) process.stdout.write(JSON.stringify({ decision: 'block', reason: evidence.reason }) + '\n');
-  }
+  // stdout 에는 아무것도 쓰지 않는다 — 판정은 기록만 하고 종료를 막지 않는다.
+  if (evidence) logEvent(evidence.audit);
   process.exit(0);
 }
 
 /**
  * 턴 종료 시점의 증거 판정 (I/O — 로그·작업 트리를 읽는다). 판정 구조는 `lib/evidence.mjs` 의 순수 함수들이다.
  * 판정하지 않는 경우는 null — 슬롯이 비어 있음 · 서브에이전트의 Stop · 턴의 시작을 모름(stderr 로 남긴다).
- * 작업 트리를 읽지 못하면(git 이 제한 시간 안에 답하지 않음 · git 저장소가 아님) 막지 않고 **판정 불가** 기록을 돌려준다.
- * @returns {{audit: object, block: boolean, reason?: string}|null}
+ * 작업 트리를 읽지 못하면(git 이 제한 시간 안에 답하지 않음 · git 저장소가 아님) **판정 불가** 기록을 돌려준다.
+ * @returns {{audit: object}|null}
  */
 function evidenceAtStop(raw, stopEvent, slot, root) {
   if (!slot.configured) return null;
@@ -227,22 +217,23 @@ function evidenceAtStop(raw, stopEvent, slot, root) {
     process.stderr.write(
       `[${EVIDENCE_GATE}] 작업 트리를 읽지 못해 판정하지 않았습니다 — ${e.message.split('\n')[0]} (판정 불가로 기록 · 종료를 막지는 않습니다)\n`,
     );
-    return { audit: evidenceUnjudgedEvent(stopEvent, slot), block: false };
+    return { audit: evidenceUnjudgedEvent(stopEvent, slot) };
   }
-  const verdict = judge({ slot, files, events, sinceMs });
-  let stopHookActive = false;
+  let message;
   try {
-    stopHookActive = JSON.parse(raw).stop_hook_active === true;
+    const parsed = JSON.parse(raw);
+    // 대화 건넴(`messages`) 판정의 입력 — 마지막 응답 본문. 판정에만 넘기고 로그·stderr 어디에도 옮기지 않는다.
+    if (typeof parsed.last_assistant_message === 'string') message = parsed.last_assistant_message;
   } catch {
     /* stopEventFrom 이 이미 읽었으므로 여기 오지 않는다 */
   }
-  const decision = shouldBlock({ slot, verdict, stopHookActive, events, turn: stopEvent.turn });
-  if (decision.withheld) process.stderr.write(`[${EVIDENCE_GATE}] ${decision.withheld}\n`);
-  return {
-    audit: evidenceAuditEvent(stopEvent, verdict, slot, decision.block),
-    block: decision.block,
-    ...(decision.block ? { reason: blockReason(verdict) } : {}),
-  };
+  const verdict = judge({ slot, files, events, sinceMs, message });
+  if (verdict.handoffs === null) {
+    process.stderr.write(
+      `[${EVIDENCE_GATE}] Stop 페이로드에 마지막 응답 본문(last_assistant_message)이 없어 대화 건넴(messages)은 판정하지 않았습니다 — 해당 없음\n`,
+    );
+  }
+  return { audit: evidenceAuditEvent(stopEvent, verdict, slot) };
 }
 
 if (process.argv[1] && process.argv[1].endsWith('turn-end.mjs')) {

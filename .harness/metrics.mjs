@@ -27,6 +27,8 @@
  *   node skeletons/metrics.mjs --promotions                     # v2 승격 후보 리포트 + 레코드 상태
  *   node skeletons/metrics.mjs --promote <규칙id> --approved-by <이름>   # 후보 승격 적용(레코드 작성)
  *   node skeletons/metrics.mjs --demote <규칙id> --text "사유"           # 수동 강등 (docs/15 §6 ⓑ)
+ *   node skeletons/metrics.mjs --fallback-all [--from D --to D] # v2 분모를 전 세션 폴백(turn-start 무시)으로 판정하고
+ *     turn-start 규칙 값은 병기 한 줄로 같이 낸다 — 기준 창과 같은 정의로 견줄 때 (docs/16 결정 이력 2026-10-01)
  *   node skeletons/metrics.mjs --contract                       # 로그를 스키마 계약(docs/13 §3)에 대고 검사 — 내역
  *     리포트 말미에도 같은 검사의 요약 한 줄이 항상 붙는다. 값은 찍지 않고 건수·필드명만 낸다(로그는 반출 금지).
  *
@@ -43,7 +45,7 @@ import {
   UNPARSED_PREFIX,
 } from './lib/log.mjs';
 import { projectRoot, loadConfig } from './lib/config.mjs';
-import { GATE as EVIDENCE_GATE, EVIDENCE_ID } from './lib/evidence.mjs';
+import { GATE as EVIDENCE_GATE, EVIDENCE_ID, EXIT_VALUES, FAILED_EXITS as FAILED_EXIT } from './lib/evidence.mjs';
 import {
   readPromotions,
   appendPromotion,
@@ -265,7 +267,8 @@ export function renderHeaderLine({ count, broken = 0, path, threshold = DEFAULT_
 
 /**
  * @param {object[]} events 로그 이벤트
- * @param {{window?: {from: number|null, to: number|null, label: string}|null}} [opts]
+ * @param {{window?: {from: number|null, to: number|null, label: string}|null, fallbackAll?: boolean}} [opts]
+ *   fallbackAll — turn-start 이벤트를 지우고 전 세션을 폴백 규칙으로 센다(docs/16 결정 이력 2026-10-01 · --fallback-all).
  *   window — v2 턴 줄의 **분모만** 자른다: 턴의 첫 이벤트 시각이 [from, to) 안인 턴. 판정 문맥(같은 세션의
  *   뒤 턴, 시계열상 직전 audit, 첫 stop 경계)은 전체 로그를 본다 — 이벤트를 잘라 버리면 창의 마지막 턴은
  *   뒤 턴이 안 보여 미판정이 되고 첫 턴은 직전 audit 을 잃어 미판정이 된다(창 양 끝이 체계적으로 빠진다).
@@ -273,7 +276,11 @@ export function renderHeaderLine({ count, broken = 0, path, threshold = DEFAULT_
  */
 export function summarize(events, opts = {}) {
   const window = opts.window ?? null;
-  const sorted = [...events].sort((x, y) => String(x.ts).localeCompare(String(y.ts)));
+  // ⭐ 전 세션 폴백 (docs/16 결정 이력 2026-10-01) — turn-start 이벤트를 **없던 것으로** 지운다. 분모 규칙만이 아니라
+  //    턴의 처음·끝 시각(순서·창 판정)에서도 빠져, turn-start 도입 이전과 같은 정의로 센다. 기준 창과 견주는 판정용.
+  const fallbackAll = opts.fallbackAll === true;
+  const source = fallbackAll ? events.filter((e) => e.event !== 'turn-start') : events;
+  const sorted = [...source].sort((x, y) => String(x.ts).localeCompare(String(y.ts)));
   const fires = sorted.filter((e) => e.event === 'fire' && !e.probe);
   const probes = sorted.filter((e) => (e.event === 'fire' || e.event === 'after') && e.probe);
   const passes = sorted.filter((e) => e.event === 'pass');
@@ -531,17 +538,18 @@ export function summarize(events, opts = {}) {
   //      턴 안(증거 실행)이나 턴 종료 직후(판정 기록)에 적히는 것이라 순서 판정을 바꾸는 입력은 찾지 못했다
   //      (고정 테스트 + 합성 로그 대조) — "보지 않는다" 가 아니라 "수를 바꾸는 경우를 못 찾았다" 이다.
   //   ⭐ 판정하지 못한 턴(`failed` — 작업 트리를 읽지 못함)은 해당 없음도 충족도 아니다. 따로 세고 줄이 말한다.
-  //   ⭐ 턴의 판정 = 그 턴의 **마지막** 기록. 차단 모드에서 한 번 보류된 턴은 기록이 둘이고, 끝난 상태가 판정이다.
+  //   ⭐ 턴의 판정 = 그 턴의 **마지막** 기록. 한 턴에 기록이 둘 이상이면(옛 차단 모드의 보류 등) 끝난 상태가 판정이다.
+  //   ⭐ 옛 기록의 `blocked`(완료 보류 0|1)는 읽지 않는다 — 2026-10-08 차단 모드 제거. 판정 수(충족·미충족·판정 불가)에는 원래 들지 않았고, 따로 세던 「완료 보류」 꼬리만 없어진다.
   //   ⭐ 유형에 드는 변경이 없던 턴(types 0)은 충족도 미충족도 아니다 — 분모에 넣으면 비율이 부푼다(안 잰 것 ≠ 0).
-  //   필수 증거 중 하나라도 실행 자체가 없으면 "증거 없음", 실행은 다 있는데 마지막 변경보다 앞이면 "편집 뒤 미실행".
+  //   필수 증거 중 하나라도 실행 자체가 없으면 "증거 없음", 실행은 다 있는데 하나라도 최신 실행이 실패로 끝났으면
+  //   "실패로 끝남"(red), 아니면서 마지막 변경보다 앞이면 "편집 뒤 미실행".
+  //   ⭐ 충족은 "0 으로 끝났다"(또는 결과 미상)이지 "통과" 가 아니다. 결과 미상(unverified)은 충족 안에서 따로 센다 —
+  //      그 수치가 없는 옛 기록(2026-10-02 이전)도 결과 미상이다(0 으로 읽지 않는다).
   //   메인 기록만 센다(서브의 Stop 에서는 판정하지 않는다). 창은 다른 v2 줄과 같은 규칙 — 턴의 첫 이벤트 시각.
-  const evidenceByTurn = new Map(); // turn → { last, blocked }
+  const evidenceByTurn = new Map(); // turn → 그 턴의 마지막 판정 기록
   for (const e of sorted) {
     if (e.event !== 'audit' || e.gate !== EVIDENCE_GATE || !isMain(e) || !e.turn) continue;
-    const cur = evidenceByTurn.get(e.turn) || { last: e, blocked: false };
-    cur.last = e;
-    if (e.blocked > 0) cur.blocked = true;
-    evidenceByTurn.set(e.turn, cur);
+    evidenceByTurn.set(e.turn, e);
   }
   const evidence = {
     observed: evidenceByTurn.size > 0,
@@ -552,15 +560,19 @@ export function summarize(events, opts = {}) {
     missing: 0, // 미충족 중 증거 없음 턴
     none: 0, // 유형에 드는 변경이 없던 턴 — 해당 없음
     failed: 0, // 판정 불가 턴 — 작업 트리를 읽지 못했다(git 시간 초과·git 아님). 해당 없음(잰 결과)과 다르다
-    blocked: 0, // 완료 보류가 한 번이라도 있었던 턴 (차단 모드)
     rejected: 0, // 가장 최근 판정 기록 시점에 못 읽은 슬롯 항목 수
+    red: 0, // 미충족 중 실패로 끝남 턴 — 마지막 변경 뒤 최신 증거 실행이 0 이 아닌 코드로 끝났다(2026-10-02 additive)
+    unverified: 0, // 충족 중 결과 미상 턴 — 가림·백그라운드, 또는 그 수치가 없는 기록(실패 관찰 이전 — 소급하지 않는다)
     runs: sorted.filter((e) => e.event === 'evidence' && e.gate === EVIDENCE_GATE && typeof e.run === 'string').length,
+    // 실패로 끝난 증거 실행의 관찰 수 — 0 이면 실패 이벤트 배선(PostToolUseFailure)이 미확인이다(설정 ≠ 연결).
+    failRuns: sorted.filter(
+      (e) => e.event === 'evidence' && e.gate === EVIDENCE_GATE && typeof e.run === 'string' && FAILED_EXIT.includes(e.exit),
+    ).length,
   };
   let latestEvidenceAudit = null;
-  for (const [turn, { last, blocked }] of evidenceByTurn) {
+  for (const [turn, last] of evidenceByTurn) {
     if (!latestEvidenceAudit || String(last.ts) > String(latestEvidenceAudit.ts)) latestEvidenceAudit = last;
     if (!inWindow(turn, mainTurnInfo)) continue;
-    if (blocked) evidence.blocked++;
     if (last.failed > 0) {
       evidence.failed++;
     } else if (!(last.types > 0)) {
@@ -568,11 +580,16 @@ export function summarize(events, opts = {}) {
     } else if (last.missing > 0) {
       evidence.unmet++;
       evidence.missing++;
+    } else if (last.red > 0) {
+      evidence.unmet++;
+      evidence.red++;
     } else if (last.stale > 0) {
       evidence.unmet++;
       evidence.stale++;
     } else {
       evidence.met++;
+      // 결과 미상 — 그 판정의 충족 중 하나라도 결과를 모르거나, 수치 자체가 없는 기록(실패 관찰 이전)이다.
+      if (!(typeof last.unverified === 'number') || last.unverified > 0) evidence.unverified++;
     }
   }
   evidence.judged = evidence.met + evidence.unmet;
@@ -636,6 +653,7 @@ export function summarize(events, opts = {}) {
       notification: [...gatedTurns].filter((turn) => notificationTurns.has(turn)).length, // 분모 중 완료 알림 턴
     },
     window: window ? { label: window.label } : null,
+    fallbackAll,
     turnEnd,
     verify,
     complete,
@@ -742,6 +760,17 @@ export function render(s) {
     (t.eventsWithoutTurn > 0 ? ` · turn 없는 이벤트 ${t.eventsWithoutTurn} 제외(식별자 이전 로그)` : '') +
     subOnlyNote +
     startNote;
+  // 전 세션 폴백 판정 (--fallback-all · docs/16 결정 이력 2026-10-01) — 판정용 값과 병기값을 두 줄로 나란히 낸다.
+  //   어느 줄이 판정용인지를 줄 머리에 박는다 — 같은 창의 두 수가 섞여 읽히면 정의가 다른 수끼리 견주게 된다.
+  if (s.fallbackAll) {
+    const brief = (x) =>
+      `게이트가 본 턴 ${x.turns.gated} · 중단 축 판정 ${x.turnEnd.judged} = 정상 종료 ${x.turnEnd.completed} · 중단 ${x.turnEnd.interrupted}` +
+      (x.turnEnd.undetermined > 0 ? ` · 미판정 ${x.turnEnd.undetermined}` : '');
+    lines.push(`v2 분모(판정용)    전 세션 폴백(turn-start 무시) — ${brief(s)} · 아래 v2 줄 전부가 이 정의`);
+    if (s.companion) {
+      lines.push(`v2 분모(병기)      turn-start 규칙 — ${brief(s.companion)} · 판정에 쓰지 않음(참고값)`);
+    }
+  }
   // 기간 창 — 아래 v2 턴 줄들의 분모가 잘렸음을 그 줄들 앞에 박는다. 창 밖 턴 수를 보여 누적과 헷갈리지 않게 한다.
   if (s.window) {
     lines.push(
@@ -813,13 +842,20 @@ export function render(s) {
     `완료 전 증거      ` +
       (ev.observed
         ? `판정 턴 ${ev.judged} = 충족 ${ev.met} · 미충족 ${ev.unmet}` +
-          (ev.unmet > 0 ? `(편집 뒤 미실행 ${ev.stale} · 증거 없음 ${ev.missing})` : '') +
+          (ev.unmet > 0
+            ? `(편집 뒤 미실행 ${ev.stale} · 증거 없음 ${ev.missing}` + (ev.red > 0 ? ` · 실패로 끝남 ${ev.red}` : '') + ')'
+            : '') +
           (ev.failed > 0
             ? ` · ⚠️ 판정 불가 ${ev.failed}턴(작업 트리를 읽지 못함 — git 시간 초과·git 저장소 아님. 턴 종료 훅의 stderr 확인)`
             : '') +
           (ev.none > 0 ? ` · 유형에 드는 변경 없는 턴 ${ev.none}(해당 없음)` : '') +
-          (ev.blocked > 0 ? ` · 완료 보류 ${ev.blocked}턴(차단 모드)` : '') +
-          ` (필수 증거가 마지막 변경 뒤에 실행됐는가 — 실행 여부만 — 통과 여부 아님 · v2 세 축에 들지 않음)` +
+          (ev.unverified > 0
+            ? ` · 충족 중 결과 미상 ${ev.unverified}턴(Bash 연결자 가림·백그라운드·실패 관찰 이전 기록 — 0 으로 끝났는지 모름)`
+            : '') +
+          ` (필수 증거가 마지막 변경 뒤에 실행됐고 최신 실행이 실패로 끝나지 않았는가 — 충족 = 0 으로 끝남(또는 결과 미상)이지 통과가 아님 · v2 세 축에 들지 않음)` +
+          (ev.judged > 0 && ev.failRuns === 0
+            ? ` · 실패 실행 관찰 0(실패 관찰 배선 미확인 — 실패로 끝남 0 은 '실패 없음' 이 아님)`
+            : '') +
           (ev.rejected > 0
             ? ` · ⚠️ 슬롯 항목 ${ev.rejected}건을 읽지 못해 판정에서 뺌 — turn-end.mjs --status 로 내역`
             : '') +
@@ -871,7 +907,8 @@ const CONTRACT_FIELDS = {
   // turn-start 도 같은 이유로 turn 이 필수다. origin 은 완료 알림 턴의 분류 하나뿐 — 프롬프트 원문은 계약 밖이다.
   'turn-start': { req: ['gate', 'turn'], opt: ['origin'] },
   // evidence 는 유형 식별자(change)가 필수, 증거 식별자(run)는 증거 실행일 때만. 둘 다 설정이 준 id 다 — 명령 원문은 계약 밖이다.
-  evidence: { req: ['gate', 'change'], opt: ['run'] },
+  // exit 는 2026-10-02 additive — 증거 실행(run 있음)의 결과 어휘 하나. 숫자 코드·출력 본문은 계약 밖이다.
+  evidence: { req: ['gate', 'change'], opt: ['run', 'exit'] },
 };
 const ABS_PATH = /(^|[\s"'=;])([A-Za-z]:[\\/]|\/[A-Za-z]|~\/)/;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -953,6 +990,10 @@ export function auditContract(events, opts = {}) {
         if (k in e && (typeof e[k] !== 'string' || !EVIDENCE_ID.test(e[k])))
           violate('evidence 식별자 꼴 아님(원문 의심)', `evidence.${k}`);
       if ('probe' in e || 'decision' in e || 'cmdPrefix' in e) violate('evidence 에 판정·명령 필드');
+      if ('exit' in e) {
+        if (!EXIT_VALUES.includes(e.exit)) violate('evidence.exit 어휘 밖');
+        if (!('run' in e)) violate('evidence.exit 가 실행 없는 기록에 붙음');
+      }
     }
     if (e.event === 'pass') {
       if ('probe' in e || 'decision' in e) violate('pass 에 판정 필드');
@@ -1266,7 +1307,11 @@ async function main() {
   const slots = metricsSlots(loaded.ok ? loaded.config : null);
   const span = aggregationSpan(events, window);
   const crossed = crossedDefinitionChanges(slots.changes, span);
-  const s = summarize(events, { window });
+  // --fallback-all — 판정은 전 세션 폴백, turn-start 규칙 값은 병기 (docs/16 결정 이력 2026-10-01).
+  //   플래그가 없으면 종전 그대로 한 번만 센다(출력 바이트 불변).
+  const fallbackAll = argv.includes('--fallback-all');
+  const s = summarize(events, { window, fallbackAll });
+  if (fallbackAll) s.companion = summarize(events, { window });
   // 리포트마다 계약 검사를 얹는다 — 반출 금지 데이터는 아무도 안 열어 보므로, 보는 주기를 따로 만들지 않고
   // 이미 있는 주기에 붙인다 (docs/13 §3 · F26).
   const a = auditContract(events, { user: osUser() });

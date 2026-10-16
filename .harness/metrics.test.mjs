@@ -1338,7 +1338,7 @@ test('⭐ 정의 변경 이력 — 2026-09-30 항목은 한 건이고 턴 시작
 
 const ea = (m, turn, n, session = 's1') => ({
   ts: t(m), event: 'audit', gate: 'done-evidence', session, turn,
-  types: 1, required: 2, fresh: 0, stale: 0, missing: 0, rejected: 0, blocked: 0, ...n,
+  types: 1, required: 2, fresh: 0, stale: 0, missing: 0, rejected: 0, ...n,
 });
 const er = (m, turn, extra = {}) => ({
   ts: t(m), event: 'evidence', gate: 'done-evidence', session: 's1', turn, change: 'code', run: 'unit', ...extra,
@@ -1356,18 +1356,38 @@ test('⭐ 증거 줄 — 충족 · 편집 뒤 미실행 · 증거 없음 · 해�
     gp(4, 't2'), ea(5, 't2', { fresh: 1, stale: 1 }), //                 편집 뒤 미실행
     gp(6, 't3'), ea(7, 't3', { stale: 1, missing: 1 }), //               증거 없음(하나라도 없으면 없음 쪽)
     gp(8, 't4'), ea(9, 't4', { types: 0, required: 0 }), //              유형에 드는 변경 없음
-    gp(10, 't5'), ea(11, 't5', { fresh: 1, stale: 1, blocked: 1 }), //   완료 보류 → 재실행 →
+    gp(10, 't5'), ea(11, 't5', { fresh: 1, stale: 1 }), //               한 턴에 기록이 둘 → 재실행 →
     er(12, 't5'), ea(13, 't5', { fresh: 2 }), //                          … 마지막 기록이 충족
   ]);
   assert.deepEqual(s.evidence, {
-    observed: true, judged: 4, met: 2, unmet: 2, stale: 1, missing: 1, none: 1, failed: 0, blocked: 1, rejected: 0, runs: 2,
+    observed: true, judged: 4, met: 2, unmet: 2, stale: 1, missing: 1, none: 1, failed: 0, rejected: 0,
+    red: 0, unverified: 2, runs: 2, failRuns: 0,
   });
   const out = render(s);
   assert.match(
     out,
-    /완료 전 증거\s+판정 턴 4 = 충족 2 · 미충족 2\(편집 뒤 미실행 1 · 증거 없음 1\) · 유형에 드는 변경 없는 턴 1\(해당 없음\) · 완료 보류 1턴/,
+    /완료 전 증거\s+판정 턴 4 = 충족 2 · 미충족 2\(편집 뒤 미실행 1 · 증거 없음 1\) · 유형에 드는 변경 없는 턴 1\(해당 없음\) · 충족 중 결과 미상 2턴/,
   );
-  assert.match(out, /실행 여부만 — 통과 여부 아님/);
+  assert.match(out, /충족 = 0 으로 끝남\(또는 결과 미상\)이지 통과가 아님/);
+});
+
+test('⭐ 옛 판정 기록의 blocked(2026-10-08 차단 모드 제거 전 필드)는 읽지 않는다 — 있어도 없어도 수·리포트 줄이 같고 계약 위반도 아니다', () => {
+  // 차단 모드 시절의 기록 모양 — 판정마다 blocked 0|1, 보류된 턴은 기록이 둘(보류 1 → 끝난 판정 0).
+  const rows = (withBlocked) => {
+    const b = (n) => (withBlocked ? { blocked: n } : {});
+    return [
+      gp(1, 't1'), er(2, 't1'), ea(3, 't1', { fresh: 2, ...b(0) }),
+      gp(4, 't2'), ea(5, 't2', { stale: 1, missing: 1, ...b(1) }), ea(6, 't2', { stale: 1, missing: 1, ...b(0) }),
+    ];
+  };
+  const old = summarize(rows(true));
+  const now = summarize(rows(false));
+  assert.deepEqual(old.evidence, now.evidence);
+  assert.equal('blocked' in old.evidence, false);
+  assert.equal(render(old), render(now));
+  assert.match(render(old), /완료 전 증거\s+판정 턴 2 = 충족 1 · 미충족 1\(편집 뒤 미실행 0 · 증거 없음 1\) · 충족 중 결과 미상 1턴/);
+  assert.ok(!render(old).includes('완료 보류'));
+  assert.equal(violationCount(auditContract(rows(true).filter((e) => e.event === 'audit'))), 0);
 });
 
 test('⭐ 증거 줄은 기존 지표를 하나도 바꾸지 않는다 — v1 5종과 v2 세 축의 수가 그대로다', () => {
@@ -1406,7 +1426,7 @@ test('⭐ 판정은 있는데 증거 실행 관찰이 0 이면 연결을 의심�
 
 test('⭐ 증거 줄 — 판정하지 못한 턴은 "해당 없음" 도 충족도 아니다: 판정 불가로 따로 세고 줄이 말한다', () => {
   const unjudged = (m, turn) => ({
-    ts: t(m), event: 'audit', gate: 'done-evidence', session: 's1', turn, failed: 1, rejected: 0, blocked: 0,
+    ts: t(m), event: 'audit', gate: 'done-evidence', session: 's1', turn, failed: 1, rejected: 0,
   });
   const s = summarize([
     gp(1, 't1'), er(2, 't1'), ea(3, 't1', { fresh: 2 }),
@@ -1414,7 +1434,8 @@ test('⭐ 증거 줄 — 판정하지 못한 턴은 "해당 없음" 도 충족�
     gp(6, 't3'), unjudged(7, 't3'),
   ]);
   assert.deepEqual(s.evidence, {
-    observed: true, judged: 1, met: 1, unmet: 0, stale: 0, missing: 0, none: 0, failed: 2, blocked: 0, rejected: 0, runs: 1,
+    observed: true, judged: 1, met: 1, unmet: 0, stale: 0, missing: 0, none: 0, failed: 2, rejected: 0,
+    red: 0, unverified: 1, runs: 1, failRuns: 0,
   });
   assert.match(render(s), /완료 전 증거\s+판정 턴 1 = 충족 1 · 미충족 0 · ⚠️ 판정 불가 2턴/);
   // 판정 불가 기록도 수치만 실은 audit 이다 — 계약 위반이 아니다.
@@ -1452,4 +1473,141 @@ test('⭐ 계약 — evidence 는 8종째 이벤트: gate·change 필수 · run 
   assert.ok(withCommand.violations['evidence 에 판정·명령 필드']);
   const extra = auditContract([er(1, 't1', { file: 'x' })]);
   assert.ok(extra.observations['계약 밖 필드'].where.includes('evidence.file'));
+});
+
+// ── 실패 관찰 (2026-10-02 additive) — 리포트 줄의 실패로 끝남·결과 미상 · 계약의 exit 어휘 ─────────────────
+
+test('⭐ 증거 줄 — 실패로 끝남(red)은 미충족으로 따로 세고, 결과 미상은 충족 안에서 따로 센다(수치 없는 옛 기록도 결과 미상)', () => {
+  const s = summarize([
+    gp(1, 't1'), er(2, 't1', { exit: 'nonzero' }), ea(3, 't1', { fresh: 1, red: 1, unverified: 0 }), // 실패로 끝남
+    gp(4, 't2'), er(5, 't2', { exit: 'zero' }), ea(6, 't2', { fresh: 2, red: 0, unverified: 0 }), //     충족 · 0 으로 끝남
+    gp(7, 't3'), er(8, 't3', { exit: 'masked' }), ea(9, 't3', { fresh: 2, red: 0, unverified: 1 }), //   충족 · 결과 미상
+    gp(10, 't4'), er(11, 't4'), ea(12, 't4', { fresh: 2 }), //                                            옛 기록 — 결과 미상
+  ]);
+  assert.deepEqual(
+    { judged: s.evidence.judged, met: s.evidence.met, unmet: s.evidence.unmet, red: s.evidence.red, unverified: s.evidence.unverified, failRuns: s.evidence.failRuns },
+    { judged: 4, met: 3, unmet: 1, red: 1, unverified: 2, failRuns: 1 },
+  );
+  const out = render(s);
+  assert.match(out, /판정 턴 4 = 충족 3 · 미충족 1\(편집 뒤 미실행 0 · 증거 없음 0 · 실패로 끝남 1\)/);
+  assert.match(out, /충족 중 결과 미상 2턴\(Bash 연결자 가림·백그라운드·실패 관찰 이전 기록 — 0 으로 끝났는지 모름\)/);
+  assert.ok(!/실패 관찰 배선 미확인/.test(out), '실패 실행이 관찰됐으면 배선 미확인이라 말하지 않는다');
+});
+
+test('⭐ 증거 줄 — 실패 실행이 한 번도 관찰되지 않았으면 "실패로 끝남 0" 을 실패 없음으로 읽지 말라고 말한다', () => {
+  const out = render(summarize([gp(1, 't1'), er(2, 't1', { exit: 'zero' }), ea(3, 't1', { fresh: 2, red: 0, unverified: 0 })]));
+  assert.match(out, /실패 실행 관찰 0\(실패 관찰 배선 미확인 — 실패로 끝남 0 은 '실패 없음' 이 아님\)/);
+  assert.ok(!/충족 중 결과 미상/.test(out), '0 으로 끝난 충족은 결과 미상이 아니다');
+});
+
+test('⭐ 증거 줄 — 실패로 끝남·결과 미상을 더해도 기존 지표는 하나도 바뀌지 않는다', () => {
+  const base = [gp(1, 't1'), stop(2, 't1'), au(2, 't1', 5), gp(3, 't2'), stop(4, 't2'), au(4, 't2', 5)];
+  const withFail = [
+    ...base,
+    er(1, 't1', { exit: 'nonzero' }), ea(2, 't1', { fresh: 0, red: 2, unverified: 0 }),
+    er(3, 't2', { exit: 'masked' }), ea(4, 't2', { fresh: 2, red: 0, unverified: 2 }),
+  ];
+  const { evidence: _a, ...before } = summarize(base);
+  const { evidence: _b, ...after } = summarize(withFail);
+  assert.deepEqual(after, before);
+});
+
+test('⭐ 계약 — evidence.exit 는 어휘 안의 값이어야 하고, 증거 실행(run) 기록에만 붙는다', () => {
+  const ok = auditContract(['zero', 'nonzero', 'nostart', 'masked', 'background'].map((exit, i) => er(i + 1, 't1', { exit })));
+  assert.equal(violationCount(ok), 0);
+  assert.equal(observationCount(ok), 0);
+  const outOfVocab = auditContract([er(1, 't1', { exit: 'Exit code 1' }), er(2, 't1', { exit: 1 })]);
+  assert.equal(outOfVocab.violations['evidence.exit 어휘 밖'].count, 2);
+  const noRun = auditContract([{ ts: t(1), event: 'evidence', gate: 'done-evidence', session: 's1', turn: 't1', change: 'tree', exit: 'zero' }]);
+  assert.equal(noRun.violations['evidence.exit 가 실행 없는 기록에 붙음'].count, 1);
+  // audit 의 red·unverified 는 수치라 계약 안이다.
+  assert.equal(violationCount(auditContract([ea(1, 't1', { fresh: 1, red: 1, unverified: 0 })])), 0);
+});
+
+// ── 전 세션 폴백 판정 (--fallback-all · docs/16 결정 이력 2026-10-01) ─────────────────────────────────
+// 여기서 지키는 계약: 비교 창은 기준 창과 같은 **옛 방식(전 세션 폴백)** 분모로 판정한다. fallbackAll 은 turn-start 를
+// 지워 턴 시작 규칙을 끄고, 리포트는 판정용(폴백)과 병기(턴 시작 규칙) 두 줄을 나란히 낸다. 플래그가 없으면 종전 그대로다.
+
+// 세션 중간 배선 — t1·t2 는 턴 시작 훅이 붙기 전 턴(t1 은 사람이 끊었다), t3 부터 턴 시작이 찍힌다.
+const midWired = () => [
+  stop(0, 't0'), //                          관찰 경계 — 게이트가 보지 않은 앞 턴의 stop
+  gp(1, 't1'), //                            배선 이전 · Stop 없음 · 뒤 턴 있음 → 폴백에선 중단
+  gp(3, 't2'), stop(4, 't2'), //              배선 이전 · 정상 종료
+  begin(5, 't3'), gp(5, 't3'), stop(6, 't3'), // 배선 이후
+];
+
+test('⭐ 폴백 분모 ≥ 턴 시작 분모 — 턴 시작 관찰 세션의 서브 전용 턴·턴 시작 없는 메인 턴까지 분모에 든다', () => {
+  const events = [
+    begin(1, 't1'), gp(1, 't1'), stop(2, 't1'),
+    sub(gp(3, 'tx')), //                     턴 시작 없는 서브 전용 턴
+    gp(4, 'ty'), stop(5, 'ty'), //           턴 시작 없는 메인 턴
+    begin(6, 't2'), gp(6, 't2'), stop(7, 't2'),
+  ];
+  const started = summarize(events);
+  const fallback = summarize(events, { fallbackAll: true });
+  assert.equal(started.turns.gated, 2);
+  assert.equal(fallback.turns.gated, 4);
+  assert.ok(fallback.turns.gated >= started.turns.gated);
+  assert.deepEqual(
+    { judged: fallback.turnEnd.judged, completed: fallback.turnEnd.completed, interrupted: fallback.turnEnd.interrupted },
+    { judged: 4, completed: 3, interrupted: 1 },
+    'Stop 없는 서브 전용 턴은 폴백에서 뒤 턴이 있으니 중단이다',
+  );
+  assert.equal(fallback.turns.started, 0, 'turn-start 를 지웠으니 턴 시작 관찰 턴은 없다');
+  assert.equal(fallback.turns.unstarted, 0);
+  assert.equal(fallback.turns.subOnly, 0);
+});
+
+test('⭐ 세션 중간 배선 — 폴백은 배선 이전 턴(사람 중단 포함)을 분모에 넣고, 턴 시작 규칙은 뺀다', () => {
+  const started = summarize(midWired());
+  const fallback = summarize(midWired(), { fallbackAll: true });
+  assert.deepEqual(
+    { gated: started.turns.gated, unstarted: started.turns.unstarted, judged: started.turnEnd.judged, interrupted: started.turnEnd.interrupted },
+    { gated: 1, unstarted: 2, judged: 1, interrupted: 0 },
+  );
+  assert.deepEqual(
+    {
+      gated: fallback.turns.gated,
+      judged: fallback.turnEnd.judged,
+      completed: fallback.turnEnd.completed,
+      interrupted: fallback.turnEnd.interrupted,
+      undetermined: fallback.turnEnd.undetermined,
+    },
+    { gated: 3, judged: 3, completed: 2, interrupted: 1, undetermined: 0 },
+  );
+});
+
+test('⭐ --fallback-all 리포트 — 판정용(폴백) 줄과 병기(턴 시작 규칙) 줄을 두 줄로 나란히 낸다', () => {
+  const s = summarize(midWired(), { fallbackAll: true });
+  s.companion = summarize(midWired());
+  const lines = render(s).split('\n');
+  const i = lines.findIndex((l) => l.startsWith('v2 분모(판정용)'));
+  assert.equal(
+    lines[i],
+    'v2 분모(판정용)    전 세션 폴백(turn-start 무시) — 게이트가 본 턴 3 · 중단 축 판정 3 = 정상 종료 2 · 중단 1 · 아래 v2 줄 전부가 이 정의',
+  );
+  assert.equal(
+    lines[i + 1],
+    'v2 분모(병기)      turn-start 규칙 — 게이트가 본 턴 1 · 중단 축 판정 1 = 정상 종료 1 · 중단 0 · 판정에 쓰지 않음(참고값)',
+  );
+  assert.match(lines[i + 2], /^v2 턴\(게이트 축\)  게이트가 본 턴 3 /, '아래 v2 줄들은 판정용 값이다');
+});
+
+test('⭐ 플래그 없음 — 분모 줄이 없고 v2 줄은 종전 문구 그대로다(병기 요약을 붙여도 바뀌지 않는다)', () => {
+  const s = summarize(midWired());
+  assert.equal(s.fallbackAll, false);
+  const out = render(s);
+  assert.doesNotMatch(out, /v2 분모\(/);
+  const lines = out.split('\n');
+  assert.equal(
+    lines.find((l) => l.startsWith('v2 턴(게이트 축)')),
+    'v2 턴(게이트 축)  게이트가 본 턴 1 · 발동 있는 턴 0 → 무발동 턴 1/1 (게이트 축만 — 중단·검증 그린 축 미수집) · 턴 시작 없는 메인 턴 2 제외(턴 시작 훅 누락 의심)',
+  );
+  assert.equal(
+    lines.find((l) => l.startsWith('v2 턴(중단 축)')),
+    'v2 턴(중단 축)    판정 1 = 정상 종료 1 · 중단 0 → 게이트·중단 두 축 모두 참 1/1 (완주 아님 — 검증 그린 축 미수집) · 게이트 밖 턴의 stop 1(분모 밖)',
+  );
+  const withCompanion = summarize(midWired());
+  withCompanion.companion = summarize(midWired(), { fallbackAll: true });
+  assert.equal(render(withCompanion), out);
 });

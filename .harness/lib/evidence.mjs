@@ -11,17 +11,39 @@
  *
  * ⭐ 새 훅을 걸지 않는다. 이미 걸려 있는 두 실행 지점이 이 파일을 부른다.
  *    · 실행 후 훅(`danger-guard.mjs --post`) — 실행된 명령을 슬롯 패턴에 대고 분류해 **식별자만** 남긴다(`evidence` 이벤트).
+ *      같은 실행 파일·같은 matcher 를 짝 이벤트 `PostToolUseFailure` 에도 건다 — 새 훅이 아니라 기존 훅의 빠진 반쪽이다.
  *    · 턴 종료 훅(`turn-end.mjs`) — 작업 트리를 훑어 판정하고 수치만 남긴다(`audit` · gate `done-evidence`).
  * ⭐ 파일 편집 이벤트는 로그에 없다(게이트 훅의 matcher 는 셸뿐이다). 그래서 "마지막 변경 시각" 은 편집 도구를
  *    관찰하지 않고 **턴 종료 시점의 작업 트리**에서 읽는다 — git 이 변경됐다고 하는 파일의 수정 시각(mtime).
  *    편집 도구·셸·서브에이전트 어느 길로 고쳤든 같은 자로 재진다.
- * ⭐ 기본은 **관찰**이다(`mode` 생략 = `observe`). 아무것도 막지 않고 리포트 줄에만 얹힌다. 막기는 `mode: 'block'`
- *    을 적었을 때만, 턴당 한 번.
+ * ⭐ **관찰만** 한다. 아무것도 막지 않고 리포트 줄에만 얹힌다. (2026-10-08 차단 모드(`mode: 'block'`) 제거 —
+ *    설치처 미사용·실발동 0·v2 판정 비의존. 설정에 `mode` 가 남아 있어도 읽지 않는다. 필요해지면 git 이력에서 되살린다.)
  *
- * ⚠️ 한계 — 이 판정이 말하는 것은 "증거 명령이 마지막 변경 뒤에 **실행됐다**" 까지다.
- *    · **그린이었는지는 모른다.** 종료코드는 훅 페이로드에 없다(`docs/16` §5.1 실측). 실행 ≠ 통과.
+ * ⭐ **실패 관찰** — 0 이 아닌 코드로 끝난 셸 호출은 실행 후 훅(`PostToolUse`)을 부르지 않고 짝 이벤트
+ *    `PostToolUseFailure` 를 부른다(2026-10-02 실측, Claude Code 2.1.287). 같은 `--post` 를 그 이벤트에도 걸면 실패한
+ *    증거 실행도 `evidence` 로 남고, 결과는 선택 필드 `exit` 어휘 하나로만 남는다(숫자 코드·출력 본문은 남기지 않는다):
+ *    `zero`(성공 이벤트 · 백그라운드 아님 · 가림 없음) · `nonzero`(실패 이벤트 · `Exit code N` 첫 줄) · `nostart`(실패
+ *    이벤트인데 코드 줄 없음 — 셸 기동 실패·시간 초과 문구 등) · `masked`(Bash 에서 증거 뒤에 `|`·`||`·`;`·단독 `&`·줄바꿈
+ *    — 호출의 종료코드가 증거의 것이 아닐 수 있다. `&&` 는 가리지 않는다) · `background`(백그라운드로 시작 — 결과를 알기 전에 성공 이벤트가 온다). 판정은 **최신 실행** 기준이다 —
+ *    실패 뒤 고쳐 다시 돌려 0 으로 끝났으면 충족, 마지막이 실패면 `red`(실패로 끝남), 마지막 결과를 모르면 충족이되
+ *    `unverified`(결과 미상)로 따로 센다. `exit` 가 없는 과거 기록은 `zero` 로 읽지 않는다(결과 미상 — 소급하지 않는다).
+ *
+ * ⚠️ 한계 — 이 판정이 말하는 것은 "증거 명령이 마지막 변경 뒤에 실행됐고 **0 으로 끝났다**(또는 결과 미상)" 까지다.
+ *    · **0 으로 끝남 ≠ 통과.** 테스트 0 개로 성공하는 빈 그린, 실패를 0 으로 끝내는 러너 설정은 구별하지 못한다.
+ *    · 실패 이벤트의 배선(`PostToolUseFailure` → `--post`)이 없는 설치처에서는 실패가 보이지 않는다 — 실패한 실행은
+ *      "실행 없음" 으로 떨어지고 `red` 는 늘 0 이다. `--status` 의 "실패 실행 관찰" 수가 그것을 드러낸다(0 = 미확인).
+ *    · 실패 → `PostToolUseFailure` 분기와 백그라운드 → `PostToolUse` 동작은 한 버전(2.1.287)의 관찰이다 — 버전이 바뀌면
+ *      조용히 달라질 수 있다. 실측은 PowerShell 도구로만 했다 — Bash 의 `Exit code N` 첫 줄과 파이프 가림은 문서·POSIX
+ *      규칙 근거다(미실측). PowerShell 은 실측 1건에서 파이프가 코드를 가리지 않아 가림 판정을 하지 않는다.
+ *    · 가림 판정은 문자열 판정이다. 인용부호 안의 연결자 문자도 걸린다(결과 미상 쪽 과잉). 거꾸로 위 연결자 밖의 구성 —
+ *      `trap`·`exit` 재지정, 증거를 감싼 함수·스크립트·하위 셸 안의 처리 — 로 종료코드가 바뀌는 것은 보지 못한다(거짓 통과
+ *      가능). `pipefail` 은 면제하지 않는다(켰는지·언제 켰는지를 문자열로 가르지 못한다 — 결과 미상 쪽).
+ *    · 실패 쪽 오판 — 결과는 **호출 단위**다. `증거 && 다른 명령` 에서 뒤 명령이 실패해도 그 증거가 실패로 끝남(`red`)이 된다.
+ *    · 실패 이벤트에도 같은 `--post` 가 돌므로, 설정을 못 읽을 때의 종료코드 2·stderr 안내가 이제 실패한 호출 뒤에도
+ *      에이전트에게 보인다(기존 동작의 범위가 넓어진 것이다).
  *    · **충분한지는 모른다.** 그 증거가 바뀐 곳을 실제로 덮는지, 빠진 상태 조합이 없는지는 보지 않는다.
- *    · 작업 트리 밖의 변경(대화로만 건넨 산출물 · 다른 저장소 · 외부에 게시한 것 · 데이터)은 보이지 않는다.
+ *    · 작업 트리 밖의 변경(다른 저장소 · 외부에 게시한 것 · 데이터)은 보이지 않는다. 대화로만 건넨 산출물은 유형에
+ *      `messages` 를 적은 경우에만, 턴의 **마지막 응답 본문**이 그 패턴에 걸릴 때 보인다(앞선 응답·설명용 인용도 패턴 판정의 한계 그대로).
  *    · 삭제는 시각이 없어 잡지 않는다. 브랜치 전환·받아오기·병합처럼 **깨끗한 트리에서 파일을 다시 쓰는 조작은
  *      변경으로 세지 않는다**(놓치는 쪽) — 후보가 "git 이 변경됐다고 하는 파일 + 턴 시작 뒤의 (병합 아닌) 커밋이
  *      건드린 파일" 이라, 다시 쓰이기만 한 파일은 수정 시각이 새것이어도 후보에 오르지 않는다.
@@ -33,7 +55,7 @@
 import { execFileSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import path from 'node:path';
-import { compile, CONFIG_NAME } from './config.mjs';
+import { compile } from './config.mjs';
 import { extractContext, LOG_DIR } from './log.mjs';
 
 export const GATE = 'done-evidence';
@@ -44,7 +66,50 @@ export const SLOT_PATH = 'qualityCycle.evidence';
 /** 유형·증거 식별자의 꼴. 로그에는 이것만 실린다 — 원문이 식별자 자리에 섞여 들어올 틈을 꼴로 막는다. */
 export const EVIDENCE_ID = /^[A-Za-z][\w.-]*$/;
 
-const MODES = ['observe', 'block'];
+/**
+ * `evidence.exit` 의 어휘 — 실행 결과를 남기는 유일한 자리다. 숫자 코드·출력 본문은 싣지 않는다(`docs/13` §3).
+ * 실패(`red`)로 읽는 것은 `nonzero`·`nostart`, 결과 미상으로 읽는 것은 `masked`·`background`·없음(과거 기록).
+ */
+export const EXIT_VALUES = ['zero', 'nonzero', 'nostart', 'masked', 'background'];
+export const FAILED_EXITS = ['nonzero', 'nostart'];
+
+/** 실패 이벤트의 `error` 첫 줄 — 셸이 실행된 뒤 종료했으면 `Exit code N` 이다(공식 문서 · 2.1.287 실측). */
+const EXIT_LINE = /^Exit code -?\d+\s*$/;
+
+/**
+ * 호출의 종료코드를 증거의 것에서 다른 것으로 바꿀 수 있는 연결자 — `|`(`|&` 포함) · `||` · `;` · 단독 `&`(백그라운드)
+ * · 줄바꿈. `&&` 는 아니다(증거가 실패하면 단락되어 0 이 아닌 코드가 그대로 남는다). 리디렉션의 `&`(`2>&1`·`&>`)도 아니다.
+ * `pipefail` 은 면제하지 않는다 — 끄는 구문·파이프 뒤에서 켜는 순서·인용 속 단어를 문자열로는 가르지 못한다.
+ */
+const MASKING_LINK = /\||;|\r|\n|(?<![&>])&(?![&>])/;
+
+/** 같은 시작 시각의 실행 둘 중 불리한 쪽 — 실패 > 결과 미상 > 0 으로 끝남. */
+const exitRank = (exit) => (FAILED_EXITS.includes(exit) ? 2 : exit === 'zero' ? 0 : 1);
+
+/**
+ * 실패 이벤트(`PostToolUseFailure`)의 페이로드인가. 순수 함수.
+ * 판별: `hook_event_name` 이 그것이거나 — 그 필드가 없는 환경에서는 — `tool_response` 가 없고 `error` 가 문자열이다.
+ * 실행 후 훅 경로(`danger-guard.mjs --post`)가 승인 근사 `after` 를 이 페이로드에서 만들지 않을 때도 쓴다.
+ */
+export function isFailurePayload(parsed) {
+  if (!parsed || typeof parsed !== 'object') return false;
+  if (parsed.hook_event_name === 'PostToolUseFailure') return true;
+  if (typeof parsed.hook_event_name === 'string') return false;
+  return parsed.tool_response === undefined && typeof parsed.error === 'string';
+}
+
+/**
+ * Bash 에서 증거 매치 **뒤에** 종료코드를 바꿀 수 있는 연결자(`MASKING_LINK`)가 있는가 — 있으면 호출의 종료코드는
+ * 증거의 것이 아닐 수 있다(`cmd | tail` → 0 · `cmd || true` → 0 · `cmd; echo` → 0 · `cmd &` → 시작만). 증거가 마지막이면
+ * (`cat x | cmd` · `echo a; cmd`) 가리지 않는다. 첫 매치 뒤를 본다 — 같은 증거가 두 번 나와도 더 넓게(결과 미상 쪽으로) 본다.
+ */
+function maskedAfter(re, command) {
+  re.lastIndex = 0;
+  const m = re.exec(command);
+  re.lastIndex = 0;
+  if (!m) return false;
+  return MASKING_LINK.test(command.slice(m.index + m[0].length));
+}
 
 /**
  * 작업 트리 스캔(git 호출 전부를 합친 것)의 제한 시간 기본값(ms). 슬롯의 `scanTimeoutMs` 로 바꾼다.
@@ -80,24 +145,24 @@ function compileAll(list) {
  * ⭐ **잘못 채운 항목을 "끄기" 로 읽지 않는다.** 못 읽은 유형은 **통째로** 판정에서 빼고 이유를 돌려준다 —
  *    절반만 읽은 유형(증거 하나가 빠진 채)으로 "충족" 을 내면 오차가 느슨한 쪽으로 난다.
  *    이유에는 자리(몇 번째 항목)와 필드 이름만 담는다. 값은 옮기지 않는다.
- * ⭐ 못 읽은 `mode` 는 차단으로 추측하지 않는다 — 관찰로 두고 못 읽었다고 말한다.
+ * ⭐ `mode` 는 읽지 않는다(2026-10-08 차단 모드 제거) — 남아 있어도 오류·못 읽음 없이 무시한다. 이 슬롯에는 모르는 키를
+ *    경고하는 정책이 없고(다른 키도 같다), 어떤 값이든 동작은 관찰 하나라 "못 읽음" 으로 셀 판정이 없다.
  * ⭐ "꺼짐"(`configured: false`)은 **비워 둔 것**뿐이다 — 슬롯이 없음 · `types` 가 없거나 빈 배열. 무언가 적었는데
  *    꼴이 틀린 것(슬롯이 객체가 아님 · `types` 가 배열이 아님 · 배열이어야 할 필드에 다른 것)은 "설정됐는데 못 읽음" 이다.
  *
  * @returns {{
  *   configured: boolean,
- *   mode: 'observe'|'block',
  *   scanTimeoutMs: number,
- *   types: {id:string, what:string, files:RegExp[], changeCommands:RegExp[], evidence:{id:string, what:string, re:RegExp}[]}[],
+ *   types: {id:string, what:string, files:RegExp[], changeCommands:RegExp[], messages:RegExp[], evidence:{id:string, what:string, re:RegExp}[]}[],
  *   rejected: string[]
  * }}
  */
 export function evidenceSlot(config) {
   const raw = config && config.qualityCycle && config.qualityCycle.evidence;
-  const off = { configured: false, mode: 'observe', scanTimeoutMs: SCAN_TIMEOUT_MS, types: [], rejected: [] };
+  const off = { configured: false, scanTimeoutMs: SCAN_TIMEOUT_MS, types: [], rejected: [] };
   if (!raw) return off;
   if (typeof raw !== 'object' || Array.isArray(raw)) {
-    return { ...off, configured: true, rejected: [`${SLOT_PATH} — 객체가 아닙니다 ({ mode, types } 꼴이어야 합니다)`] };
+    return { ...off, configured: true, rejected: [`${SLOT_PATH} — 객체가 아닙니다 ({ types } 꼴이어야 합니다)`] };
   }
   if (raw.types === undefined || raw.types === null) return off;
   if (!Array.isArray(raw.types)) {
@@ -107,11 +172,6 @@ export function evidenceSlot(config) {
   if (list.length === 0) return off;
 
   const rejected = [];
-  let mode = 'observe';
-  if (raw.mode !== undefined && raw.mode !== null) {
-    if (MODES.includes(raw.mode)) mode = raw.mode;
-    else rejected.push(`mode — 알 수 없는 값입니다 (${MODES.join(' | ')} 중 하나). 관찰로 동작합니다`);
-  }
   let scanTimeoutMs = SCAN_TIMEOUT_MS;
   if (raw.scanTimeoutMs !== undefined && raw.scanTimeoutMs !== null) {
     if (typeof raw.scanTimeoutMs === 'number' && Number.isFinite(raw.scanTimeoutMs) && raw.scanTimeoutMs > 0) {
@@ -135,13 +195,22 @@ export function evidenceSlot(config) {
     if (!fileList) return reject('files 가 배열이 아닙니다 (패턴 하나여도 [ ] 로 감쌉니다)');
     const commandList = listOf(t.changeCommands);
     if (!commandList) return reject('changeCommands 가 배열이 아닙니다 (패턴 하나여도 [ ] 로 감쌉니다)');
-    if (fileList.length + commandList.length === 0) {
-      return reject('files 와 changeCommands 가 모두 비어 있습니다 — 무엇이 바뀌면 이 유형인지 알 수 없습니다');
+    const messageList = listOf(t.messages);
+    if (!messageList) return reject('messages 가 배열이 아닙니다 (패턴 하나여도 [ ] 로 감쌉니다)');
+    if (fileList.length + commandList.length + messageList.length === 0) {
+      // messages 를 적지 않은 슬롯에는 종전 문구 그대로 — 그 슬롯의 출력은 이 기능 이전과 같아야 한다.
+      return reject(
+        t.messages === undefined
+          ? 'files 와 changeCommands 가 모두 비어 있습니다 — 무엇이 바뀌면 이 유형인지 알 수 없습니다'
+          : 'files · changeCommands · messages 가 모두 비어 있습니다 — 무엇이 바뀌면 이 유형인지 알 수 없습니다',
+      );
     }
     const files = compileAll(fileList);
     if (!files) return reject('files 에 읽을 수 없는 패턴이 있습니다 (정규식 리터럴을 권합니다)');
     const changeCommands = compileAll(commandList);
     if (!changeCommands) return reject('changeCommands 에 읽을 수 없는 패턴이 있습니다 (정규식 리터럴을 권합니다)');
+    const messages = compileAll(messageList);
+    if (!messages) return reject('messages 에 읽을 수 없는 패턴이 있습니다 (정규식 리터럴을 권합니다)');
     const evList = listOf(t.evidence);
     if (!evList) return reject('evidence 가 배열이 아닙니다 (증거 하나여도 [ ] 로 감쌉니다)');
     if (evList.length === 0) return reject('evidence 가 비어 있습니다 — 필수 증거가 없는 유형은 판정할 것이 없습니다');
@@ -162,11 +231,12 @@ export function evidenceSlot(config) {
       what: typeof t.what === 'string' && t.what.trim() ? t.what.trim() : t.id,
       files,
       changeCommands,
+      messages,
       evidence,
     });
   });
 
-  return { configured: true, mode, scanTimeoutMs, types, rejected };
+  return { configured: true, scanTimeoutMs, types, rejected };
 }
 
 /**
@@ -177,8 +247,13 @@ export function evidenceSlot(config) {
  * 디렉토리 이동을 앞세운 명령이 전부 같은 접두사로 뭉친다.
  *
  * - 유형의 `changeCommands` 에 걸리면 `{ change }` — 파일로 남지 않는 변경을 만든 명령이 실행됐다.
- * - 유형의 `evidence[].pattern` 에 걸리면 `{ change, run }` — 그 유형의 증거가 실행됐다.
- *   중단된 실행(`tool_response.interrupted`)은 증거로 남기지 않는다. 변경 쪽은 중단돼도 남긴다(이미 바꿨을 수 있다).
+ * - 유형의 `evidence[].pattern` 에 걸리면 `{ change, run, exit? }` — 그 유형의 증거가 실행됐다.
+ *   중단된 실행(`tool_response.interrupted` · 실패 이벤트의 `is_interrupt`)은 증거로 남기지 않는다. 변경 쪽은 중단돼도
+ *   남긴다(이미 바꿨을 수 있다).
+ * - **실패 이벤트**(`PostToolUseFailure`)도 같은 자리에서 받는다 — `error` 의 첫 줄만 보고 어휘 하나(`nonzero`·`nostart`)로
+ *   접는다. `error` 본문·숫자 코드는 어디에도 옮기지 않는다.
+ * - 성공 이벤트인지 실패 이벤트인지 모르는 페이로드(이벤트 이름도 `tool_response` 도 `error` 도 없음)에는 `exit` 를
+ *   싣지 않는다 — 모르는 것을 `zero` 로 적지 않는다(결과 미상).
  * - 페이로드를 못 읽으면 빈 배열 — 원문 전체를 훑어 추정하지 않는다(가드와 달리 놓치는 쪽이 안전한 자리다).
  *
  * @param {string} raw 실행 후 훅 stdin 원문
@@ -195,16 +270,39 @@ export function evidenceEventsFromPost(raw, slot) {
   }
   const command = parsed?.tool_input?.command;
   if (typeof command !== 'string' || !command.trim()) return [];
-  const interrupted = parsed?.tool_response?.interrupted === true;
+  const failed = isFailurePayload(parsed);
+  const interrupted = failed ? parsed.is_interrupt === true : parsed?.tool_response?.interrupted === true;
   const context = extractContext(raw);
   const base = { ...context, event: 'evidence', gate: GATE };
   const out = [];
   for (const t of slot.types) {
     if (t.changeCommands.some((re) => hit(re, command))) out.push({ ...base, change: t.id });
     if (interrupted) continue;
-    for (const e of t.evidence) if (hit(e.re, command)) out.push({ ...base, change: t.id, run: e.id });
+    for (const e of t.evidence) {
+      if (!hit(e.re, command)) continue;
+      const exit = exitOf(parsed, failed, e.re, command);
+      out.push({ ...base, change: t.id, run: e.id, ...(exit ? { exit } : {}) });
+    }
   }
   return out;
+}
+
+/**
+ * 증거 실행 한 건의 결과 어휘. 모르면 undefined(싣지 않는다). 순수 함수.
+ * 실패 이벤트가 이긴다 — 파이프가 있어도 실패 이벤트로 왔으면 실제로 0 이 아닌 코드로 끝난 것이다.
+ */
+function exitOf(parsed, failed, re, command) {
+  if (failed) {
+    const first = typeof parsed.error === 'string' ? parsed.error.split(/\r?\n/, 1)[0] : '';
+    return EXIT_LINE.test(first) ? 'nonzero' : 'nostart';
+  }
+  const response = parsed.tool_response;
+  const success = parsed.hook_event_name === 'PostToolUse' || (response && typeof response === 'object');
+  if (!success) return undefined;
+  if (response && typeof response === 'object' && response.backgroundTaskId) return 'background';
+  // 가림 판정은 Bash 에만 — PowerShell 은 실측 1건에서 파이프가 코드를 가리지 않았다(실패 이벤트로 왔다).
+  if (parsed.tool_name === 'Bash' && maskedAfter(re, command)) return 'masked';
+  return 'zero';
 }
 
 /**
@@ -235,8 +333,19 @@ export function turnStartMs(events, turn) {
  *
  * 유형이 "이 턴에 바뀌었다" = 바뀐 파일 중 `files` 에 걸리는 것이 있거나, 턴 시작 뒤에 `changeCommands` 명령이 실행됐다.
  * 그 유형의 **마지막 변경 시각** = 걸린 파일의 수정 시각과 변경 명령의 시각 중 가장 늦은 것.
- * 필수 증거마다: 턴 시작 뒤 실행이 없으면 `missing` · 가장 늦은 실행의 **시작**이 마지막 변경보다 뒤면 `fresh` · 아니면 `stale`.
+ * 필수 증거마다: 턴 시작 뒤 실행이 없으면 `missing` · 가장 늦은 실행의 **시작**이 마지막 변경보다 앞(같은 시각 포함)이면
+ * `stale` · 뒤인데 그 실행이 실패로 끝났으면(`exit` 가 `nonzero`·`nostart`) `red` · 아니면 `fresh`.
+ * `fresh` 가운데 그 실행의 결과를 모르면(`masked`·`background`·`exit` 없음) `unverified: true` 를 달고 따로 센다 —
+ * 충족이되 "0 으로 끝났다" 는 확인이 없다.
  *
+ * ⭐ **최신 실행만 본다.** 실패 → 고쳐서 재실행 → 0 으로 끝남이면 충족이고, 0 → 다시 돌려 실패면 `red` 다.
+ *    편집 → 실패 → 편집이면 그 실패는 마지막 변경 앞이라 `stale`(편집 뒤 미실행)이다 — `red` 가 아니다.
+ *
+ * ⭐ **대화 건넴**(`messages`) — 턴 종료 시점의 마지막 응답 본문(`message`)이 유형의 `messages` 패턴에 걸리면 그 유형도
+ *    "이 턴에 바뀌었다" 로 본다. 파일도 명령도 아닌 변경(대화로 건넨 구문 등)이라 작업 트리·로그로는 안 보인다.
+ *    건넴의 시각은 턴 종료(지금)이지만 **마지막 변경 시각을 밀지 않는다** — 건넴이 요구하는 것은 "이 턴 안에서 증거가
+ *    실행됐다" 이고, 같은 턴의 파일·명령 변경이 있으면 그 뒤여야 한다(위 규칙 그대로). 건넴뿐인 유형에는 `stale` 이 없다.
+ *    `message` 가 문자열이 아니면(페이로드에 없음) 건넴은 판정하지 않는다 — `handoffs: null`(해당 없음, 0 이 아니다).
  * ⭐ 실행의 시각은 **시작 시각**으로 잰다 — 도는 동안 편집이 끼어들면 그 실행은 편집 전 상태를 본 것이다.
  *    실행 후 훅은 끝난 시각에 기록하므로, 같은 호출(`call`)의 실행 전 기록(`pass`·`fire`)이 있으면 그 시각을 쓴다.
  *    없으면 실행 후 시각으로 잰다(근사 — 느슨한 쪽 오차라 한계에 적는다).
@@ -247,14 +356,16 @@ export function turnStartMs(events, turn) {
  *   slot: ReturnType<typeof evidenceSlot>,
  *   files: {path:string, mtimeMs:number}[],   // 이 턴에 바뀐 파일 (`scanChanged` 의 산출)
  *   events: object[],                          // 로그 이벤트
- *   sinceMs: number                            // 턴 시작 시각
+ *   sinceMs: number,                           // 턴 시작 시각
+ *   message?: string                           // 턴 종료 시점의 마지막 응답 본문 — 판정에만 쓰고 어디에도 옮기지 않는다
  * }} input
  * @returns {{
- *   types: {id:string, what:string, requires:{id:string, what:string, status:'fresh'|'stale'|'missing'}[]}[],
- *   counts: {types:number, required:number, fresh:number, stale:number, missing:number}
+ *   types: {id:string, what:string, handoff?:true, requires:{id:string, what:string, status:'fresh'|'stale'|'missing'|'red', unverified?:true}[]}[],
+ *   counts: {types:number, required:number, fresh:number, stale:number, missing:number, red:number, unverified:number},
+ *   handoffs?: number|null   // messages 를 쓰는 유형이 있을 때만 — 건넴으로 걸린 유형 수 · 메시지가 없으면 null(해당 없음)
  * }}
  */
-export function judge({ slot, files, events, sinceMs }) {
+export function judge({ slot, files, events, sinceMs, message }) {
   const startByCall = new Map(); // call → 실행 전 기록의 시각
   for (const e of events) {
     if (!e || !e.call || (e.event !== 'pass' && e.event !== 'fire')) continue;
@@ -262,107 +373,73 @@ export function judge({ slot, files, events, sinceMs }) {
     if (Number.isFinite(ms)) startByCall.set(e.call, ms);
   }
   const changedAt = new Map(); // 유형 id → 가장 늦은 변경 명령 시각
-  const ranAt = new Map(); // `${유형 id}\n${증거 id}` → 가장 늦은 실행 시작 시각
-  const later = (map, key, ms) => {
-    if (!map.has(key) || ms > map.get(key)) map.set(key, ms);
-  };
+  const ranAt = new Map(); // `${유형 id}\n${증거 id}` → 가장 늦은 실행 { 시작 시각, 결과 어휘 }
   for (const e of events) {
     if (!e || e.event !== 'evidence' || e.gate !== GATE || typeof e.change !== 'string') continue;
     const ms = Date.parse(e.ts);
     if (!Number.isFinite(ms) || ms < sinceMs) continue;
     if (typeof e.run === 'string') {
       const started = e.call && startByCall.has(e.call) ? startByCall.get(e.call) : ms;
-      later(ranAt, `${e.change}\n${e.run}`, started);
-    } else {
-      later(changedAt, e.change, ms);
+      const key = `${e.change}\n${e.run}`;
+      // 결과는 그 **최신** 실행의 것이다 — 실패 뒤 재실행이 0 으로 끝났으면 충족, 그 반대면 실패로 끝남.
+      // 같은 시작 시각이면 불리한 쪽(실패 > 결과 미상 > 0 으로 끝남)을 택한다 — 기록 순서가 판정을 느슨하게 만들지 않게.
+      const prev = ranAt.get(key);
+      if (!prev || started > prev.ms || (started === prev.ms && exitRank(e.exit) > exitRank(prev.exit))) {
+        ranAt.set(key, { ms: started, exit: e.exit });
+      }
+    } else if (!changedAt.has(e.change) || ms > changedAt.get(e.change)) {
+      changedAt.set(e.change, ms);
     }
   }
 
-  const verdict = { types: [], counts: { types: 0, required: 0, fresh: 0, stale: 0, missing: 0 } };
+  const verdict = { types: [], counts: { types: 0, required: 0, fresh: 0, stale: 0, missing: 0, red: 0, unverified: 0 } };
+  // 대화 건넴 — `messages` 를 쓰는 유형이 하나라도 있을 때만 잰다. 쓰지 않는 슬롯의 판정 결과는 이 기능 이전과 같은 모양이다.
+  const watchesMessages = slot.types.some((t) => t.messages && t.messages.length > 0);
+  const messageKnown = typeof message === 'string';
+  if (watchesMessages) verdict.handoffs = messageKnown ? 0 : null; // null = 페이로드에 메시지가 없어 해당 없음(0 이 아니다)
   for (const t of slot.types) {
     let lastChange = changedAt.has(t.id) ? changedAt.get(t.id) : null;
     for (const f of files) {
       if (!t.files.some((re) => hit(re, f.path))) continue;
       if (lastChange === null || f.mtimeMs > lastChange) lastChange = f.mtimeMs;
     }
-    if (lastChange === null) continue; // 이 턴에 이 유형의 변경이 없다 — 필요한 증거도 없다
+    const handedOff = messageKnown && Boolean(t.messages) && t.messages.some((re) => hit(re, message));
+    if (lastChange === null && !handedOff) continue; // 이 턴에 이 유형의 변경이 없다 — 필요한 증거도 없다
+    if (handedOff) verdict.handoffs++;
+    // ⭐ 건넴은 "마지막 변경" 을 밀지 않는다. 건넴의 시각은 턴 종료(지금)라, 밀면 어떤 실행도 그 뒤일 수 없어
+    //    건네기 전에 미리 돌린 확인까지 전부 "편집 뒤 미실행" 이 된다. 건넴이 요구하는 것은 "이 턴 안에서 실행됐다" 이고,
+    //    같은 턴에 파일·명령 변경도 있으면 그 마지막 변경 뒤여야 한다(종전 규칙 그대로).
     const requires = t.evidence.map((e) => {
-      const started = ranAt.get(`${t.id}\n${e.id}`);
-      const status = started === undefined ? 'missing' : started > lastChange ? 'fresh' : 'stale';
+      const latest = ranAt.get(`${t.id}\n${e.id}`);
+      let status;
+      if (latest === undefined) status = 'missing';
+      else if (lastChange !== null && latest.ms <= lastChange) status = 'stale';
+      else if (FAILED_EXITS.includes(latest.exit)) status = 'red';
+      else status = 'fresh';
       verdict.counts[status]++;
-      return { id: e.id, what: e.what, status };
+      // 결과 미상 — 가림·백그라운드·`exit` 없는 기록(실패 관찰 이전). `zero` 로 기본값 처리하지 않는다.
+      const unverified = status === 'fresh' && latest.exit !== 'zero';
+      if (unverified) verdict.counts.unverified++;
+      return { id: e.id, what: e.what, status, ...(unverified ? { unverified: true } : {}) };
     });
     verdict.counts.types++;
     verdict.counts.required += requires.length;
-    verdict.types.push({ id: t.id, what: t.what, requires });
+    verdict.types.push({ id: t.id, what: t.what, ...(handedOff ? { handoff: true } : {}), requires });
   }
   return verdict;
 }
 
 /**
- * 막을 것인가. 순수 함수.
- *
- * 막는 조건은 넷이 전부 참일 때뿐이다 — ①슬롯이 `mode: 'block'` ②미충족이 있다 ③이 턴에서 아직 막은 적이 없다
- * (턴당 한 번. 두 번째에는 사정을 보고에 적고 끝내게 둔다) ④증거 실행이 로그에 한 번이라도
- * 관찰됐다. ④가 없으면 실행 후 훅이 연결됐는지 알 수 없고, 연결이 안 된 곳에서 막으면 모든 턴이 막힌다
- * (설정 ≠ 연결). 그때는 막지 않고 이유를 돌려준다.
- *
- * ⭐ ③은 **둘 중 하나만 성립해도** 막지 않는다 — 환경이 준 `stop_hook_active`, 또는 로그에 남은 같은 턴의 보류 기록
- *    (`audit` · gate `done-evidence` · `blocked` 1). 환경의 필드 하나에만 기대면 그 필드가 오지 않는 곳에서 같은 턴이
- *    끝없이 보류된다. 보류 기록은 이 훅이 스스로 남기는 것이라 환경에 기대지 않는다.
- *
- * @param {{slot: object, verdict: object, stopHookActive: boolean, events: object[], turn?: string}} input
- * @returns {{block: boolean, withheld?: string}}
- */
-export function shouldBlock({ slot, verdict, stopHookActive, events, turn }) {
-  if (!slot || slot.mode !== 'block') return { block: false };
-  if (verdict.counts.stale + verdict.counts.missing === 0) return { block: false };
-  if (stopHookActive) return { block: false };
-  const heldBefore =
-    Boolean(turn) &&
-    events.some((e) => e && e.event === 'audit' && e.gate === GATE && e.turn === turn && !e.agent && e.blocked > 0);
-  if (heldBefore) return { block: false };
-  const observed = events.some((e) => e && e.event === 'evidence' && e.gate === GATE && typeof e.run === 'string');
-  if (!observed) {
-    return {
-      block: false,
-      withheld:
-        '증거 실행이 로그에 한 번도 관찰되지 않아 막지 않았습니다 — 실행 후 훅(danger-guard.mjs --post)의 연결을 확인하세요(설정 ≠ 연결)',
-    };
-  }
-  return { block: true };
-}
-
-/**
- * 차단 사유. 순수 함수 — 문자열만 돌려준다.
- * 게이트 출력 계약(골격 공통 규약 6)의 넷을 담는다 — 판정(완료 보류) · 이유(무엇이 없나) · 다음 행동 · 복구 경로
- * (권하는 길 하나를 앞에, 표가 틀린 경우의 길을 뒤에). 파일 경로·명령 원문은 담지 않는다.
- */
-export function blockReason(verdict) {
-  const lines = ['완료 보류 — 이 턴에서 바뀐 것에 필요한 실행 증거가 모자랍니다.'];
-  for (const t of verdict.types) {
-    for (const r of t.requires) {
-      if (r.status === 'fresh') continue;
-      lines.push(
-        `· ${t.what}: ${r.what} — ` +
-          (r.status === 'stale' ? '마지막 변경 뒤에 실행되지 않았습니다(편집 뒤 미실행).' : '이 턴에 실행된 적이 없습니다.'),
-      );
-    }
-  }
-  lines.push(
-    '→ 위 증거를 지금(마지막 변경 뒤에) 다시 실행하고 그 결과로 완료를 보고하세요. ' +
-      '실행할 수 없는 사정이 있으면 실행하지 못했다는 사실과 이유를 보고에 적으세요 — 이 확인은 턴당 한 번만 막습니다.',
-    `→ 이 변경이 왜 그 유형인지 의문이면 ${CONFIG_NAME} 의 ${SLOT_PATH}.types 를 보고, 표가 틀렸으면 표를 고치세요.`,
-  );
-  return lines.join('\n');
-}
-
-/**
  * 턴 종료 판정의 기록 — `audit` 이벤트(gate `done-evidence`). 순수 함수.
  * 수치만 싣는다(`docs/13` §3 — audit 은 수치 스냅샷). 유형 이름·파일 경로는 싣지 않는다.
- * `rejected` = 못 읽어 판정에서 뺀 슬롯 항목 수 · `blocked` = 이 판정으로 완료를 보류했는가(0|1).
+ * `rejected` = 못 읽어 판정에서 뺀 슬롯 항목 수. (`blocked`(완료 보류 0|1)는 2026-10-08 차단 모드 제거로 더 싣지 않는다 —
+ *   그전 기록에는 남아 있고 늘 0 이었다. 리포트는 읽지 않는다.)
+ * `handoffs` = 대화 건넴으로 걸린 유형 수 — `messages` 를 쓰는 슬롯에서, 페이로드에 메시지가 있었을 때만 싣는다.
+ *   메시지가 없었으면 **싣지 않는다**(못 잰 것을 0 으로 적지 않는다). 메시지 원문은 어디에도 싣지 않는다.
+ * `red` = 실패로 끝난 필수 증거 수(`fresh`·`stale`·`missing` 과 겹치지 않는다) · `unverified` = `fresh` 중 결과 미상 수.
+ *   둘 다 2026-10-02 additive — 그전 기록에는 없고, 리포트는 그 턴의 충족을 결과 미상으로 읽는다(소급하지 않는다).
  */
-export function evidenceAuditEvent(stopEvent, verdict, slot, blocked) {
+export function evidenceAuditEvent(stopEvent, verdict, slot) {
   return {
     ...(stopEvent.session ? { session: stopEvent.session } : {}),
     ...(stopEvent.turn ? { turn: stopEvent.turn } : {}),
@@ -373,8 +450,10 @@ export function evidenceAuditEvent(stopEvent, verdict, slot, blocked) {
     fresh: verdict.counts.fresh,
     stale: verdict.counts.stale,
     missing: verdict.counts.missing,
+    red: verdict.counts.red,
+    unverified: verdict.counts.unverified,
     rejected: slot.rejected.length,
-    blocked: blocked ? 1 : 0,
+    ...(typeof verdict.handoffs === 'number' ? { handoffs: verdict.handoffs } : {}),
   };
 }
 
@@ -391,7 +470,6 @@ export function evidenceUnjudgedEvent(stopEvent, slot) {
     gate: GATE,
     failed: 1,
     rejected: slot.rejected.length,
-    blocked: 0,
   };
 }
 
@@ -499,19 +577,28 @@ export function statusLines(slot, events) {
   }
   const lines = [];
   const required = slot.types.reduce((n, t) => n + t.evidence.length, 0);
-  const runs = events.filter((e) => e.event === 'evidence' && e.gate === GATE && typeof e.run === 'string').length;
+  const runEvents = events.filter((e) => e.event === 'evidence' && e.gate === GATE && typeof e.run === 'string');
+  const runs = runEvents.length;
+  const failedRuns = runEvents.filter((e) => FAILED_EXITS.includes(e.exit)).length;
   const audits = events.filter((e) => e.event === 'audit' && e.gate === GATE);
   const last = audits[audits.length - 1];
   lines.push(
     slot.types.length > 0
-      ? `[${GATE}] 설정됨(${slot.mode === 'block' ? '차단' : '관찰'}) — 유형 ${slot.types.length} · 필수 증거 ${required}` +
-          ` · 증거 실행 관찰 ${runs}건 · 턴 종료 판정 ${audits.length}건` +
+      ? `[${GATE}] 설정됨(관찰) — 유형 ${slot.types.length} · 필수 증거 ${required}` +
+          ` · 증거 실행 관찰 ${runs}건(그중 실패로 끝남 ${failedRuns}) · 턴 종료 판정 ${audits.length}건` +
           (last ? `(최근 ${String(last.ts).slice(0, 19)}Z)` : '')
       : `[${GATE}] 설정됨 · 읽을 수 있는 유형 0 — 아무것도 판정하지 않습니다 ('꺼짐' 이 아니라 '못 읽음' 입니다)`,
   );
   if (slot.types.length > 0 && runs === 0) {
     lines.push(
-      `  증거 실행 관찰 0 — 실행 후 훅(danger-guard.mjs --post)이 연결됐는지, 패턴이 실제 명령에 걸리는지 확인하세요. 이 상태에서는 차단 모드여도 막지 않습니다.`,
+      `  증거 실행 관찰 0 — 실행 후 훅(danger-guard.mjs --post)이 연결됐는지, 패턴이 실제 명령에 걸리는지 확인하세요.`,
+    );
+  }
+  // 설정 ≠ 연결 — 실패 이벤트 배선이 없으면 실패한 실행은 "실행 없음" 으로 떨어지고 실패로 끝남은 늘 0 이다.
+  if (slot.types.length > 0 && failedRuns === 0) {
+    lines.push(
+      `  실패 실행 관찰 0 — 실패 관찰 배선 미확인: 실행 실패 훅(PostToolUseFailure)에 danger-guard.mjs --post 가 걸렸는지 확인하세요.` +
+        ` 실패를 한 번도 본 적이 없으면 '실패로 끝남 0' 을 '실패 없음' 으로 읽지 않습니다.`,
     );
   }
   if (slot.types.length > 0 && audits.length === 0) {

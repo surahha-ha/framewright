@@ -16,6 +16,8 @@
  *   (훅) stdin 으로 도구 입력 JSON 을 받는다 — PreToolUse 에 건다
  *   node skeletons/danger-guard.mjs --post           # PostToolUse 훅 — ask 후 실제 실행을 `after` 로 기록
  *                                                    #   + 증거 슬롯(qualityCycle.evidence)에 걸린 실행을 `evidence` 로 기록 (골격 6)
+ *                                                    #   같은 matcher 의 PostToolUseFailure 에도 건다 — 실패한 실행은
+ *                                                    #   `evidence`(exit 어휘)만 남기고 `after` 는 남기지 않는다
  *   node skeletons/danger-guard.mjs --cmd "<명령>"   # 단건 판정 (점검용 — 계측 로그에 안 남는다)
  *   node skeletons/danger-guard.mjs --status         # 활성 확인 (설정·규칙 수)
  *
@@ -29,7 +31,7 @@
 import { loadConfig, compile, emitDecision, readStdin, CONFIG_NAME } from './lib/config.mjs';
 import { logEvent, normalizeCmdPrefix, readLog, extractContext } from './lib/log.mjs';
 import { readPromotions, promotionStateFor, currentPatternOf } from './lib/promotions.mjs';
-import { evidenceSlot, evidenceEventsFromPost } from './lib/evidence.mjs';
+import { evidenceSlot, evidenceEventsFromPost, isFailurePayload } from './lib/evidence.mjs';
 
 /** 기본 복구 문구 — 규칙에 `recover` 가 없을 때. 없는 것보다는 낫지만 규칙마다 적는 편이 훨씬 낫다. */
 const DEFAULT_RECOVER = {
@@ -196,10 +198,18 @@ async function main() {
 
   // PostToolUse — ask 발동 뒤 같은 명령이 실제 실행됐다는 행동적 신호를 `after` 로 남긴다.
   // 사람 응답 4갈래를 직접 볼 수 없는 훅의 근사다 (docs/13 §2 — 근사임을 리포트도 표기한다).
+  // PostToolUseFailure(0 이 아닌 코드로 끝난 실행)도 같은 --post 로 들어온다 — 그 페이로드에서는 `after` 를 만들지
+  // 않는다. 승인 근사는 실패 배선 이전과 같은 정의로 둔다(승인 뒤 실패가 거부/이탈로 세어지는 편향은 그대로 — docs/13).
   if (argv.includes('--post')) {
     const raw = readStdin();
     const command = extractCommand(raw);
-    const hit = evaluate(command, loaded.config);
+    let failure = false;
+    try {
+      failure = isFailurePayload(JSON.parse(raw));
+    } catch {
+      /* 못 읽는 페이로드 — 종전대로 원문 판정 */
+    }
+    const hit = failure ? null : evaluate(command, loaded.config);
     if (hit) {
       logEvent({
         ...extractContext(raw), // 세션·턴·호출 식별자 — after 는 call 로 fire(ask) 와 정확히 짝지어진다 (docs/16)
